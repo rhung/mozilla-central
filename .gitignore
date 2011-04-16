@@ -1,0 +1,5 @@
+.mozconfig.mk
+*~
+*.pyc
+configure
+js/src/configure
