@@ -40,13 +40,13 @@
 #define NSRENDERINGCONTEXT__H__
 
 #include "nsAutoPtr.h"
-#include "nsCOMPtr.h"
-#include "nsIDeviceContext.h"
+#include "nsDeviceContext.h"
 #include "nsFontMetrics.h"
 #include "nsColor.h"
 #include "nsCoord.h"
 #include "gfxContext.h"
 
+struct nsPoint;
 class nsIntRegion;
 
 typedef enum {
@@ -64,13 +64,13 @@ public:
 
     NS_INLINE_DECL_REFCOUNTING(nsRenderingContext)
 
-    void Init(nsIDeviceContext* aContext, gfxASurface* aThebesSurface);
-    void Init(nsIDeviceContext* aContext, gfxContext* aThebesContext);
+    void Init(nsDeviceContext* aContext, gfxASurface* aThebesSurface);
+    void Init(nsDeviceContext* aContext, gfxContext* aThebesContext);
 
     // These accessors will never return null.
     gfxContext *ThebesContext() { return mThebes; }
-    nsIDeviceContext *DeviceContext() { return mDeviceContext; }
-    PRInt32 AppUnitsPerDevPixel() { return mP2A; }
+    nsDeviceContext *DeviceContext() { return mDeviceContext; }
+    PRUint32 AppUnitsPerDevPixel() { return NSToIntRound(mP2A); }
 
     // Graphics state
 
@@ -117,13 +117,10 @@ public:
 
     // Text
 
-    void SetFont(const nsFont& aFont, nsIAtom* aLanguage,
-                 gfxUserFontSet *aUserFontSet);
-    void SetFont(const nsFont& aFont, gfxUserFontSet *aUserFontSet);
     void SetFont(nsFontMetrics *aFontMetrics);
     nsFontMetrics *FontMetrics() { return mFontMetrics; } // may be null
 
-    void SetTextRunRTL(PRBool aIsRTL);
+    void SetTextRunRTL(bool aIsRTL);
 
     nscoord GetWidth(char aC);
     nscoord GetWidth(PRUnichar aC);
@@ -132,10 +129,8 @@ public:
     nscoord GetWidth(const char* aString, PRUint32 aLength);
     nscoord GetWidth(const PRUnichar *aString, PRUint32 aLength);
 
-#ifdef MOZ_MATHML
     nsBoundingMetrics GetBoundingMetrics(const PRUnichar *aString,
                                          PRUint32 aLength);
-#endif
 
     void DrawString(const nsString& aString, nscoord aX, nscoord aY);
     void DrawString(const char *aString, PRUint32 aLength,
@@ -147,7 +142,7 @@ protected:
     PRInt32 GetMaxChunkLength();
 
     nsRefPtr<gfxContext> mThebes;
-    nsCOMPtr<nsIDeviceContext> mDeviceContext;
+    nsRefPtr<nsDeviceContext> mDeviceContext;
     nsRefPtr<nsFontMetrics> mFontMetrics;
 
     double mP2A; // cached app units per device pixel value

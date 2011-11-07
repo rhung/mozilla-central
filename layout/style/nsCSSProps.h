@@ -20,7 +20,7 @@
  * the Initial Developer. All Rights Reserved.
  *
  * Contributor(s):
- *   Mats Palmgren <mats.palmgren@bredband.net>
+ *   Mats Palmgren <matspal@gmail.com>
  *   Jonathon Jongsma <jonathon.jongsma@collabora.co.uk>, Collabora Ltd.
  *
  * Alternatively, the contents of this file may be used under the terms of
@@ -113,11 +113,8 @@ PR_STATIC_ASSERT((CSS_PROPERTY_PARSE_PROPERTY_MASK &
 // should enforce that the value of this property must be 0 or larger.
 #define CSS_PROPERTY_VALUE_NONNEGATIVE            (1<<13)
 // The parser (in particular, CSSParserImpl::ParseSingleValueProperty)
-// should enforce that the value of this property must be greater than 0.
-#define CSS_PROPERTY_VALUE_POSITIVE_NONZERO       (2<<13)
-// The parser (in particular, CSSParserImpl::ParseSingleValueProperty)
 // should enforce that the value of this property must be 1 or larger.
-#define CSS_PROPERTY_VALUE_AT_LEAST_ONE           (3<<13)
+#define CSS_PROPERTY_VALUE_AT_LEAST_ONE           (2<<13)
 
 // NOTE: next free bit is (1<<15)
 
@@ -180,7 +177,7 @@ public:
   static nsCSSProperty LookupProperty(const nsAString& aProperty);
   static nsCSSProperty LookupProperty(const nsACString& aProperty);
 
-  static inline PRBool IsShorthand(nsCSSProperty aProperty) {
+  static inline bool IsShorthand(nsCSSProperty aProperty) {
     NS_ABORT_IF_FALSE(0 <= aProperty && aProperty < eCSSProperty_COUNT,
                  "out of range");
     return (aProperty >= eCSSProperty_COUNT_no_shorthands);
@@ -206,11 +203,11 @@ public:
 
   // Get a color name for a predefined color value like buttonhighlight or activeborder
   // Sets the aStr param to the name of the propertyID
-  static PRBool GetColorName(PRInt32 aPropID, nsCString &aStr);
+  static bool GetColorName(PRInt32 aPropID, nsCString &aStr);
 
   // Find |aKeyword| in |aTable|, if found set |aValue| to its corresponding value.
-  // If not found, return PR_FALSE and do not set |aValue|.
-  static PRBool FindKeyword(nsCSSKeyword aKeyword, const PRInt32 aTable[], PRInt32& aValue);
+  // If not found, return false and do not set |aValue|.
+  static bool FindKeyword(nsCSSKeyword aKeyword, const PRInt32 aTable[], PRInt32& aValue);
   // Return the first keyword in |aTable| that has the corresponding value |aValue|.
   // Return |eCSSKeyword_UNKNOWN| if not found.
   static nsCSSKeyword ValueToKeywordEnum(PRInt32 aValue, const PRInt32 aTable[]);
@@ -227,7 +224,7 @@ private:
   static const PRUint32        kFlagsTable[eCSSProperty_COUNT];
 
 public:
-  static inline PRBool PropHasFlags(nsCSSProperty aProperty, PRUint32 aFlags)
+  static inline bool PropHasFlags(nsCSSProperty aProperty, PRUint32 aFlags)
   {
     NS_ABORT_IF_FALSE(0 <= aProperty && aProperty < eCSSProperty_COUNT,
                       "out of range");
@@ -296,7 +293,7 @@ private:
   // single allocation, and is the one pointer that should be |free|d).
   static nsCSSProperty *gShorthandsContainingTable[eCSSProperty_COUNT_no_shorthands];
   static nsCSSProperty* gShorthandsContainingPool;
-  static PRBool BuildShorthandsContainingTable();
+  static bool BuildShorthandsContainingTable();
 
 private:
   static const size_t gPropertyCountInStruct[nsStyleStructID_Length];
@@ -329,15 +326,15 @@ public:
        *iter_ != eCSSProperty_UNKNOWN; ++iter_)
 
   // Keyword/Enum value tables
-#ifdef MOZ_CSS_ANIMATIONS
   static const PRInt32 kAnimationDirectionKTable[];
   static const PRInt32 kAnimationFillModeKTable[];
   static const PRInt32 kAnimationIterationCountKTable[];
   static const PRInt32 kAnimationPlayStateKTable[];
   static const PRInt32 kAnimationTimingFunctionKTable[];
-#endif
   static const PRInt32 kAppearanceKTable[];
   static const PRInt32 kAzimuthKTable[];
+  static const PRInt32 kBackfaceVisibilityKTable[];
+  static const PRInt32 kTransformStyleKTable[];
   static const PRInt32 kBackgroundAttachmentKTable[];
   static const PRInt32 kBackgroundInlinePolicyKTable[];
   static const PRInt32 kBackgroundOriginKTable[];
@@ -386,6 +383,7 @@ public:
   static const PRInt32 kLineHeightKTable[];
   static const PRInt32 kListStylePositionKTable[];
   static const PRInt32 kListStyleKTable[];
+  static const PRInt32 kOrientKTable[];
   static const PRInt32 kOutlineStyleKTable[];
   static const PRInt32 kOutlineColorKTable[];
   static const PRInt32 kOverflowKTable[];
@@ -408,8 +406,10 @@ public:
   static const PRInt32 kStackSizingKTable[];
   static const PRInt32 kTableLayoutKTable[];
   static const PRInt32 kTextAlignKTable[];
-  static const PRInt32 kTextDecorationKTable[];
+  static const PRInt32 kTextBlinkKTable[];
+  static const PRInt32 kTextDecorationLineKTable[];
   static const PRInt32 kTextDecorationStyleKTable[];
+  static const PRInt32 kTextOverflowKTable[];
   static const PRInt32 kTextTransformKTable[];
   static const PRInt32 kTransitionTimingFunctionKTable[];
   static const PRInt32 kUnicodeBidiKTable[];
@@ -424,6 +424,7 @@ public:
   static const PRInt32 kWidthKTable[]; // also min-width, max-width
   static const PRInt32 kWindowShadowKTable[];
   static const PRInt32 kWordwrapKTable[];
+  static const PRInt32 kHyphensKTable[];
 };
 
 #endif /* nsCSSProps_h___ */

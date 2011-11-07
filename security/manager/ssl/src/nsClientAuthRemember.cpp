@@ -46,13 +46,12 @@
 #include "nsNetUtil.h"
 #include "nsISupportsPrimitives.h"
 #include "nsPromiseFlatString.h"
-#include "nsProxiedService.h"
+#include "nsThreadUtils.h"
 #include "nsStringBuffer.h"
 #include "nspr.h"
 #include "pk11pub.h"
 #include "certdb.h"
 #include "sechash.h"
-#include "ssl.h" // For SSL_ClearSessionCache
 
 #include "nsNSSCleaner.h"
 
@@ -77,24 +76,18 @@ nsClientAuthRememberService::~nsClientAuthRememberService()
 nsresult
 nsClientAuthRememberService::Init()
 {
+  if (!NS_IsMainThread()) {
+    NS_ERROR("nsClientAuthRememberService::Init called off the main thread");
+    return NS_ERROR_NOT_SAME_THREAD;
+  }
+
   if (!mSettingsTable.Init())
     return NS_ERROR_OUT_OF_MEMORY;
 
-  nsCOMPtr<nsIProxyObjectManager> proxyman(do_GetService(NS_XPCOMPROXY_CONTRACTID));
-  if (!proxyman)
-    return NS_ERROR_FAILURE;
-
-  nsCOMPtr<nsIObserverService> observerService(do_GetService("@mozilla.org/observer-service;1"));
-  nsCOMPtr<nsIObserverService> proxiedObserver;
-
-  NS_GetProxyForObject(NS_PROXY_TO_MAIN_THREAD,
-                       NS_GET_IID(nsIObserverService),
-                       observerService,
-                       NS_PROXY_SYNC,
-                       getter_AddRefs(proxiedObserver));
-
-  if (proxiedObserver) {
-    proxiedObserver->AddObserver(this, "profile-before-change", PR_TRUE);
+  nsCOMPtr<nsIObserverService> observerService =
+      mozilla::services::GetObserverService();
+  if (observerService) {
+    observerService->AddObserver(this, "profile-before-change", true);
   }
 
   return NS_OK;
@@ -110,7 +103,7 @@ nsClientAuthRememberService::Observe(nsISupports     *aSubject,
     // The profile is about to change,
     // or is going away because the application is shutting down.
 
-    MonitorAutoEnter lock(monitor);
+    ReentrantMonitorAutoEnter lock(monitor);
     RemoveAllFromMemory();
   }
 
@@ -119,7 +112,7 @@ nsClientAuthRememberService::Observe(nsISupports     *aSubject,
 
 void nsClientAuthRememberService::ClearRememberedDecisions()
 {
-  MonitorAutoEnter lock(monitor);
+  ReentrantMonitorAutoEnter lock(monitor);
   RemoveAllFromMemory();
 }
 
@@ -165,7 +158,7 @@ nsClientAuthRememberService::RememberDecision(const nsACString & aHostName,
     return rv;
 
   {
-    MonitorAutoEnter lock(monitor);
+    ReentrantMonitorAutoEnter lock(monitor);
     if (aClientCert) {
       nsNSSCertificate pipCert(aClientCert);
       char *dbkey = NULL;
@@ -191,14 +184,14 @@ nsresult
 nsClientAuthRememberService::HasRememberedDecision(const nsACString & aHostName, 
                                                    CERTCertificate *aCert, 
                                                    nsACString & aCertDBKey,
-                                                   PRBool *_retval)
+                                                   bool *_retval)
 {
   if (aHostName.IsEmpty())
     return NS_ERROR_INVALID_ARG;
 
   NS_ENSURE_ARG_POINTER(aCert);
   NS_ENSURE_ARG_POINTER(_retval);
-  *_retval = PR_FALSE;
+  *_retval = false;
 
   nsresult rv;
   nsCAutoString fpStr;
@@ -211,7 +204,7 @@ nsClientAuthRememberService::HasRememberedDecision(const nsACString & aHostName,
   nsClientAuthRemember settings;
 
   {
-    MonitorAutoEnter lock(monitor);
+    ReentrantMonitorAutoEnter lock(monitor);
     nsClientAuthRememberEntry *entry = mSettingsTable.GetEntry(hostCert.get());
     if (!entry)
       return NS_OK;
@@ -219,7 +212,7 @@ nsClientAuthRememberService::HasRememberedDecision(const nsACString & aHostName,
   }
 
   aCertDBKey = settings.mDBKey;
-  *_retval = PR_TRUE;
+  *_retval = true;
   return NS_OK;
 }
 
@@ -233,7 +226,7 @@ nsClientAuthRememberService::AddEntryToList(const nsACString &aHostName,
   GetHostWithCert(aHostName, fingerprint, hostCert);
 
   {
-    MonitorAutoEnter lock(monitor);
+    ReentrantMonitorAutoEnter lock(monitor);
     nsClientAuthRememberEntry *entry = mSettingsTable.PutEntry(hostCert.get());
 
     if (!entry) {

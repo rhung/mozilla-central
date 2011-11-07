@@ -40,7 +40,7 @@
 #include "nsXULLabelFrame.h"
 #include "nsHTMLParts.h"
 #include "nsINameSpaceManager.h"
-#include "nsIEventStateManager.h"
+#include "nsEventStateManager.h"
 
 nsIFrame*
 NS_NewXULLabelFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
@@ -58,7 +58,7 @@ NS_IMPL_FRAMEARENA_HELPERS(nsXULLabelFrame)
 // If you make changes to this function, check its counterparts 
 // in nsBoxFrame and nsTextBoxFrame
 nsresult
-nsXULLabelFrame::RegUnregAccessKey(PRBool aDoReg)
+nsXULLabelFrame::RegUnregAccessKey(bool aDoReg)
 {
   // if we have no content, we can't do anything
   if (!mContent)
@@ -80,16 +80,15 @@ nsXULLabelFrame::RegUnregAccessKey(PRBool aDoReg)
 
   // With a valid PresContext we can get the ESM 
   // and register the access key
-  nsIEventStateManager *esm = PresContext()->EventStateManager();
-  nsresult rv;
+  nsEventStateManager *esm = PresContext()->EventStateManager();
 
   PRUint32 key = accessKey.First();
   if (aDoReg)
-    rv = esm->RegisterAccessKey(mContent, key);
+    esm->RegisterAccessKey(mContent, key);
   else
-    rv = esm->UnregisterAccessKey(mContent, key);
+    esm->UnregisterAccessKey(mContent, key);
 
-  return rv;
+  return NS_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -105,14 +104,14 @@ nsXULLabelFrame::Init(nsIContent*      aContent,
     return rv;
 
   // register access key
-  return RegUnregAccessKey(PR_TRUE);
+  return RegUnregAccessKey(true);
 }
 
 void
 nsXULLabelFrame::DestroyFrom(nsIFrame* aDestructRoot)
 {
   // unregister access key
-  RegUnregAccessKey(PR_FALSE);
+  RegUnregAccessKey(false);
   nsBlockFrame::DestroyFrom(aDestructRoot);
 } 
 
@@ -127,7 +126,7 @@ nsXULLabelFrame::AttributeChanged(PRInt32 aNameSpaceID,
   // If the accesskey changed, register for the new value
   // The old value has been unregistered in nsXULElement::SetAttr
   if (aAttribute == nsGkAtoms::accesskey || aAttribute == nsGkAtoms::control)
-    RegUnregAccessKey(PR_TRUE);
+    RegUnregAccessKey(true);
 
   return rv;
 }

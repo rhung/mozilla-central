@@ -64,6 +64,7 @@ CPPSRCS		= \
     nsXBLService.cpp \
     nsBindingManager.cpp \
     nsXBLInsertionPoint.cpp \
+    nsXBLSerialize.cpp \
 		$(NULL)
 
 EXPORTS   = \
@@ -88,6 +89,8 @@ LOCAL_INCLUDES	= \
 		-I$(srcdir)/../../events/src \
 		-I$(srcdir)/../../../layout/style \
 		-I$(srcdir)/../../../dom/base \
+		-I$(topsrcdir)/xpcom/ds \
+		-I$(srcdir)/../../../js/xpconnect/src \
 		$(NULL)
 
 DEFINES += -D_IMPL_NS_LAYOUT

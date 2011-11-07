@@ -4,7 +4,7 @@
 
 {
   'variables': {
-    'library%': 'shared_library',
+    'component%': 'static_library',
   },
   'target_defaults': {
     'default_configuration': 'Debug',
@@ -81,13 +81,43 @@
         },
       },  # Release
     },  # configurations
+    'conditions': [
+      ['component=="shared_library"', {
+        'defines': ['COMPONENT_BUILD'],
+      }],
+    ],
   },  # target_defaults
   'conditions': [
     ['OS=="win"', {
       'target_defaults': {
         'msvs_cygwin_dirs': ['../third_party/cygwin'],
       },
-    }]
+    }],
+    ['OS!="win" and OS!="mac"', {
+      'target_defaults': {
+        'cflags': [
+          '-pthread',
+          '-fno-exceptions',
+        ],
+        'ldflags': [
+          '-pthread',
+        ],
+        'configurations': {
+          'Debug': {
+            'variables': {
+              'debug_optimize%': '0',
+            },
+            'defines': [
+              '_DEBUG',
+            ],
+            'cflags': [
+              '-O>(debug_optimize)',
+              '-g',
+            ],
+          }
+        },
+      },
+    }],
   ],
 }
 

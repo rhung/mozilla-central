@@ -86,7 +86,9 @@ private:
 
 @end
 
-static PRBool sProcessedGetURLEvent = PR_FALSE;
+static bool sProcessedGetURLEvent = false;
+
+@class GeckoNSApplication;
 
 // Methods that can be called from non-Objective-C code.
 
@@ -97,7 +99,7 @@ EnsureUseCocoaDockAPI()
 {
   NS_OBJC_BEGIN_TRY_ABORT_BLOCK;
 
-  [NSApplication sharedApplication];
+  [GeckoNSApplication sharedApplication];
 
   NS_OBJC_END_TRY_ABORT_BLOCK;
 }
@@ -112,7 +114,7 @@ SetupMacApplicationDelegate()
   AutoAutoreleasePool pool;
 
   // Ensure that ProcessPendingGetURLAppleEvents() doesn't regress bug 377166.
-  [NSApplication sharedApplication];
+  [GeckoNSApplication sharedApplication];
 
   // This call makes it so that application:openFile: doesn't get bogus calls
   // from Cocoa doing its own parsing of the argument string. And yes, we need
@@ -138,9 +140,9 @@ void
 ProcessPendingGetURLAppleEvents()
 {
   AutoAutoreleasePool pool;
-  PRBool keepSpinning = PR_TRUE;
+  bool keepSpinning = true;
   while (keepSpinning) {
-    sProcessedGetURLEvent = PR_FALSE;
+    sProcessedGetURLEvent = false;
     NSEvent *event = [NSApp nextEventMatchingMask:NSAnyEventMask
                                         untilDate:nil
                                            inMode:NSDefaultRunLoopMode
@@ -236,7 +238,7 @@ ProcessPendingGetURLAppleEvents()
     return YES;
 
   nsCOMPtr<nsILocalFileMac> inFile;
-  nsresult rv = NS_NewLocalFileWithCFURL((CFURLRef)url, PR_TRUE, getter_AddRefs(inFile));
+  nsresult rv = NS_NewLocalFileWithCFURL((CFURLRef)url, true, getter_AddRefs(inFile));
   if (NS_FAILED(rv))
     return NO;
 
@@ -300,7 +302,7 @@ ProcessPendingGetURLAppleEvents()
 
   // Determine if the dock menu items should be displayed. This also gives
   // the menu the opportunity to update itself before display.
-  PRBool shouldShowItems;
+  bool shouldShowItems;
   rv = dockMenu->MenuWillOpen(&shouldShowItems);
   if (NS_FAILED(rv) || !shouldShowItems)
     return menu;
@@ -344,10 +346,10 @@ ProcessPendingGetURLAppleEvents()
   if (!cancelQuit)
     return NSTerminateNow;
 
-  cancelQuit->SetData(PR_FALSE);
+  cancelQuit->SetData(false);
   obsServ->NotifyObservers(cancelQuit, "quit-application-requested", nsnull);
 
-  PRBool abortQuit;
+  bool abortQuit;
   cancelQuit->GetData(&abortQuit);
   if (abortQuit)
     return NSTerminateCancel;
@@ -367,10 +369,10 @@ ProcessPendingGetURLAppleEvents()
 
   AutoAutoreleasePool pool;
 
-  PRBool isGetURLEvent =
+  bool isGetURLEvent =
     ([event eventClass] == kInternetEventClass && [event eventID] == kAEGetURL);
   if (isGetURLEvent)
-    sProcessedGetURLEvent = PR_TRUE;
+    sProcessedGetURLEvent = true;
 
   if (isGetURLEvent ||
       ([event eventClass] == 'WWW!' && [event eventID] == 'OURL')) {

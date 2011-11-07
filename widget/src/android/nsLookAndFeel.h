@@ -40,6 +40,7 @@
 #define __nsLookAndFeel
 
 #include "nsXPLookAndFeel.h"
+#include "AndroidBridge.h"
 
 class nsLookAndFeel: public nsXPLookAndFeel
 {
@@ -47,9 +48,19 @@ public:
     nsLookAndFeel();
     virtual ~nsLookAndFeel();
 
-    nsresult NativeGetColor(const nsColorID aID, nscolor &aColor);
-    NS_IMETHOD GetMetric(const nsMetricID aID, PRInt32 & aMetric);
-    NS_IMETHOD GetMetric(const nsMetricFloatID aID, float & aMetric);
+    virtual nsresult NativeGetColor(ColorID aID, nscolor &aResult);
+    virtual nsresult GetIntImpl(IntID aID, PRInt32 &aResult);
+    virtual nsresult GetFloatImpl(FloatID aID, float &aResult);
+    virtual bool GetEchoPasswordImpl();
+
+protected:
+    static bool mInitializedSystemColors;
+    static mozilla::AndroidSystemColors mSystemColors;
+    static bool mInitializedShowPassword;
+    static bool mShowPassword;
+
+    nsresult GetSystemColors();
+    nsresult CallRemoteGetSystemColors();
 };
 
 #endif

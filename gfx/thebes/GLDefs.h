@@ -40,7 +40,8 @@
 
 #define LOCALGL_H_
 
-#if !defined(__gl_h_)
+#if !defined(__gltypes_h_) && !defined(__gl_h_)
+#define __gltypes_h_
 #define __gl_h_
 
 #include <stddef.h>
@@ -64,8 +65,10 @@ typedef double GLclampd;
 typedef void GLvoid;
 
 typedef char GLchar;
+#ifndef __gl2_h_
 typedef ptrdiff_t GLsizeiptr;
 typedef ptrdiff_t GLintptr;
+#endif
 
 #ifndef GLAPIENTRY
 # ifdef WIN32
@@ -77,7 +80,7 @@ typedef ptrdiff_t GLintptr;
 # endif
 #endif
 
-#endif /* __gl_h_ */
+#endif /* #if !defined(__gltypes_h_) && !defined(__gl_h_) */
 
 #define LOCAL_GL_VERSION_1_1 1
 #define LOCAL_GL_ACCUM 0x0100
@@ -175,6 +178,7 @@ typedef ptrdiff_t GLintptr;
 #define LOCAL_GL_STACK_OVERFLOW 0x0503
 #define LOCAL_GL_STACK_UNDERFLOW 0x0504
 #define LOCAL_GL_OUT_OF_MEMORY 0x0505
+#define LOCAL_GL_CONTEXT_LOST 0x9242
 #define LOCAL_GL_2D 0x0600
 #define LOCAL_GL_3D 0x0601
 #define LOCAL_GL_3D_COLOR 0x0602
@@ -3036,6 +3040,51 @@ typedef ptrdiff_t GLintptr;
 #define LOCAL_GL_MAX_FRAGMENT_INPUT_COMPONENTS    0x9125
 #define LOCAL_GL_MAX_VERTEX_OUTPUT_COMPONENTS     0x9122
 
+#define LOCAL_GL_MAX_SAMPLES                      0x8D57
+
+#define LOCAL_GL_GUILTY_CONTEXT_RESET_ARB                   0x8253
+#define LOCAL_GL_INNOCENT_CONTEXT_RESET_ARB                 0x8254
+#define LOCAL_GL_UNKNOWN_CONTEXT_RESET_ARB                  0x8255
+
+#define LOCAL_GL_RESET_NOTIFICATION_STRATEGY_ARB            0x8256
+
+#define LOCAL_GL_LOSE_CONTEXT_ON_RESET_ARB                  0x8252
+#define LOCAL_GL_NO_RESET_NOTIFICATION_ARB                  0x8261
+
+#define LOCAL_GL_CONTEXT_RESET_NOTIFICATION_STRATEGY_ARB    0x8256
+#define LOCAL_GL_NO_RESET_NOTIFICATION_ARB                  0x8261
+#define LOCAL_GL_LOSE_CONTEXT_ON_RESET_ARB                  0x8252
+
+#define LOCAL_WGL_CONTEXT_RESET_NOTIFICATION_STRATEGY_ARB   0x8256
+#define LOCAL_WGL_NO_RESET_NOTIFICATION_ARB                 0x8261
+#define LOCAL_WGL_LOSE_CONTEXT_ON_RESET_ARB                 0x8252
+
+#define LOCAL_GL_CONTEXT_MAJOR_VERSION_ARB                  0x2091
+#define LOCAL_GL_CONTEXT_MINOR_VERSION_ARB                  0x2092
+#define LOCAL_GL_CONTEXT_LAYER_PLANE_ARB                    0x2093
+#define LOCAL_GL_CONTEXT_FLAGS_ARB                          0x2094
+#define LOCAL_GL_CONTEXT_PROFILE_MASK_ARB                   0x9126
+
+#define LOCAL_WGL_CONTEXT_MAJOR_VERSION_ARB                 0x2091
+#define LOCAL_WGL_CONTEXT_MINOR_VERSION_ARB                 0x2092
+#define LOCAL_WGL_CONTEXT_LAYER_PLANE_ARB                   0x2093
+#define LOCAL_WGL_CONTEXT_FLAGS_ARB                         0x2094
+#define LOCAL_WGL_CONTEXT_PROFILE_MASK_ARB                  0x9126
+
+#define LOCAL_GL_CONTEXT_DEBUG_BIT_ARB                      0x0001
+#define LOCAL_GL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB         0x0002
+
+#define LOCAL_WGL_CONTEXT_DEBUG_BIT_ARB                     0x0001
+#define LOCAL_WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB        0x0002
+
+#define LOCAL_GL_CONTEXT_CORE_PROFILE_BIT_ARB               0x00000001
+#define LOCAL_GL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB      0x00000002
+#define LOCAL_GL_CONTEXT_ROBUST_ACCESS_BIT_ARB              0x00000004
+
+#define LOCAL_WGL_CONTEXT_CORE_PROFILE_BIT_ARB              0x00000001
+#define LOCAL_WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB     0x00000002
+#define LOCAL_WGL_CONTEXT_ROBUST_ACCESS_BIT_ARB             0x00000004
+
 #define LOCAL_WGL_NUMBER_PIXEL_FORMATS_ARB 0x2000
 #define LOCAL_WGL_DRAW_TO_WINDOW_ARB 0x2001
 #define LOCAL_WGL_DRAW_TO_BITMAP_ARB 0x2002
@@ -3194,5 +3243,7 @@ typedef ptrdiff_t GLintptr;
 #define LOCAL_EGL_READ_SURFACE_BIT_KHR        0x0001
 #define LOCAL_EGL_WRITE_SURFACE_BIT_KHR       0x0002
 #define LOCAL_EGL_LOCK_SURFACE_BIT_KHR        0x0080
-
+#define LOCAL_EGL_CORE_NATIVE_ENGINE          0x305B
+#define LOCAL_EGL_READ                        0x305A
+#define LOCAL_EGL_DRAW                        0x3059
 #endif

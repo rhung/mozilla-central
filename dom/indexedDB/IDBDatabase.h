@@ -80,10 +80,10 @@ public:
          DatabaseInfo* aDatabaseInfo,
          const nsACString& aASCIIOrigin);
 
-  // nsPIDOMEventTarget
+  // nsIDOMEventTarget
   virtual nsresult PostHandleEvent(nsEventChainPostVisitor& aVisitor);
 
-  PRUint32 Id()
+  nsIAtom* Id()
   {
     return mDatabaseId;
   }
@@ -135,13 +135,16 @@ public:
   // Whether or not the database has had Close called on it.
   bool IsClosed();
 
+  void EnterSetVersionTransaction();
+  void ExitSetVersionTransaction();
+
 private:
   IDBDatabase();
   ~IDBDatabase();
 
   void OnUnlink();
 
-  PRUint32 mDatabaseId;
+  nsCOMPtr<nsIAtom> mDatabaseId;
   nsString mName;
   nsString mFilePath;
   nsCString mASCIIOrigin;
@@ -153,7 +156,6 @@ private:
   // Only touched on the main thread.
   nsRefPtr<nsDOMEventListenerWrapper> mOnErrorListener;
   nsRefPtr<nsDOMEventListenerWrapper> mOnVersionChangeListener;
-  nsRefPtr<nsDOMEventListenerWrapper> mOnBlockedListener;
 };
 
 END_INDEXEDDB_NAMESPACE

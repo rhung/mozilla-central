@@ -47,7 +47,6 @@
 
 #include "nsCOMPtr.h"
 #include "nsWidgetsCID.h"
-#include "nsToolkit.h"
 #include "nsHTMLFormatConverter.h"
 #include "nsTransferable.h"
 #include "nsLookAndFeel.h"
@@ -70,16 +69,18 @@
 #include "nsFilePickerProxy.h"
 #include "nsXULAppAPI.h"
 
+#if defined(MOZ_X11)
+#include "GfxInfoX11.h"
+#endif
+
 // from nsWindow.cpp
-extern PRBool gDisableNativeTheme;
+extern bool gDisableNativeTheme;
 
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsWindow)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsChildWindow)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsPopupWindow)
-NS_GENERIC_FACTORY_CONSTRUCTOR(nsToolkit)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsHTMLFormatConverter)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsTransferable)
-NS_GENERIC_FACTORY_CONSTRUCTOR(nsLookAndFeel)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsScreenManagerQt)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsClipboard)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsClipboardHelper)
@@ -115,6 +116,16 @@ NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsPrintSession, Init)
 NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsPrintDialogServiceQt, Init)
 #endif
 
+#if defined(MOZ_X11)
+namespace mozilla {
+namespace widget {
+// This constructor should really be shared with all platforms.
+NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(GfxInfo, Init)
+}
+}
+#endif
+
+
 static nsresult
 nsNativeThemeQtConstructor(nsISupports *aOuter, REFNSIID aIID,
                             void **aResult)
@@ -143,7 +154,6 @@ nsNativeThemeQtConstructor(nsISupports *aOuter, REFNSIID aIID,
 NS_DEFINE_NAMED_CID(NS_WINDOW_CID);
 NS_DEFINE_NAMED_CID(NS_CHILD_CID);
 NS_DEFINE_NAMED_CID(NS_APPSHELL_CID);
-NS_DEFINE_NAMED_CID(NS_LOOKANDFEEL_CID);
 NS_DEFINE_NAMED_CID(NS_FILEPICKER_CID);
 NS_DEFINE_NAMED_CID(NS_SOUND_CID);
 NS_DEFINE_NAMED_CID(NS_TRANSFERABLE_CID);
@@ -156,20 +166,22 @@ NS_DEFINE_NAMED_CID(NS_SCREENMANAGER_CID);
 NS_DEFINE_NAMED_CID(NS_THEMERENDERER_CID);
 NS_DEFINE_NAMED_CID(NS_IDLE_SERVICE_CID);
 NS_DEFINE_NAMED_CID(NS_POPUP_CID);
-NS_DEFINE_NAMED_CID(NS_TOOLKIT_CID);
 #ifdef NS_PRINTING
 NS_DEFINE_NAMED_CID(NS_PRINTSETTINGSSERVICE_CID);
 NS_DEFINE_NAMED_CID(NS_PRINTER_ENUMERATOR_CID);
 NS_DEFINE_NAMED_CID(NS_PRINTSESSION_CID);
 NS_DEFINE_NAMED_CID(NS_DEVICE_CONTEXT_SPEC_CID);
 NS_DEFINE_NAMED_CID(NS_PRINTDIALOGSERVICE_CID);
-#endif 
+#endif
+
+#if defined(MOZ_X11)
+NS_DEFINE_NAMED_CID(NS_GFXINFO_CID);
+#endif
 
 static const mozilla::Module::CIDEntry kWidgetCIDs[] = {
     { &kNS_WINDOW_CID, false, NULL, nsWindowConstructor },
     { &kNS_CHILD_CID, false, NULL, nsChildWindowConstructor },
     { &kNS_APPSHELL_CID, false, NULL, nsAppShellConstructor },
-    { &kNS_LOOKANDFEEL_CID, false, NULL, nsLookAndFeelConstructor },
     { &kNS_FILEPICKER_CID, false, NULL, nsFilePickerConstructor },
     { &kNS_SOUND_CID, false, NULL, nsSoundConstructor },
     { &kNS_TRANSFERABLE_CID, false, NULL, nsTransferableConstructor },
@@ -182,14 +194,16 @@ static const mozilla::Module::CIDEntry kWidgetCIDs[] = {
     { &kNS_THEMERENDERER_CID, false, NULL, nsNativeThemeQtConstructor },
     { &kNS_IDLE_SERVICE_CID, false, NULL, nsIdleServiceQtConstructor },
     { &kNS_POPUP_CID, false, NULL, nsPopupWindowConstructor },
-    { &kNS_TOOLKIT_CID, false, NULL, nsToolkitConstructor },
 #ifdef NS_PRINTING
     { &kNS_PRINTSETTINGSSERVICE_CID, false, NULL, nsPrintOptionsQtConstructor },
     { &kNS_PRINTER_ENUMERATOR_CID, false, NULL, nsPrinterEnumeratorQtConstructor },
     { &kNS_PRINTSESSION_CID, false, NULL, nsPrintSessionConstructor },
     { &kNS_DEVICE_CONTEXT_SPEC_CID, false, NULL, nsDeviceContextSpecQtConstructor },
     { &kNS_PRINTDIALOGSERVICE_CID, false, NULL, nsPrintDialogServiceQtConstructor },
-#endif 
+#endif
+#if defined(MOZ_X11)
+    { &kNS_GFXINFO_CID, false, NULL, mozilla::widget::GfxInfoConstructor },
+#endif
     { NULL }
 };
 
@@ -197,7 +211,6 @@ static const mozilla::Module::ContractIDEntry kWidgetContracts[] = {
     { "@mozilla.org/widget/window/qt;1", &kNS_WINDOW_CID },
     { "@mozilla.org/widgets/child_window/qt;1", &kNS_CHILD_CID },
     { "@mozilla.org/widget/appshell/qt;1", &kNS_APPSHELL_CID },
-    { "@mozilla.org/widget/lookandfeel;1", &kNS_LOOKANDFEEL_CID },
     { "@mozilla.org/filepicker;1", &kNS_FILEPICKER_CID },
     { "@mozilla.org/sound;1", &kNS_SOUND_CID },
     { "@mozilla.org/widget/transferable;1", &kNS_TRANSFERABLE_CID },
@@ -210,20 +223,23 @@ static const mozilla::Module::ContractIDEntry kWidgetContracts[] = {
     { "@mozilla.org/chrome/chrome-native-theme;1", &kNS_THEMERENDERER_CID },
     { "@mozilla.org/widget/idleservice;1", &kNS_IDLE_SERVICE_CID },
     { "@mozilla.org/widgets/popup_window/qt;1", &kNS_POPUP_CID },
-    { "@mozilla.org/widget/toolkit/qt;1", &kNS_TOOLKIT_CID },
 #ifdef NS_PRINTING
     { "@mozilla.org/gfx/printsettings-service;1", &kNS_PRINTSETTINGSSERVICE_CID },
     { "@mozilla.org/gfx/printerenumerator;1", &kNS_PRINTER_ENUMERATOR_CID },
     { "@mozilla.org/gfx/printsession;1", &kNS_PRINTSESSION_CID },
     { "@mozilla.org/gfx/devicecontextspec;1", &kNS_DEVICE_CONTEXT_SPEC_CID },
     { NS_PRINTDIALOGSERVICE_CONTRACTID, &kNS_PRINTDIALOGSERVICE_CID },
-#endif 
+#endif
+#if defined(MOZ_X11)
+    { "@mozilla.org/gfx/info;1", &kNS_GFXINFO_CID },
+#endif
     { NULL }
 };
 
 static void
 nsWidgetQtModuleDtor()
 {
+    nsLookAndFeel::Shutdown();
     nsSound::Shutdown();
     nsWindow::ReleaseGlobals();
     nsAppShellShutdown();

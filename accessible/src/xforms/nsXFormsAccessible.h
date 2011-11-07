@@ -77,10 +77,9 @@ public:
   // Returns value of instance node that xforms element is bound to.
   NS_IMETHOD GetValue(nsAString& aValue);
 
-  // Returns value of child xforms 'hint' element.
-  NS_IMETHOD GetDescription(nsAString& aDescription);
-
   // nsAccessible
+  // Returns value of child xforms 'hint' element.
+  virtual void Description(nsString& aDescription);
 
   // Returns value of child xforms 'label' element.
   virtual nsresult GetNameInternal(nsAString& aName);
@@ -90,8 +89,8 @@ public:
   virtual PRUint64 NativeState();
 
   // Denies accessible nodes in anonymous content of xforms element by
-  // always returning PR_FALSE value.
-  virtual PRBool GetAllowsAnonChildAccessibles();
+  // always returning false value.
+  virtual bool GetAllowsAnonChildAccessibles();
 
 protected:
   // Returns value of first child xforms element by tagname that is bound to
@@ -131,8 +130,8 @@ public:
   virtual PRUint32 NativeRole();
 
   // Allows accessible nodes in anonymous content of xforms element by
-  // always returning PR_TRUE value.
-  virtual PRBool GetAllowsAnonChildAccessibles();
+  // always returning true value.
+  virtual bool GetAllowsAnonChildAccessibles();
 };
 
 
@@ -177,7 +176,7 @@ protected:
   nsIContent* GetItemByIndex(PRUint32* aIndex,
                              nsAccessible* aAccessible = nsnull);
 
-  PRBool mIsSelect1Element;
+  bool mIsSelect1Element;
 };
 
 
@@ -191,11 +190,13 @@ public:
                                    nsIWeakReference *aShell);
 
   NS_IMETHOD GetValue(nsAString& aValue);
-  NS_IMETHOD GetNumActions(PRUint8 *aCount);
   NS_IMETHOD DoAction(PRUint8 aIndex);
 
+  // ActionAccessible
+  virtual PRUint8 ActionCount();
+
 protected:
-  PRBool IsItemSelected();
+  bool IsSelected();
 };
 
 #endif

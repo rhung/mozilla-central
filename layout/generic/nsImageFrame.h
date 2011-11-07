@@ -42,18 +42,12 @@
 #define nsImageFrame_h___
 
 #include "nsSplittableFrame.h"
-#include "nsString.h"
-#include "nsAString.h"
-#include "nsIImageFrame.h"
 #include "nsIIOService.h"
 #include "nsIObserver.h"
 
-#include "imgIRequest.h"
 #include "nsStubImageDecoderObserver.h"
 #include "imgIDecoderObserver.h"
 
-#include "Layers.h"
-#include "ImageLayers.h"
 #include "nsDisplayList.h"
 #include "imgIContainer.h"
 
@@ -69,8 +63,13 @@ class nsPresContext;
 class nsImageFrame;
 class nsTransform2D;
 
-using namespace mozilla;
-using namespace mozilla::layers;
+namespace mozilla {
+namespace layers {
+  class ImageContainer;
+  class ImageLayer;
+  class LayerManager;
+}
+}
 
 class nsImageListener : public nsStubImageDecoderObserver
 {
@@ -81,7 +80,7 @@ public:
   NS_DECL_ISUPPORTS
   // imgIDecoderObserver (override nsStubImageDecoderObserver)
   NS_IMETHOD OnStartContainer(imgIRequest *aRequest, imgIContainer *aImage);
-  NS_IMETHOD OnDataAvailable(imgIRequest *aRequest, PRBool aCurrentFrame,
+  NS_IMETHOD OnDataAvailable(imgIRequest *aRequest, bool aCurrentFrame,
                              const nsIntRect *aRect);
   NS_IMETHOD OnStopDecode(imgIRequest *aRequest, nsresult status,
                           const PRUnichar *statusArg);
@@ -100,12 +99,17 @@ private:
 
 #define ImageFrameSuper nsSplittableFrame
 
-class nsImageFrame : public ImageFrameSuper, public nsIImageFrame {
+class nsImageFrame : public ImageFrameSuper {
 public:
+  typedef mozilla::layers::ImageContainer ImageContainer;
+  typedef mozilla::layers::ImageLayer ImageLayer;
+  typedef mozilla::layers::LayerManager LayerManager;
+
   NS_DECL_FRAMEARENA_HELPERS
 
   nsImageFrame(nsStyleContext* aContext);
 
+  NS_DECL_QUERYFRAME_TARGET(nsImageFrame)
   NS_DECL_QUERYFRAME
 
   virtual void DestroyFrom(nsIFrame* aDestructRoot);
@@ -124,8 +128,7 @@ public:
                     const nsHTMLReflowState& aReflowState,
                     nsReflowStatus&          aStatus);
   
-  NS_IMETHOD  GetContentForEvent(nsPresContext* aPresContext,
-                                 nsEvent* aEvent,
+  NS_IMETHOD  GetContentForEvent(nsEvent* aEvent,
                                  nsIContent** aContent);
   NS_IMETHOD HandleEvent(nsPresContext* aPresContext,
                         nsGUIEvent* aEvent,
@@ -142,7 +145,7 @@ public:
 
   virtual nsIAtom* GetType() const;
 
-  virtual PRBool IsFrameOfType(PRUint32 aFlags) const
+  virtual bool IsFrameOfType(PRUint32 aFlags) const
   {
     return ImageFrameSuper::IsFrameOfType(aFlags & ~(nsIFrame::eReplaced));
   }
@@ -154,9 +157,7 @@ public:
 
   virtual PRIntn GetSkipSides() const;
 
-  NS_IMETHOD GetImageMap(nsPresContext *aPresContext, nsIImageMap **aImageMap);
-
-  NS_IMETHOD GetIntrinsicImageSize(nsSize& aSize);
+  nsresult GetIntrinsicImageSize(nsSize& aSize);
 
   static void ReleaseGlobals() {
     if (gIconLoad) {
@@ -171,7 +172,7 @@ public:
    * should get an image frame.  Note that this method is only used by the
    * frame constructor; it's only here because it uses gIconLoad for now.
    */
-  static PRBool ShouldCreateImageFrameFor(nsIContent* aContent,
+  static bool ShouldCreateImageFrameFor(mozilla::dom::Element* aElement,
                                           nsStyleContext* aStyleContext);
   
   void DisplayAltFeedback(nsRenderingContext& aRenderingContext,
@@ -181,7 +182,7 @@ public:
 
   nsRect GetInnerArea() const;
 
-  nsImageMap* GetImageMap(nsPresContext* aPresContext);
+  nsImageMap* GetImageMap();
 
   virtual void AddInlineMinWidth(nsRenderingContext *aRenderingContext,
                                  InlineMinWidthData *aData);
@@ -189,6 +190,7 @@ public:
   nsRefPtr<ImageContainer> GetContainer(LayerManager* aManager,
                                         imgIContainer* aImage);
 
+  void DisconnectMap();
 protected:
   virtual ~nsImageFrame();
 
@@ -197,14 +199,14 @@ protected:
   virtual nsSize ComputeSize(nsRenderingContext *aRenderingContext,
                              nsSize aCBSize, nscoord aAvailableWidth,
                              nsSize aMargin, nsSize aBorder, nsSize aPadding,
-                             PRBool aShrinkWrap);
+                             bool aShrinkWrap);
 
-  PRBool IsServerImageMap();
+  bool IsServerImageMap();
 
   void TranslateEventCoords(const nsPoint& aPoint,
                             nsIntPoint& aResult);
 
-  PRBool GetAnchorHREFTargetAndNode(nsIURI** aHref, nsString& aTarget,
+  bool GetAnchorHREFTargetAndNode(nsIURI** aHref, nsString& aTarget,
                                     nsIContent** aNode);
   /**
    * Computes the width of the string that fits into the available space
@@ -233,7 +235,7 @@ protected:
 protected:
   friend class nsImageListener;
   nsresult OnStartContainer(imgIRequest *aRequest, imgIContainer *aImage);
-  nsresult OnDataAvailable(imgIRequest *aRequest, PRBool aCurrentFrame,
+  nsresult OnDataAvailable(imgIRequest *aRequest, bool aCurrentFrame,
                            const nsIntRect *rect);
   nsresult OnStopDecode(imgIRequest *aRequest,
                         nsresult aStatus,
@@ -258,7 +260,7 @@ private:
    * @return whether aImage's size did _not_
    *         match our previous intrinsic size.
    */
-  PRBool UpdateIntrinsicSize(imgIContainer* aImage);
+  bool UpdateIntrinsicSize(imgIContainer* aImage);
 
   /**
    * Recalculate mIntrinsicRatio from the image.
@@ -266,7 +268,7 @@ private:
    * @return whether aImage's ratio did _not_
    *         match our previous intrinsic ratio.
    */
-  PRBool UpdateIntrinsicRatio(imgIContainer* aImage);
+  bool UpdateIntrinsicRatio(imgIContainer* aImage);
 
   /**
    * This function calculates the transform for converting between
@@ -277,15 +279,15 @@ private:
    *
    * @return whether we succeeded in creating the transform.
    */
-  PRBool GetSourceToDestTransform(nsTransform2D& aTransform);
+  bool GetSourceToDestTransform(nsTransform2D& aTransform);
 
   /**
    * Helper functions to check whether the request or image container
    * corresponds to a load we don't care about.  Most of the decoder
    * observer methods will bail early if these return true.
    */
-  PRBool IsPendingLoad(imgIRequest* aRequest) const;
-  PRBool IsPendingLoad(imgIContainer* aContainer) const;
+  bool IsPendingLoad(imgIRequest* aRequest) const;
+  bool IsPendingLoad(imgIContainer* aContainer) const;
 
   /**
    * Function to convert a dirty rect in the source image to a dirty
@@ -301,7 +303,7 @@ private:
   nsIFrame::IntrinsicSize mIntrinsicSize;
   nsSize mIntrinsicRatio;
 
-  PRBool mDisplayingIcon;
+  bool mDisplayingIcon;
 
   static nsIIOService* sIOService;
   
@@ -326,18 +328,7 @@ private:
   public:
     IconLoad();
 
-    void Shutdown()
-    {
-      // in case the pref service releases us later
-      if (mLoadingImage) {
-        mLoadingImage->CancelAndForgetObserver(NS_ERROR_FAILURE);
-        mLoadingImage = nsnull;
-      }
-      if (mBrokenImage) {
-        mBrokenImage->CancelAndForgetObserver(NS_ERROR_FAILURE);
-        mBrokenImage = nsnull;
-      }
-    }
+    void Shutdown();
 
     NS_DECL_ISUPPORTS
     NS_DECL_NSIOBSERVER
@@ -352,7 +343,7 @@ private:
 
     void RemoveIconObserver(nsImageFrame *frame) {
 #ifdef DEBUG
-        PRBool rv =
+        bool rv =
 #endif
             mIconObservers.RemoveElement(frame);
         NS_ABORT_IF_FALSE(rv, "Observer not in array");
@@ -366,8 +357,8 @@ private:
   public:
     nsCOMPtr<imgIRequest> mLoadingImage;
     nsCOMPtr<imgIRequest> mBrokenImage;
-    PRPackedBool     mPrefForceInlineAltText;
-    PRPackedBool     mPrefShowPlaceholders;
+    bool             mPrefForceInlineAltText;
+    bool             mPrefShowPlaceholders;
   };
   
 public:
@@ -384,6 +375,10 @@ public:
  */
 class nsDisplayImage : public nsDisplayItem {
 public:
+  typedef mozilla::layers::ImageContainer ImageContainer;
+  typedef mozilla::layers::ImageLayer ImageLayer;
+  typedef mozilla::layers::LayerManager LayerManager;
+
   nsDisplayImage(nsDisplayListBuilder* aBuilder, nsImageFrame* aFrame,
                  imgIContainer* aImage)
     : nsDisplayItem(aBuilder, aFrame), mImage(aImage) {

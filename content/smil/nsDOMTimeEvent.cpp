@@ -39,16 +39,16 @@
 #include "nsGUIEvent.h"
 #include "nsPresContext.h"
 #include "nsIInterfaceRequestorUtils.h"
-#include "nsIDOMAbstractView.h"
+#include "nsDOMClassInfoID.h"
 
 nsDOMTimeEvent::nsDOMTimeEvent(nsPresContext* aPresContext, nsEvent* aEvent)
-  : nsDOMEvent(aPresContext, aEvent ? aEvent : new nsUIEvent(PR_FALSE, 0, 0)),
+  : nsDOMEvent(aPresContext, aEvent ? aEvent : new nsUIEvent(false, 0, 0)),
     mDetail(0)
 {
   if (aEvent) {
-    mEventIsInternal = PR_FALSE;
+    mEventIsInternal = false;
   } else {
-    mEventIsInternal = PR_TRUE;
+    mEventIsInternal = true;
     mEvent->eventStructType = NS_SMIL_TIME_EVENT;
   }
 
@@ -63,7 +63,7 @@ nsDOMTimeEvent::nsDOMTimeEvent(nsPresContext* aPresContext, nsEvent* aEvent)
   if (mPresContext) {
     nsCOMPtr<nsISupports> container = mPresContext->GetContainer();
     if (container) {
-      nsCOMPtr<nsIDOMWindowInternal> window = do_GetInterface(container);
+      nsCOMPtr<nsIDOMWindow> window = do_GetInterface(container);
       if (window) {
         mView = do_QueryInterface(window);
       }
@@ -92,7 +92,7 @@ NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION_INHERITED(nsDOMTimeEvent)
 NS_INTERFACE_MAP_END_INHERITING(nsDOMEvent)
 
 NS_IMETHODIMP
-nsDOMTimeEvent::GetView(nsIDOMAbstractView** aView)
+nsDOMTimeEvent::GetView(nsIDOMWindow** aView)
 {
   *aView = mView;
   NS_IF_ADDREF(*aView);
@@ -108,11 +108,11 @@ nsDOMTimeEvent::GetDetail(PRInt32* aDetail)
 
 NS_IMETHODIMP
 nsDOMTimeEvent::InitTimeEvent(const nsAString& aTypeArg,
-                              nsIDOMAbstractView* aViewArg,
+                              nsIDOMWindow* aViewArg,
                               PRInt32 aDetailArg)
 {
-  nsresult rv = nsDOMEvent::InitEvent(aTypeArg, PR_FALSE /*doesn't bubble*/,
-                                                PR_FALSE /*can't cancel*/);
+  nsresult rv = nsDOMEvent::InitEvent(aTypeArg, false /*doesn't bubble*/,
+                                                false /*can't cancel*/);
   NS_ENSURE_SUCCESS(rv, rv);
 
   mDetail = aDetailArg;

@@ -91,11 +91,7 @@
 
 #define NS_TASKBAR_CONTRACTID "@mozilla.org/windows-taskbar;1"
 
-#ifndef WINCE
 NS_IMPL_ISUPPORTS2(nsWindowsShellService, nsIWindowsShellService, nsIShellService)
-#else
-NS_IMPL_ISUPPORTS1(nsWindowsShellService, nsIShellService)
-#endif
 
 static nsresult
 OpenKeyForReading(HKEY aKeyRoot, const nsAString& aKeyName, HKEY* aKey)
@@ -114,33 +110,6 @@ OpenKeyForReading(HKEY aKeyRoot, const nsAString& aKeyName, HKEY* aKey)
 
   return NS_OK;
 }
-
-#ifdef WINCE
-static nsresult
-OpenKeyForWriting(HKEY aStartKey, const nsAString& aKeyName, HKEY* aKey)
-{
-  const nsString &flatName = PromiseFlatString(aKeyName);
-
-  DWORD dwDisp = 0;
-  DWORD res = ::RegCreateKeyExW(aStartKey, flatName.get(), 0, NULL,
-                                0, KEY_READ | KEY_WRITE, NULL, aKey,
-                                &dwDisp);
-  switch (res) {
-  case ERROR_SUCCESS:
-    break;
-  case ERROR_ACCESS_DENIED:
-    return NS_ERROR_FILE_ACCESS_DENIED;
-  case ERROR_FILE_NOT_FOUND:
-    res = ::RegCreateKeyExW(aStartKey, flatName.get(), 0, NULL,
-                            0, KEY_READ | KEY_WRITE, NULL, aKey,
-                            NULL);
-    if (res != ERROR_SUCCESS)
-      return NS_ERROR_FILE_ACCESS_DENIED;
-  }
-
-  return NS_OK;
-}
-#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 // Default Browser Registry Settings
@@ -217,22 +186,14 @@ typedef struct {
   char* valueData;
 } SETTING;
 
-#ifndef WINCE
 #define APP_REG_NAME L"Firefox"
 #define CLS_HTML "FirefoxHTML"
 #define CLS_URL "FirefoxURL"
 #define CPL_DESKTOP L"Control Panel\\Desktop"
 #define VAL_OPEN "\"%APPPATH%\" -requestPending -osint -url \"%1\""
 #define VAL_FILE_ICON "%APPPATH%,1"
-#else
-#define CPL_DESKTOP L"ControlPanel\\Desktop"
-#define VAL_OPEN "\"%APPPATH%\" -osint -url \"%1\""
-#define VAL_FILE_ICON "%APPPATH%,-2"
-#endif
-
 #define DI "\\DefaultIcon"
 #define SOP "\\shell\\open\\command"
-
 
 #define MAKE_KEY_NAME1(PREFIX, MID) \
   PREFIX MID
@@ -243,28 +204,11 @@ typedef struct {
 // Handlers. see http://msdn2.microsoft.com/en-us/library/aa969357.aspx for
 // more info.
 static SETTING gSettings[] = {
-#ifndef WINCE
   // File Handler Class
   { MAKE_KEY_NAME1(CLS_HTML, SOP), "", VAL_OPEN },
 
   // Protocol Handler Class - for Vista and above
   { MAKE_KEY_NAME1(CLS_URL, SOP), "", VAL_OPEN },
-#else
-  { MAKE_KEY_NAME1("FTP", DI), "", VAL_FILE_ICON },
-  { MAKE_KEY_NAME1("FTP", SOP), "", VAL_OPEN },
-
-  // File handlers for Windows CE
-  { MAKE_KEY_NAME1("bmpfile", DI), "", VAL_FILE_ICON },
-  { MAKE_KEY_NAME1("bmpfile", SOP), "", VAL_OPEN },
-  { MAKE_KEY_NAME1("giffile", DI), "", VAL_FILE_ICON },
-  { MAKE_KEY_NAME1("giffile", SOP), "", VAL_OPEN },
-  { MAKE_KEY_NAME1("jpegfile", DI), "", VAL_FILE_ICON },
-  { MAKE_KEY_NAME1("jpegfile", SOP), "", VAL_OPEN },
-  { MAKE_KEY_NAME1("pngfile", DI), "", VAL_FILE_ICON },
-  { MAKE_KEY_NAME1("pngfile", SOP), "", VAL_OPEN },
-  { MAKE_KEY_NAME1("htmlfile", DI), "", VAL_FILE_ICON },
-  { MAKE_KEY_NAME1("htmlfile", SOP), "", VAL_OPEN },
-#endif
 
   // Protocol Handlers
   { MAKE_KEY_NAME1("HTTP", DI),    "", VAL_FILE_ICON },
@@ -273,7 +217,6 @@ static SETTING gSettings[] = {
   { MAKE_KEY_NAME1("HTTPS", SOP),  "", VAL_OPEN }
 };
 
-#if !defined(WINCE)
 nsresult
 GetHelperPath(nsAutoString& aPath)
 {
@@ -313,13 +256,14 @@ LaunchHelper(nsAutoString& aPath)
   CloseHandle(pi.hThread);
   return NS_OK;
 }
-#endif // !defined(WINCE)
 
 NS_IMETHODIMP
 nsWindowsShellService::ShortcutMaintenance()
 {
-#if !defined(WINCE)
   nsresult rv;
+
+  // XXX App ids were updated to a constant install path hash,
+  // XXX this code can be removed after a few upgrade cycles.
 
   // Launch helper.exe so it can update the application user model ids on
   // shortcuts in the user's taskbar and start menu. This keeps older pinned
@@ -334,7 +278,7 @@ nsWindowsShellService::ShortcutMaintenance()
     return NS_OK;
 
   // Avoid if this isn't Win7+
-  PRBool isSupported = PR_FALSE;
+  bool isSupported = false;
   taskbarInfo->GetAvailable(&isSupported);
   if (!isSupported)
     return NS_OK;
@@ -388,15 +332,10 @@ nsWindowsShellService::ShortcutMaintenance()
   appHelperPath.AppendLiteral(" /UpdateShortcutAppUserModelIds");
 
   return LaunchHelper(appHelperPath);
-#else
-  NS_NOTREACHED("ShortcutMaintenance not implemented on wince!");
-  return NS_OK;
-#endif // !defined(WINCE)
 }
 
-#ifndef WINCE
-PRBool
-nsWindowsShellService::IsDefaultBrowserVista(PRBool* aIsDefaultBrowser)
+bool
+nsWindowsShellService::IsDefaultBrowserVista(bool* aIsDefaultBrowser)
 {
 #if MOZ_WINSDK_TARGETVER >= MOZ_NTDDI_LONGHORN
   IApplicationAssociationRegistration* pAAR;
@@ -408,43 +347,42 @@ nsWindowsShellService::IsDefaultBrowserVista(PRBool* aIsDefaultBrowser)
                                 (void**)&pAAR);
 
   if (SUCCEEDED(hr)) {
+    BOOL res;
     hr = pAAR->QueryAppIsDefaultAll(AL_EFFECTIVE,
                                     APP_REG_NAME,
-                                    aIsDefaultBrowser);
+                                    &res);
+    *aIsDefaultBrowser = res;
 
     pAAR->Release();
-    return PR_TRUE;
+    return true;
   }
 #endif  
-  return PR_FALSE;
+  return false;
 }
-#endif
 
 NS_IMETHODIMP
-nsWindowsShellService::IsDefaultBrowser(PRBool aStartupCheck,
-                                        PRBool* aIsDefaultBrowser)
+nsWindowsShellService::IsDefaultBrowser(bool aStartupCheck,
+                                        bool* aIsDefaultBrowser)
 {
   // If this is the first browser window, maintain internal state that we've
   // checked this session (so that subsequent window opens don't show the 
   // default browser dialog).
   if (aStartupCheck)
-    mCheckedThisSession = PR_TRUE;
+    mCheckedThisSession = true;
 
   SETTING* settings;
   SETTING* end = gSettings + sizeof(gSettings)/sizeof(SETTING);
 
-  *aIsDefaultBrowser = PR_TRUE;
+  *aIsDefaultBrowser = true;
 
   PRUnichar exePath[MAX_BUF];
   if (!::GetModuleFileNameW(0, exePath, MAX_BUF))
     return NS_ERROR_FAILURE;
 
-#ifndef WINCE
   // Convert the path to a long path since GetModuleFileNameW returns the path
   // that was used to launch Firefox which is not necessarily a long path.
   if (!::GetLongPathNameW(exePath, exePath, MAX_BUF))
     return NS_ERROR_FAILURE;
-#endif
 
   nsAutoString appLongPath(exePath);
 
@@ -461,7 +399,7 @@ nsWindowsShellService::IsDefaultBrowser(PRBool aStartupCheck,
     HKEY theKey;
     rv = OpenKeyForReading(HKEY_CLASSES_ROOT, key, &theKey);
     if (NS_FAILED(rv)) {
-      *aIsDefaultBrowser = PR_FALSE;
+      *aIsDefaultBrowser = false;
       return NS_OK;
     }
 
@@ -473,25 +411,22 @@ nsWindowsShellService::IsDefaultBrowser(PRBool aStartupCheck,
     if (REG_FAILED(res) ||
         !dataLongPath.Equals(currValue, CaseInsensitiveCompare)) {
       // Key wasn't set, or was set to something other than our registry entry
-      *aIsDefaultBrowser = PR_FALSE;
+      *aIsDefaultBrowser = false;
       return NS_OK;
     }
   }
 
-#ifndef WINCE
   // Only check if Firefox is the default browser on Vista if the previous
   // checks show that Firefox is the default browser.
   if (*aIsDefaultBrowser)
     IsDefaultBrowserVista(aIsDefaultBrowser);
-#endif
 
   return NS_OK;
 }
 
 NS_IMETHODIMP
-nsWindowsShellService::SetDefaultBrowser(PRBool aClaimAllTypes, PRBool aForAllUsers)
+nsWindowsShellService::SetDefaultBrowser(bool aClaimAllTypes, bool aForAllUsers)
 {
-#ifndef WINCE
   nsAutoString appHelperPath;
   if (NS_FAILED(GetHelperPath(appHelperPath)))
     return NS_ERROR_FAILURE;
@@ -503,122 +438,44 @@ nsWindowsShellService::SetDefaultBrowser(PRBool aClaimAllTypes, PRBool aForAllUs
   }
 
   return LaunchHelper(appHelperPath);
-#else
-  SETTING* settings;
-  SETTING* end = gSettings + sizeof(gSettings)/sizeof(SETTING);
-
-  PRUnichar exePath[MAX_BUF];
-  if (!::GetModuleFileNameW(0, exePath, MAX_BUF))
-    return NS_ERROR_FAILURE;
-
-  nsAutoString appLongPath(exePath);
-
-  // The .png registry key isn't present by default so also add Content Type.
-  SetRegKey(NS_LITERAL_STRING(".png"), EmptyString(),
-            NS_LITERAL_STRING("pngfile"));
-  SetRegKey(NS_LITERAL_STRING(".png"), NS_LITERAL_STRING("Content Type"),
-            NS_LITERAL_STRING("image/png"));
-
-  // Set these keys to their default value for a clean install in case another
-  // app has changed these keys.
-  SetRegKey(NS_LITERAL_STRING(".htm"), EmptyString(),
-            NS_LITERAL_STRING("htmlfile"));
-  SetRegKey(NS_LITERAL_STRING(".html"), EmptyString(),
-            NS_LITERAL_STRING("htmlfile"));
-  SetRegKey(NS_LITERAL_STRING(".bmp"), EmptyString(),
-            NS_LITERAL_STRING("bmpfile"));
-  SetRegKey(NS_LITERAL_STRING(".gif"), EmptyString(),
-            NS_LITERAL_STRING("giffile"));
-  SetRegKey(NS_LITERAL_STRING(".jpe"), EmptyString(),
-            NS_LITERAL_STRING("jpegfile"));
-  SetRegKey(NS_LITERAL_STRING(".jpg"), EmptyString(),
-            NS_LITERAL_STRING("jpegfile"));
-  SetRegKey(NS_LITERAL_STRING(".jpeg"), EmptyString(),
-            NS_LITERAL_STRING("jpegfile"));
-
-  for (settings = gSettings; settings < end; ++settings) {
-    NS_ConvertUTF8toUTF16 dataLongPath(settings->valueData);
-    NS_ConvertUTF8toUTF16 key(settings->keyName);
-    NS_ConvertUTF8toUTF16 value(settings->valueName);
-    PRInt32 offset = dataLongPath.Find("%APPPATH%");
-    dataLongPath.Replace(offset, 9, appLongPath);
-    SetRegKey(key, value, dataLongPath);
-  }
-  // On Windows CE RegFlushKey can negatively impact performance if there are a
-  // lot of pending writes to the HKEY_CLASSES_ROOT registry hive but it is
-  // necessary to save the values in the case where the user performs a hard
-  // power off of the device.
-  ::RegFlushKey(HKEY_CLASSES_ROOT);
-#endif
-
-  return NS_OK;
 }
-
-#ifdef WINCE
-void
-nsWindowsShellService::SetRegKey(const nsString& aKeyName,
-                                 const nsString& aValueName,
-                                 const nsString& aValue)
-{
-  PRUnichar buf[MAX_BUF];
-  DWORD len = sizeof buf;
-
-  HKEY theKey;
-  nsresult rv = OpenKeyForWriting(HKEY_CLASSES_ROOT, aKeyName, &theKey);
-  if (NS_FAILED(rv))
-    return;
-
-  // Get the current value.
-  DWORD res = ::RegQueryValueExW(theKey, PromiseFlatString(aValueName).get(),
-                                 NULL, NULL, (LPBYTE)buf, &len);
-
-  // Set the new value if it doesn't exist or it is different than the current
-  // value.
-  nsAutoString current(buf);
-  if (REG_FAILED(res) || !current.Equals(aValue)) {
-    const nsString &flatValue = PromiseFlatString(aValue);
-
-    ::RegSetValueExW(theKey, PromiseFlatString(aValueName).get(),
-                     0, REG_SZ, (const BYTE *)flatValue.get(),
-                     (flatValue.Length() + 1) * sizeof(PRUnichar));
-  }
-
-  // Close the key we opened.
-  ::RegCloseKey(theKey);
-}
-#endif
 
 NS_IMETHODIMP
-nsWindowsShellService::GetShouldCheckDefaultBrowser(PRBool* aResult)
+nsWindowsShellService::GetShouldCheckDefaultBrowser(bool* aResult)
 {
+  NS_ENSURE_ARG_POINTER(aResult);
+
   // If we've already checked, the browser has been started and this is a 
   // new window open, and we don't want to check again.
   if (mCheckedThisSession) {
-    *aResult = PR_FALSE;
+    *aResult = false;
     return NS_OK;
   }
 
   nsCOMPtr<nsIPrefBranch> prefs;
-  nsCOMPtr<nsIPrefService> pserve(do_GetService(NS_PREFSERVICE_CONTRACTID));
-  if (pserve)
-    pserve->GetBranch("", getter_AddRefs(prefs));
+  nsresult rv;
+  nsCOMPtr<nsIPrefService> pserve(do_GetService(NS_PREFSERVICE_CONTRACTID, &rv));
+  NS_ENSURE_SUCCESS(rv, rv);
 
-  prefs->GetBoolPref(PREF_CHECKDEFAULTBROWSER, aResult);
+  rv = pserve->GetBranch("", getter_AddRefs(prefs));
+  NS_ENSURE_SUCCESS(rv, rv);
 
-  return NS_OK;
+  return prefs->GetBoolPref(PREF_CHECKDEFAULTBROWSER, aResult);
 }
 
 NS_IMETHODIMP
-nsWindowsShellService::SetShouldCheckDefaultBrowser(PRBool aShouldCheck)
+nsWindowsShellService::SetShouldCheckDefaultBrowser(bool aShouldCheck)
 {
   nsCOMPtr<nsIPrefBranch> prefs;
-  nsCOMPtr<nsIPrefService> pserve(do_GetService(NS_PREFSERVICE_CONTRACTID));
-  if (pserve)
-    pserve->GetBranch("", getter_AddRefs(prefs));
+  nsresult rv;
 
-  prefs->SetBoolPref(PREF_CHECKDEFAULTBROWSER, aShouldCheck);
+  nsCOMPtr<nsIPrefService> pserve(do_GetService(NS_PREFSERVICE_CONTRACTID, &rv));
+  NS_ENSURE_SUCCESS(rv, rv);
+  
+  rv = pserve->GetBranch("", getter_AddRefs(prefs));
+  NS_ENSURE_SUCCESS(rv, rv);
 
-  return NS_OK;
+  return prefs->SetBoolPref(PREF_CHECKDEFAULTBROWSER, aShouldCheck);
 }
 
 static nsresult
@@ -760,7 +617,7 @@ nsWindowsShellService::SetDesktopBackground(nsIDOMElement* aElement,
 
   // if the file was written successfully, set it as the system wallpaper
   if (NS_SUCCEEDED(rv)) {
-     PRBool result = PR_FALSE;
+     bool result = false;
      DWORD  dwDisp = 0;
      HKEY   key;
      // Try to create/open a subkey under HKCU.
@@ -768,7 +625,6 @@ nsWindowsShellService::SetDesktopBackground(nsIDOMElement* aElement,
                                    0, NULL, REG_OPTION_NON_VOLATILE,
                                    KEY_WRITE, NULL, &key, &dwDisp);
     if (REG_SUCCEEDED(res)) {
-#ifndef WINCE
       PRUnichar tile[2], style[2];
       switch (aPosition) {
         case BACKGROUND_TILE:
@@ -795,25 +651,9 @@ nsWindowsShellService::SetDesktopBackground(nsIDOMElement* aElement,
                        0, REG_SZ, (const BYTE *)style, size);
       ::SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, (PVOID)path.get(),
                               SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
-#else
-      DWORD tile = (aPosition == BACKGROUND_TILE);
-      ::RegSetValueExW(key, L"Tile",
-                       0, REG_DWORD, (const BYTE *)&tile, sizeof(DWORD));
-      // On WinCE SPI_SETDESKWALLPAPER isn't available, so set the registry
-      // entry ourselves and then broadcast UI change
-      PRInt32 size = (path.Length() + 1) * sizeof(PRUnichar);
-      ::RegSetValueExW(key, L"Wallpaper",
-                       0, REG_SZ, (const BYTE *)path.get(), size);
-      ::SendMessage(HWND_BROADCAST, WM_SETTINGCHANGE, NULL, 0);
-#endif
 
       // Close the key we opened.
       ::RegCloseKey(key);
-
-#ifdef WINCE
-      // Ensure that the writes are flushed in case of hard reboot
-      ::RegFlushKey(HKEY_CURRENT_USER);
-#endif
     }
   }
   return rv;
@@ -939,10 +779,7 @@ nsWindowsShellService::SetDesktopBackgroundColor(PRUint32 aColor)
 
   ::SetSysColors(sizeof(aParameters) / sizeof(int), aParameters, colors);
 
-  // SetSysColors is persisting across sessions on Windows CE, so no need to
-  // write to registry
-#ifndef WINCE
-  PRBool result = PR_FALSE;
+  bool result = false;
   DWORD  dwDisp = 0;
   HKEY   key;
   // Try to create/open a subkey under HKCU.
@@ -963,11 +800,9 @@ nsWindowsShellService::SetDesktopBackgroundColor(PRUint32 aColor)
   
   // Close the key we opened.
   ::RegCloseKey(key);
-#endif
   return NS_OK;
 }
 
-#ifndef WINCE
 NS_IMETHODIMP
 nsWindowsShellService::GetUnreadMailCount(PRUint32* aCount)
 {
@@ -989,7 +824,7 @@ nsWindowsShellService::GetUnreadMailCount(PRUint32* aCount)
   return NS_OK;
 }
 
-PRBool
+bool
 nsWindowsShellService::GetMailAccountKey(HKEY* aResult)
 {
   NS_NAMED_LITERAL_STRING(unread,
@@ -1015,7 +850,7 @@ nsWindowsShellService::GetMailAccountKey(HKEY* aResult)
         // Close the key we opened.
         ::RegCloseKey(mailKey);
 	 
-        return PR_TRUE;
+        return true;
       }
     }
     else
@@ -1025,9 +860,8 @@ nsWindowsShellService::GetMailAccountKey(HKEY* aResult)
 
   // Close the key we opened.
   ::RegCloseKey(mailKey);
-  return PR_FALSE;
+  return false;
 }
-#endif
 
 NS_IMETHODIMP
 nsWindowsShellService::OpenApplicationWithURI(nsILocalFile* aApplication,
@@ -1045,7 +879,7 @@ nsWindowsShellService::OpenApplicationWithURI(nsILocalFile* aApplication,
   
   const nsCString spec(aURI);
   const char* specStr = spec.get();
-  return process->Run(PR_FALSE, &specStr, 1);
+  return process->Run(false, &specStr, 1);
 }
 
 NS_IMETHODIMP
@@ -1085,7 +919,7 @@ nsWindowsShellService::GetDefaultFeedReader(nsILocalFile** _retval)
   rv = defaultReader->InitWithPath(path);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  PRBool exists;
+  bool exists;
   rv = defaultReader->Exists(&exists);
   NS_ENSURE_SUCCESS(rv, rv);
   if (!exists)

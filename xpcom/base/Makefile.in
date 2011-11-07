@@ -49,7 +49,7 @@ GRE_MODULE	= 1
 MOZILLA_INTERNAL_API =1
 LIBXUL_LIBRARY = 1
 
-# TODO: we do this in crashreporter too, should be centralized
+# TODO: we do this in crashreporter and storage/src too, should be centralized
 ifeq ($(OS_ARCH),Linux)
 DEFINES += -DXP_LINUX
 endif
@@ -71,6 +71,10 @@ CPPSRCS		= \
 		nsMemoryReporterManager.cpp \
 		FunctionTimer.cpp \
 		$(NULL)
+
+ifeq ($(OS_ARCH),Linux)
+CPPSRCS += MapsMemoryReporter.cpp
+endif
 
 ifeq (cocoa,$(MOZ_WIDGET_TOOLKIT))
 CPPSRCS		+= nsMacUtilsImpl.cpp
@@ -94,10 +98,10 @@ EXPORTS_NAMESPACES = mozilla
 
 EXPORTS_mozilla = \
 	FunctionTimer.h \
+	MapsMemoryReporter.h \
 	$(NULL)
 
 ifeq (windows,$(MOZ_WIDGET_TOOLKIT))
-CPPSRCS += nsSetDllDirectory.cpp
 CPPSRCS += nsCrashOnException.cpp
 endif
 
@@ -152,6 +156,8 @@ FORCE_STATIC_LIB = 1
 # Force use of PIC
 FORCE_USE_PIC	= 1
 
+include $(topsrcdir)/config/config.mk
+include $(topsrcdir)/ipc/chromium/chromium-config.mk
 include $(topsrcdir)/config/rules.mk
 
 DEFINES		+= -D_IMPL_NS_COM

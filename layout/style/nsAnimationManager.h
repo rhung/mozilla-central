@@ -41,13 +41,13 @@
 #include "AnimationCommon.h"
 #include "nsCSSPseudoElements.h"
 #include "nsStyleContext.h"
-#include "nsTHashtable.h"
+#include "nsDataHashtable.h"
 #include "nsGUIEvent.h"
 #include "mozilla/TimeStamp.h"
 #include "nsThreadUtils.h"
 
 class nsCSSKeyframesRule;
-struct AnimationSegment;
+struct AnimationPropertySegment;
 struct ElementAnimation;
 struct ElementAnimations;
 
@@ -75,7 +75,7 @@ public:
                        const nsString& aAnimationName,
                        PRUint32 aMessage, mozilla::TimeDuration aElapsedTime)
       : mElement(aElement),
-        mEvent(PR_TRUE, aMessage, aAnimationName, aElapsedTime.ToSeconds())
+        mEvent(true, aMessage, aAnimationName, aElapsedTime.ToSeconds())
     {
     }
 
@@ -83,7 +83,7 @@ public:
     // to ourselves in order to work with nsTArray
     AnimationEventInfo(const AnimationEventInfo &aOther)
       : mElement(aOther.mElement),
-        mEvent(PR_TRUE, aOther.mEvent.message,
+        mEvent(true, aOther.mEvent.message,
                aOther.mEvent.animationName, aOther.mEvent.elapsedTime)
     {
     }
@@ -115,7 +115,7 @@ public:
                                    mozilla::dom::Element* aElement);
 
   void KeyframesListIsDirty() {
-    mKeyframesListIsDirty = PR_TRUE;
+    mKeyframesListIsDirty = true;
   }
 
   typedef InfallibleTArray<AnimationEventInfo> EventArray;
@@ -132,15 +132,14 @@ public:
 private:
   ElementAnimations* GetElementAnimations(mozilla::dom::Element *aElement,
                                           nsCSSPseudoElements::Type aPseudoType,
-                                          PRBool aCreateIfNeeded);
+                                          bool aCreateIfNeeded);
   void BuildAnimations(nsStyleContext* aStyleContext,
                        InfallibleTArray<ElementAnimation>& aAnimations);
-  void BuildSegment(InfallibleTArray<AnimationSegment>& aSegments,
-                    const nsAnimation& aAnimation,
+  bool BuildSegment(InfallibleTArray<AnimationPropertySegment>& aSegments,
+                    nsCSSProperty aProperty, const nsAnimation& aAnimation,
                     float aFromKey, nsStyleContext* aFromContext,
                     mozilla::css::Declaration* aFromDeclaration,
-                    float aToKey, nsStyleContext* aToContext,
-                    mozilla::css::Declaration* aToDeclaration);
+                    float aToKey, nsStyleContext* aToContext);
   nsIStyleRule* GetAnimationRule(mozilla::dom::Element* aElement,
                                  nsCSSPseudoElements::Type aPseudoType);
 

@@ -38,7 +38,7 @@
 #ifndef nsStringBundle_h__
 #define nsStringBundle_h__
 
-#include "mozilla/Monitor.h"
+#include "mozilla/ReentrantMonitor.h"
 #include "nsIStringBundle.h"
 #include "nsCOMPtr.h"
 #include "nsIPersistentProperties2.h"
@@ -71,9 +71,9 @@ protected:
 private:
     nsCString              mPropertiesURL;
     nsCOMPtr<nsIStringBundleOverride> mOverrideStrings;
-    mozilla::Monitor             mMonitor;
-    PRPackedBool                 mAttemptedLoad;
-    PRPackedBool                 mLoaded;
+    mozilla::ReentrantMonitor    mReentrantMonitor;
+    bool                         mAttemptedLoad;
+    bool                         mLoaded;
     
 public:
     static nsresult FormatString(const PRUnichar *formatStr,
@@ -96,7 +96,7 @@ class nsExtensibleStringBundle : public nsIStringBundle
 private:
   
   nsCOMArray<nsIStringBundle> mBundles;
-  PRBool             mLoaded;
+  bool               mLoaded;
 
 public:
 

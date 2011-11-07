@@ -40,6 +40,7 @@
 #include "SVGPathSegUtils.h"
 #include "nsTArray.h"
 #include "nsSVGElement.h"
+#include "nsIWeakReferenceUtils.h"
 
 class gfxContext;
 struct gfxMatrix;
@@ -116,7 +117,7 @@ public:
   /// This may return an incomplete string on OOM, but that's acceptable.
   void GetValueAsString(nsAString& aValue) const;
 
-  PRBool IsEmpty() const {
+  bool IsEmpty() const {
     return mData.IsEmpty();
   }
 
@@ -141,7 +142,7 @@ public:
   }
 
   // Used by nsSMILCompositor to check if the cached base val is out of date
-  PRBool operator==(const SVGPathData& rhs) const {
+  bool operator==(const SVGPathData& rhs) const {
     // We use memcmp so that we don't need to worry that the data encoded in
     // the first float may have the same bit pattern as a NaN.
     return mData.Length() == rhs.mData.Length() &&
@@ -149,7 +150,7 @@ public:
                   mData.Length() * sizeof(float)) == 0;
   }
 
-  PRBool SetCapacity(PRUint32 aSize) {
+  bool SetCapacity(PRUint32 aSize) {
     return mData.SetCapacity(aSize);
   }
 
@@ -165,14 +166,14 @@ public:
   void GetMarkerPositioningData(nsTArray<nsSVGMark> *aMarks) const;
 
   /**
-   * Returns PR_TRUE, except on OOM, in which case returns PR_FALSE.
+   * Returns true, except on OOM, in which case returns false.
    */
-  PRBool GetSegmentLengths(nsTArray<double> *aLengths) const;
+  bool GetSegmentLengths(nsTArray<double> *aLengths) const;
 
   /**
-   * Returns PR_TRUE, except on OOM, in which case returns PR_FALSE.
+   * Returns true, except on OOM, in which case returns false.
    */
-  PRBool GetDistancesFromOriginToEndsOfVisibleSegments(nsTArray<double> *aArray) const;
+  bool GetDistancesFromOriginToEndsOfVisibleSegments(nsTArray<double> *aArray) const;
 
   already_AddRefed<gfxFlattenedPath>
   ToFlattenedPath(const gfxMatrix& aMatrix) const;
@@ -203,10 +204,10 @@ protected:
   }
 
   /**
-   * This may fail (return PR_FALSE) on OOM if the internal capacity is being
+   * This may fail (return false) on OOM if the internal capacity is being
    * increased, in which case the list will be left unmodified.
    */
-  PRBool SetLength(PRUint32 aLength) {
+  bool SetLength(PRUint32 aLength) {
     return mData.SetLength(aLength);
   }
 
@@ -222,7 +223,7 @@ protected:
   // * InsertItem(PRUint32 aDataIndex, PRUint32 aType, const float *aArgs);
   // * ReplaceItem(PRUint32 aDataIndex, PRUint32 aType, const float *aArgs);
   // * RemoveItem(PRUint32 aDataIndex);
-  // * PRBool AppendItem(PRUint32 aType, const float *aArgs);
+  // * bool AppendItem(PRUint32 aType, const float *aArgs);
 
   nsresult AppendSeg(PRUint32 aType, ...); // variable number of float args
 
@@ -245,20 +246,29 @@ class SVGPathDataAndOwner : public SVGPathData
 {
 public:
   SVGPathDataAndOwner(nsSVGElement *aElement = nsnull)
-    : mElement(aElement)
+    : mElement(do_GetWeakReference(static_cast<nsINode*>(aElement)))
   {}
 
   void SetElement(nsSVGElement *aElement) {
-    mElement = aElement;
+    mElement = do_GetWeakReference(static_cast<nsINode*>(aElement));
   }
 
   nsSVGElement* Element() const {
-    return mElement;
+    nsCOMPtr<nsIContent> e = do_QueryReferent(mElement);
+    return static_cast<nsSVGElement*>(e.get());
   }
 
   nsresult CopyFrom(const SVGPathDataAndOwner& rhs) {
     mElement = rhs.mElement;
     return SVGPathData::CopyFrom(rhs);
+  }
+
+  bool IsIdentity() const {
+    if (!mElement) {
+      NS_ABORT_IF_FALSE(IsEmpty(), "target element propagation failure");
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -276,10 +286,11 @@ public:
   using SVGPathData::end;
 
 private:
-  // We must keep a strong reference to our element because we may belong to a
+  // We must keep a weak reference to our element because we may belong to a
   // cached baseVal nsSMILValue. See the comments starting at:
   // https://bugzilla.mozilla.org/show_bug.cgi?id=515116#c15
-  nsRefPtr<nsSVGElement> mElement;
+  // See also https://bugzilla.mozilla.org/show_bug.cgi?id=653497
+  nsWeakPtr mElement;
 };
 
 } // namespace mozilla

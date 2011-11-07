@@ -46,6 +46,9 @@ jfieldID AndroidGeckoEvent::jTypeField = 0;
 jfieldID AndroidGeckoEvent::jTimeField = 0;
 jfieldID AndroidGeckoEvent::jP0Field = 0;
 jfieldID AndroidGeckoEvent::jP1Field = 0;
+jfieldID AndroidGeckoEvent::jAlphaField = 0;
+jfieldID AndroidGeckoEvent::jBetaField = 0;
+jfieldID AndroidGeckoEvent::jGammaField = 0;
 jfieldID AndroidGeckoEvent::jXField = 0;
 jfieldID AndroidGeckoEvent::jYField = 0;
 jfieldID AndroidGeckoEvent::jZField = 0;
@@ -102,8 +105,11 @@ jmethodID AndroidAddress::jGetThoroughfareMethod;
 jclass AndroidGeckoSurfaceView::jGeckoSurfaceViewClass = 0;
 jmethodID AndroidGeckoSurfaceView::jBeginDrawingMethod = 0;
 jmethodID AndroidGeckoSurfaceView::jEndDrawingMethod = 0;
-jmethodID AndroidGeckoSurfaceView::jDraw2DMethod = 0;
+jmethodID AndroidGeckoSurfaceView::jDraw2DBitmapMethod = 0;
+jmethodID AndroidGeckoSurfaceView::jDraw2DBufferMethod = 0;
+jmethodID AndroidGeckoSurfaceView::jGetSoftwareDrawBitmapMethod = 0;
 jmethodID AndroidGeckoSurfaceView::jGetSoftwareDrawBufferMethod = 0;
+jmethodID AndroidGeckoSurfaceView::jGetSurfaceMethod = 0;
 jmethodID AndroidGeckoSurfaceView::jGetHolderMethod = 0;
 
 #define JNI()  (AndroidBridge::JNI())
@@ -142,9 +148,12 @@ AndroidGeckoEvent::InitGeckoEventClass(JNIEnv *jEnv)
     jTimeField = getField("mTime", "J");
     jP0Field = getField("mP0", "Landroid/graphics/Point;");
     jP1Field = getField("mP1", "Landroid/graphics/Point;");
-    jXField = getField("mX", "F");
-    jYField = getField("mY", "F");
-    jZField = getField("mZ", "F");
+    jAlphaField = getField("mAlpha", "D");
+    jBetaField = getField("mBeta", "D");
+    jGammaField = getField("mGamma", "D");
+    jXField = getField("mX", "D");
+    jYField = getField("mY", "D");
+    jZField = getField("mZ", "D");
     jRectField = getField("mRect", "Landroid/graphics/Rect;");
 
     jCharactersField = getField("mCharacters", "Ljava/lang/String;");
@@ -170,9 +179,12 @@ AndroidGeckoSurfaceView::InitGeckoSurfaceViewClass(JNIEnv *jEnv)
     jGeckoSurfaceViewClass = getClassGlobalRef("org/mozilla/gecko/GeckoSurfaceView");
 
     jBeginDrawingMethod = getMethod("beginDrawing", "()I");
+    jGetSoftwareDrawBitmapMethod = getMethod("getSoftwareDrawBitmap", "()Landroid/graphics/Bitmap;");
     jGetSoftwareDrawBufferMethod = getMethod("getSoftwareDrawBuffer", "()Ljava/nio/ByteBuffer;");
     jEndDrawingMethod = getMethod("endDrawing", "()V");
-    jDraw2DMethod = getMethod("draw2D", "(Ljava/nio/ByteBuffer;I)V");
+    jDraw2DBitmapMethod = getMethod("draw2D", "(Landroid/graphics/Bitmap;II)V");
+    jDraw2DBufferMethod = getMethod("draw2D", "(Ljava/nio/ByteBuffer;I)V");
+    jGetSurfaceMethod = getMethod("getSurface", "()Landroid/view/Surface;");
     jGetHolderMethod = getMethod("getHolder", "()Landroid/view/SurfaceHolder;");
 }
 
@@ -321,7 +333,7 @@ AndroidGeckoEvent::ReadRectField(JNIEnv *jenv)
                       r.Right() - r.Left(),
                       r.Bottom() - r.Top());
     } else {
-        mRect.Empty();
+        mRect.SetEmpty();
     }
 }
 
@@ -330,7 +342,7 @@ AndroidGeckoEvent::ReadCharactersField(JNIEnv *jenv)
 {
     jstring s = (jstring) jenv->GetObjectField(wrapped_obj, jCharactersField);
     if (!s) {
-        mCharacters.SetIsVoid(PR_TRUE);
+        mCharacters.SetIsVoid(true);
         return;
     }
 
@@ -398,10 +410,16 @@ AndroidGeckoEvent::Init(JNIEnv *jenv, jobject jobj)
             ReadRectField(jenv);
             break;
 
-        case SENSOR_EVENT:
-            mX = jenv->GetFloatField(jobj, jXField);
-            mY = jenv->GetFloatField(jobj, jYField);
-            mZ = jenv->GetFloatField(jobj, jZField);
+        case ORIENTATION_EVENT:
+            mAlpha = jenv->GetDoubleField(jobj, jAlphaField);
+            mBeta = jenv->GetDoubleField(jobj, jBetaField);
+            mGamma = jenv->GetDoubleField(jobj, jGammaField);
+            break;
+
+       case ACCELERATION_EVENT:
+            mX = jenv->GetDoubleField(jobj, jXField);
+            mY = jenv->GetDoubleField(jobj, jYField);
+            mZ = jenv->GetDoubleField(jobj, jZField);
             break;
 
         case LOCATION_EVENT: {
@@ -423,7 +441,7 @@ AndroidGeckoEvent::Init(JNIEnv *jenv, jobject jobj)
             break;
     }
 
-#ifndef ANDROID_DEBUG_EVENTS
+#ifndef DEBUG_ANDROID_EVENTS
     ALOG("AndroidGeckoEvent: %p : %d", (void*)jobj, mType);
 #endif
 }
@@ -438,7 +456,20 @@ void
 AndroidGeckoEvent::Init(int x1, int y1, int x2, int y2)
 {
     mType = DRAW;
-    mRect.Empty();
+    mRect.SetEmpty();
+}
+
+void
+AndroidGeckoEvent::Init(AndroidGeckoEvent *aResizeEvent)
+{
+    NS_ASSERTION(aResizeEvent->Type() == SIZE_CHANGED, "Init called on non-SIZE_CHANGED event");
+
+    mType = FORCED_RESIZE;
+    mTime = aResizeEvent->mTime;
+    mP0.x = aResizeEvent->mP0.x;
+    mP0.y = aResizeEvent->mP0.y;
+    mP1.x = aResizeEvent->mP1.x;
+    mP1.y = aResizeEvent->mP1.y;
 }
 
 void
@@ -464,15 +495,33 @@ AndroidGeckoSurfaceView::EndDrawing()
 }
 
 void
+AndroidGeckoSurfaceView::Draw2D(jobject bitmap, int width, int height)
+{
+    JNI()->CallVoidMethod(wrapped_obj, jDraw2DBitmapMethod, bitmap, width, height);
+}
+
+void
 AndroidGeckoSurfaceView::Draw2D(jobject buffer, int stride)
 {
-    JNI()->CallVoidMethod(wrapped_obj, jDraw2DMethod, buffer, stride);
+    JNI()->CallVoidMethod(wrapped_obj, jDraw2DBufferMethod, buffer, stride);
+}
+
+jobject
+AndroidGeckoSurfaceView::GetSoftwareDrawBitmap()
+{
+    return JNI()->CallObjectMethod(wrapped_obj, jGetSoftwareDrawBitmapMethod);
 }
 
 jobject
 AndroidGeckoSurfaceView::GetSoftwareDrawBuffer()
 {
     return JNI()->CallObjectMethod(wrapped_obj, jGetSoftwareDrawBufferMethod);
+}
+
+jobject
+AndroidGeckoSurfaceView::GetSurface()
+{
+    return JNI()->CallObjectMethod(wrapped_obj, jGetSurfaceMethod);
 }
 
 jobject
@@ -520,7 +569,7 @@ AndroidRect::Init(JNIEnv *jenv, jobject jobj)
 nsJNIString::nsJNIString(jstring jstr, JNIEnv *jenv)
 {
     if (!jstr) {
-        SetIsVoid(PR_TRUE);
+        SetIsVoid(true);
         return;
     }
     JNIEnv *jni = jenv;
@@ -529,14 +578,14 @@ nsJNIString::nsJNIString(jstring jstr, JNIEnv *jenv)
     const jchar* jCharPtr = jni->GetStringChars(jstr, NULL);
 
     if (!jCharPtr) {
-        SetIsVoid(PR_TRUE);
+        SetIsVoid(true);
         return;
     }
 
     jsize len = jni->GetStringLength(jstr);
 
     if (len <= 0) {
-        SetIsVoid(PR_TRUE);
+        SetIsVoid(true);
     } else {
         Assign(jCharPtr, len);
     }

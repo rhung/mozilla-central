@@ -37,7 +37,7 @@
  * ***** END LICENSE BLOCK ***** */
 
 #include "nsMaemoNetworkManager.h"
-#include "mozilla/Monitor.h"
+#include "mozilla/ReentrantMonitor.h"
 
 #include <dbus/dbus.h>
 #include <dbus/dbus-glib-lowlevel.h>
@@ -66,11 +66,11 @@ enum InternalState
 
 static InternalState gInternalState = InternalState_Invalid;
 static ConIcConnection* gConnection = nsnull;
-static PRBool gConnectionCallbackInvoked = PR_FALSE;
+static bool gConnectionCallbackInvoked = false;
 
 using namespace mozilla;
 
-static Monitor* gMonitor = nsnull;
+static ReentrantMonitor* gReentrantMonitor = nsnull;
 
 static void NotifyNetworkLinkObservers()
 {
@@ -88,31 +88,31 @@ connection_event_callback(ConIcConnection *aConnection,
 {
   ConIcConnectionStatus status = con_ic_connection_event_get_status(aEvent);
   {
-    MonitorAutoEnter mon(*gMonitor);
+    ReentrantMonitorAutoEnter mon(*gReentrantMonitor);
 
     // When we are not connected, we are always disconnected.
     gInternalState = (CON_IC_STATUS_CONNECTED == status ?
                      InternalState_Connected : InternalState_Disconnected);
 
-    gConnectionCallbackInvoked = PR_TRUE;
+    gConnectionCallbackInvoked = true;
     mon.Notify();
   }
 
   NotifyNetworkLinkObservers();
 }
 
-PRBool
+bool
 nsMaemoNetworkManager::OpenConnectionSync()
 {
   if (NS_IsMainThread() || !gConnection)
-    return PR_FALSE;
+    return false;
 
   // protect gInternalState.  This also allows us
   // to block and wait in this method on this thread
   // until our callback on the main thread.
-  MonitorAutoEnter mon(*gMonitor);
+  ReentrantMonitorAutoEnter mon(*gReentrantMonitor);
 
-  gConnectionCallbackInvoked = PR_FALSE;
+  gConnectionCallbackInvoked = false;
 
   if (!con_ic_connection_connect(gConnection,
                                  CON_IC_CONNECT_FLAG_NONE))
@@ -123,9 +123,9 @@ nsMaemoNetworkManager::OpenConnectionSync()
     mon.Wait();
 
   if (gInternalState == InternalState_Connected)
-    return PR_TRUE;
+    return true;
 
-  return PR_FALSE;
+  return false;
 }
 
 void
@@ -135,27 +135,27 @@ nsMaemoNetworkManager::CloseConnection()
     con_ic_connection_disconnect(gConnection);
 }
 
-PRBool
+bool
 nsMaemoNetworkManager::IsConnected()
 {
   return gInternalState == InternalState_Connected;
 }
 
-PRBool
+bool
 nsMaemoNetworkManager::GetLinkStatusKnown()
 {
   return gInternalState != InternalState_Invalid;
 }
 
-PRBool
+bool
 nsMaemoNetworkManager::Startup()
 {
   if (gConnection)
-    return PR_TRUE;
+    return true;
 
-  gMonitor = new Monitor("MaemoAutodialer");
-  if (!gMonitor)
-    return PR_FALSE;
+  gReentrantMonitor = new ReentrantMonitor("MaemoAutodialer");
+  if (!gReentrantMonitor)
+    return false;
 
   DBusError error;
   dbus_error_init(&error);
@@ -169,9 +169,9 @@ nsMaemoNetworkManager::Startup()
   gConnection = con_ic_connection_new();
   NS_ASSERTION(gConnection, "Error when creating connection");
   if (!gConnection) {
-    delete gMonitor;
-    gMonitor = nsnull;
-    return PR_FALSE;
+    delete gReentrantMonitor;
+    gReentrantMonitor = nsnull;
+    return false;
   }
 
   g_signal_connect(G_OBJECT(gConnection),
@@ -181,9 +181,9 @@ nsMaemoNetworkManager::Startup()
   
   g_object_set(G_OBJECT(gConnection),
                "automatic-connection-events",
-               PR_TRUE,
+               true,
                nsnull);
-  return PR_TRUE;
+  return true;
 }
 
 void
@@ -191,14 +191,14 @@ nsMaemoNetworkManager::Shutdown()
 {
   gConnection = nsnull;
 
-  if (gMonitor) {
+  if (gReentrantMonitor) {
     // notify anyone waiting
-    MonitorAutoEnter mon(*gMonitor);
+    ReentrantMonitorAutoEnter mon(*gReentrantMonitor);
     gInternalState = InternalState_Invalid;    
     mon.Notify();
   }
   
-  // We are leaking the gMonitor because a race condition could occur. We need
+  // We are leaking the gReentrantMonitor because a race condition could occur. We need
   // a notification after xpcom-shutdown-threads so we can safely delete the monitor
 }
 

@@ -41,25 +41,73 @@
 #include "gfxImageSurface.h"
 #include "gfxQuartzSurface.h"
 #include "gfxQuartzImageSurface.h"
+#include "mozilla/gfx/2D.h"
 
 #include "gfxMacPlatformFontList.h"
 #include "gfxMacFont.h"
 #include "gfxCoreTextShaper.h"
 #include "gfxUserFontSet.h"
 
-#include "nsIPrefBranch.h"
-#include "nsIPrefService.h"
-#include "nsIPrefLocalizedString.h"
-#include "nsServiceManagerUtils.h"
 #include "nsCRT.h"
 #include "nsTArray.h"
 #include "nsUnicodeRange.h"
 
+#include "mozilla/Preferences.h"
+
 #include "qcms.h"
+
+#include <dlfcn.h>
+
+using namespace mozilla;
+using namespace mozilla::gfx;
+
+// cribbed from CTFontManager.h
+enum {
+   kAutoActivationDisabled = 1
+};
+typedef uint32_t AutoActivationSetting;
+
+// bug 567552 - disable auto-activation of fonts
+
+static void 
+DisableFontActivation()
+{
+    // get the main bundle identifier
+    CFBundleRef mainBundle = ::CFBundleGetMainBundle();
+    CFStringRef mainBundleID = NULL;
+
+    if (mainBundle) {
+        mainBundleID = ::CFBundleGetIdentifier(mainBundle);
+    }
+
+    // if possible, fetch CTFontManagerSetAutoActivationSetting
+    void (*CTFontManagerSetAutoActivationSettingPtr)
+            (CFStringRef, AutoActivationSetting);
+    CTFontManagerSetAutoActivationSettingPtr =
+        (void (*)(CFStringRef, AutoActivationSetting))
+        dlsym(RTLD_DEFAULT, "CTFontManagerSetAutoActivationSetting");
+
+    // bug 567552 - disable auto-activation of fonts
+    if (CTFontManagerSetAutoActivationSettingPtr) {
+        CTFontManagerSetAutoActivationSettingPtr(mainBundleID,
+                                                 kAutoActivationDisabled);
+    }
+
+    if (mainBundleID) {
+        ::CFRelease(mainBundleID);
+    }
+    if (mainBundle) {
+        ::CFRelease(mainBundle);
+    }
+}
 
 gfxPlatformMac::gfxPlatformMac()
 {
     mOSXVersion = 0;
+    OSXVersion();
+    if (mOSXVersion >= MAC_OS_X_VERSION_10_6_HEX) {
+        DisableFontActivation();
+    }
     mFontAntiAliasingThreshold = ReadAntiAliasingThreshold();
 }
 
@@ -90,6 +138,12 @@ gfxPlatformMac::CreateOffscreenSurface(const gfxIntSize& size,
     NS_IF_ADDREF(newSurface);
     return newSurface;
 }
+    
+RefPtr<DrawTarget>
+gfxPlatformMac::CreateOffscreenDrawTarget(const IntSize& aSize, SurfaceFormat aFormat)
+{
+  return Factory::CreateDrawTarget(BACKEND_SKIA, aSize, aFormat);
+}
 
 already_AddRefed<gfxASurface>
 gfxPlatformMac::OptimizeImage(gfxImageSurface *aSurface,
@@ -111,15 +165,29 @@ gfxPlatformMac::OptimizeImage(gfxImageSurface *aSurface,
     return ret.forget();
 }
 
+RefPtr<ScaledFont>
+gfxPlatformMac::GetScaledFontForFont(gfxFont *aFont)
+{
+    gfxMacFont *font = static_cast<gfxMacFont*>(aFont);
+
+    NativeFont nativeFont;
+    nativeFont.mType = NATIVE_FONT_MAC_FONT_FACE;
+    nativeFont.mFont = font->GetCGFontRef();
+    RefPtr<ScaledFont> scaledFont =
+      mozilla::gfx::Factory::CreateScaledFontForNativeFont(nativeFont, font->GetAdjustedSize());
+
+    return scaledFont;
+}
+
 nsresult
 gfxPlatformMac::ResolveFontName(const nsAString& aFontName,
                                 FontResolverCallback aCallback,
-                                void *aClosure, PRBool& aAborted)
+                                void *aClosure, bool& aAborted)
 {
     nsAutoString resolvedName;
     if (!gfxPlatformFontList::PlatformFontList()->
              ResolveFontName(aFontName, resolvedName)) {
-        aAborted = PR_FALSE;
+        aAborted = false;
         return NS_OK;
     }
     aAborted = !(*aCallback)(resolvedName, aClosure);
@@ -162,7 +230,7 @@ gfxPlatformMac::MakePlatformFont(const gfxProxyFontEntry *aProxyEntry,
                                                                      aLength);
 }
 
-PRBool
+bool
 gfxPlatformMac::IsFontFormatSupported(nsIURI *aFontURI, PRUint32 aFormatFlags)
 {
     // check for strange format flags
@@ -174,16 +242,16 @@ gfxPlatformMac::IsFontFormatSupported(nsIURI *aFontURI, PRUint32 aFormatFlags)
                         gfxUserFontSet::FLAG_FORMAT_OPENTYPE | 
                         gfxUserFontSet::FLAG_FORMAT_TRUETYPE | 
                         gfxUserFontSet::FLAG_FORMAT_TRUETYPE_AAT)) {
-        return PR_TRUE;
+        return true;
     }
 
     // reject all other formats, known and unknown
     if (aFormatFlags != 0) {
-        return PR_FALSE;
+        return false;
     }
 
     // no format hint set, need to look at data
-    return PR_TRUE;
+    return true;
 }
 
 // these will also move to gfxPlatform once all platforms support the fontlist
@@ -224,17 +292,8 @@ gfxPlatformMac::ReadAntiAliasingThreshold()
     PRUint32 threshold = 0;  // default == no threshold
     
     // first read prefs flag to determine whether to use the setting or not
-    PRBool useAntiAliasingThreshold = PR_FALSE;
-    nsCOMPtr<nsIPrefBranch> prefs = do_GetService(NS_PREFSERVICE_CONTRACTID);
-    if (prefs) {
-        PRBool enabled;
-        nsresult rv =
-            prefs->GetBoolPref("gfx.use_text_smoothing_setting", &enabled);
-        if (NS_SUCCEEDED(rv)) {
-            useAntiAliasingThreshold = enabled;
-        }
-    }
-    
+    bool useAntiAliasingThreshold = Preferences::GetBool("gfx.use_text_smoothing_setting", false);
+
     // if the pref setting is disabled, return 0 which effectively disables this feature
     if (!useAntiAliasingThreshold)
         return threshold;

@@ -24,6 +24,7 @@
  *   Philipp von Weitershausen <philipp@weitershausen.de>
  *   Paul O’Shannessy <paul@oshannessy.com>
  *   Richard Newman <rnewman@mozilla.com>
+ *   Allison Naaktgeboren <ally@mozilla.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -46,20 +47,31 @@ const Cu = Components.utils;
 
 // page consts
 
-const INTRO_PAGE                    = 0;
-const NEW_ACCOUNT_START_PAGE        = 1;
-const NEW_ACCOUNT_PP_PAGE           = 2;
-const NEW_ACCOUNT_CAPTCHA_PAGE      = 3;
-const EXISTING_ACCOUNT_CONNECT_PAGE = 4;
-const EXISTING_ACCOUNT_LOGIN_PAGE   = 5;
-const OPTIONS_PAGE                  = 6;
-const OPTIONS_CONFIRM_PAGE          = 7;
-const SETUP_SUCCESS_PAGE            = 8;
+const PAIR_PAGE                     = 0;
+const INTRO_PAGE                    = 1;
+const NEW_ACCOUNT_START_PAGE        = 2;
+const EXISTING_ACCOUNT_CONNECT_PAGE = 3;
+const EXISTING_ACCOUNT_LOGIN_PAGE   = 4;
+const OPTIONS_PAGE                  = 5;
+const OPTIONS_CONFIRM_PAGE          = 6;
+
+// Broader than we'd like, but after this changed from api-secure.recaptcha.net
+// we had no choice. At least we only do this for the duration of setup.
+// See discussion in Bugs 508112 and 653307.
+const RECAPTCHA_DOMAIN = "https://www.google.com";
+
+const PIN_PART_LENGTH = 4;
 
 Cu.import("resource://services-sync/main.js");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
+Cu.import("resource://gre/modules/PlacesUtils.jsm");
 Cu.import("resource://gre/modules/PluralForm.jsm");
+
+
+function setVisibility(element, visible) {
+  element.style.visibility = visible ? "visible" : "hidden";
+}
 
 var gSyncSetup = {
   QueryInterface: XPCOMUtils.generateQI([Ci.nsISupports,
@@ -69,13 +81,14 @@ var gSyncSetup = {
   captchaBrowser: null,
   wizard: null,
   _disabledSites: [],
-  _remoteSites: [Weave.Service.serverURL, "https://api-secure.recaptcha.net"],
 
   status: {
     password: false,
     email: false,
     server: false
   },
+
+  get _remoteSites() [Weave.Service.serverURL, RECAPTCHA_DOMAIN],
 
   get _usingMainServers() {
     if (this._settingUpNew)
@@ -86,9 +99,9 @@ var gSyncSetup = {
   init: function () {
     let obs = [
       ["weave:service:changepph:finish", "onResetPassphrase"],
-      ["weave:service:verify-login:start",  "onLoginStart"],
-      ["weave:service:verify-login:error",  "onLoginEnd"],
-      ["weave:service:verify-login:finish", "onLoginEnd"]];
+      ["weave:service:login:start",  "onLoginStart"],
+      ["weave:service:login:error",  "onLoginEnd"],
+      ["weave:service:login:finish", "onLoginEnd"]];
 
     // Add the observers now and remove them on unload
     let self = this;
@@ -105,18 +118,30 @@ var gSyncSetup = {
     addRem(true);
     window.addEventListener("unload", function() addRem(false), false);
 
-    this.captchaBrowser = document.getElementById("captcha");
-    this.wizard = document.getElementById("accountSetup");
+    window.setTimeout(function () {
+      // Force Service to be loaded so that engines are registered.
+      // See Bug 670082.
+      Weave.Service;
+    }, 0);
 
-    if (window.arguments && window.arguments[0] == true) {
-      // we're resetting sync
-      this._resettingSync = true;
-      this.wizard.pageIndex = OPTIONS_PAGE;
+    this.captchaBrowser = document.getElementById("captcha");
+
+    this.wizardType = null;
+    if (window.arguments && window.arguments[0]) {
+      this.wizardType = window.arguments[0];
     }
-    else {
-      this.wizard.canAdvance = false;
-      this.captchaBrowser.addProgressListener(this);
-      Weave.Svc.Prefs.set("firstSync", "notReady");
+    switch (this.wizardType) {
+      case null:
+        this.wizard.pageIndex = INTRO_PAGE;
+        // Fall through!
+      case "pair":
+        this.captchaBrowser.addProgressListener(this);
+        Weave.Svc.Prefs.set("firstSync", "notReady");
+        break;
+      case "reset":
+        this._resettingSync = true;
+        this.wizard.pageIndex = OPTIONS_PAGE;
+        break;
     }
 
     this.wizard.getButton("extra1").label =
@@ -142,7 +167,13 @@ var gSyncSetup = {
     if (!Weave.Utils.ensureMPUnlocked())
       return false;
     this._settingUpNew = false;
-    this.wizard.pageIndex = EXISTING_ACCOUNT_CONNECT_PAGE;
+    if (this.wizardType == "pair") {
+      // We're already pairing, so there's no point in pairing again.
+      // Go straight to the manual login page.
+      this.wizard.pageIndex = EXISTING_ACCOUNT_LOGIN_PAGE;
+    } else {
+      this.wizard.pageIndex = EXISTING_ACCOUNT_CONNECT_PAGE;
+    }
   },
 
   resetPassphrase: function resetPassphrase() {
@@ -192,6 +223,20 @@ var gSyncSetup = {
     this.toggleLoginFeedback(true);
   },
 
+  sendCredentialsAfterSync: function () {
+    let send = function() {
+      Services.obs.removeObserver("weave:service:sync:finish", send);
+      Services.obs.removeObserver("weave:service:sync:error", send);
+      let credentials = {account:   Weave.Service.account,
+                         password:  Weave.Service.password,
+                         synckey:   Weave.Service.passphrase,
+                         serverURL: Weave.Service.serverURL};
+      this._jpakeclient.sendAndComplete(credentials);
+    }.bind(this);
+    Services.obs.addObserver("weave:service:sync:finish", send, false);
+    Services.obs.addObserver("weave:service:sync:error", send, false);
+  },
+
   toggleLoginFeedback: function (stop) {
     document.getElementById("login-throbber").hidden = stop;
     let password = document.getElementById("existingPasswordFeedbackRow");
@@ -210,6 +255,8 @@ var gSyncSetup = {
         feedback = server;
         break;
       case Weave.LOGIN_FAILED_LOGIN_REJECTED:
+      case Weave.LOGIN_FAILED_NO_USERNAME:
+      case Weave.LOGIN_FAILED_NO_PASSWORD:
         feedback = password;
         break;
       case Weave.LOGIN_FAILED_INVALID_PASSPHRASE:
@@ -262,13 +309,23 @@ var gSyncSetup = {
           if (this._usingMainServers)
             return true;
 
-          if (this._validateServer(document.getElementById("existingServer"), false))
+          if (this._validateServer(document.getElementById("existingServer"))) {
             return true;
+          }
         }
         return false;
     }
     // Default, e.g. wizard's special page -1 etc.
     return true;
+  },
+
+  onPINInput: function onPINInput(textbox) {
+    if (textbox && textbox.value.length == PIN_PART_LENGTH) {
+      this.nextFocusEl[textbox.id].focus();
+    }
+    this.wizard.canAdvance = (this.pin1.value.length == PIN_PART_LENGTH &&
+                              this.pin2.value.length == PIN_PART_LENGTH &&
+                              this.pin3.value.length == PIN_PART_LENGTH);
   },
 
   onEmailInput: function () {
@@ -317,16 +374,8 @@ var gSyncSetup = {
 
   onPasswordChange: function () {
     let password = document.getElementById("weavePassword");
-    let valid, str;
-    if (password.value == document.getElementById("weavePassphrase").value) {
-      // xxxmpc - hack, sigh
-      valid = false;
-      errorString = Weave.Utils.getErrorString("change.password.pwSameAsSyncKey");
-    }
-    else {
-      let pwconfirm = document.getElementById("weavePasswordConfirm");
-      [valid, errorString] = gSyncUtils.validatePassword(password, pwconfirm);
-    }
+    let pwconfirm = document.getElementById("weavePasswordConfirm");
+    let [valid, errorString] = gSyncUtils.validatePassword(password, pwconfirm);
 
     let feedback = document.getElementById("passwordFeedbackRow");
     this._setFeedback(feedback, valid, errorString);
@@ -335,25 +384,22 @@ var gSyncSetup = {
     this.checkFields();
   },
 
-  onPassphraseGenerate: function () {
-    let passphrase = Weave.Utils.generatePassphrase();
-    Weave.Service.passphrase = passphrase;
-    let el = document.getElementById("weavePassphrase");
-    el.value = Weave.Utils.hyphenatePassphrase(passphrase);
-  },
-
   onPageShow: function() {
     switch (this.wizard.pageIndex) {
+      case PAIR_PAGE:
+        this.wizard.getButton("back").hidden = true;
+        this.wizard.getButton("extra1").hidden = true;
+        this.onPINInput();
+        this.pin1.focus();
+        break;
       case INTRO_PAGE:
+        // We may not need the captcha in the Existing Account branch of the
+        // wizard. However, we want to preload it to avoid any flickering while
+        // the Create Account page is shown.
+        this.loadCaptcha();
         this.wizard.getButton("next").hidden = true;
         this.wizard.getButton("back").hidden = true;
         this.wizard.getButton("extra1").hidden = true;
-        break;
-      case NEW_ACCOUNT_PP_PAGE:
-        document.getElementById("saveSyncKeyButton").focus();
-        let el = document.getElementById("weavePassphrase");
-        if (!el.value)
-          this.onPassphraseGenerate();
         this.checkFields();
         break;
       case NEW_ACCOUNT_START_PAGE:
@@ -365,6 +411,7 @@ var gSyncSetup = {
         this.checkFields();
         break;
       case EXISTING_ACCOUNT_CONNECT_PAGE:
+        Weave.Svc.Prefs.set("firstSync", "existingAccount");
         this.wizard.getButton("next").hidden = false;
         this.wizard.getButton("back").hidden = false;
         this.wizard.getButton("extra1").hidden = false;
@@ -373,17 +420,11 @@ var gSyncSetup = {
         this.startEasySetup();
         break;
       case EXISTING_ACCOUNT_LOGIN_PAGE:
+        this.wizard.getButton("next").hidden = false;
+        this.wizard.getButton("back").hidden = false;
+        this.wizard.getButton("extra1").hidden = false;
         this.wizard.canRewind = true;
         this.checkFields();
-        break;
-      case SETUP_SUCCESS_PAGE:
-        this.wizard.canRewind = false;
-        this.wizard.canAdvance = true;
-        this.wizard.getButton("back").hidden = true;
-        this.wizard.getButton("next").hidden = true;
-        this.wizard.getButton("cancel").hidden = true;
-        this.wizard.getButton("finish").hidden = false;
-        this._handleSuccess();
         break;
       case OPTIONS_PAGE:
         this.wizard.canRewind = false;
@@ -421,20 +462,24 @@ var gSyncSetup = {
         !Weave.Utils.ensureMPUnlocked()) {
       return false;
     }
-      
-    if (!this.wizard.pageIndex)
-      return true;
 
     switch (this.wizard.pageIndex) {
+      case PAIR_PAGE:
+        this.startPairing();
+        return false;
       case NEW_ACCOUNT_START_PAGE:
         // If the user selects Next (e.g. by hitting enter) when we haven't
         // executed the delayed checks yet, execute them immediately.
-        if (this._checkAccountTimer)
+        if (this._checkAccountTimer) {
           this.checkAccount();
-        if (this._checkServerTimer)
+        }
+        if (this._checkServerTimer) {
           this.checkServer();
-        return this.wizard.canAdvance;
-      case NEW_ACCOUNT_CAPTCHA_PAGE:
+        }
+        if (!this.wizard.canAdvance) {
+          return false;
+        }
+
         let doc = this.captchaBrowser.contentDocument;
         let getField = function getField(field) {
           let node = doc.getElementById("recaptcha_" + field + "_field");
@@ -447,7 +492,7 @@ var gSyncSetup = {
         let label = image.nextSibling;
         image.setAttribute("status", "active");
         label.value = this._stringBundle.GetStringFromName("verifying.label");
-        feedback.hidden = false;
+        setVisibility(feedback, true);
 
         let password = document.getElementById("weavePassword").value;
         let email = Weave.Utils.normalizeAccount(
@@ -461,28 +506,25 @@ var gSyncSetup = {
         if (error == null) {
           Weave.Service.account = email;
           Weave.Service.password = password;
+          Weave.Service.passphrase = Weave.Utils.generatePassphrase();
           this._handleNoScript(false);
-          this.wizard.pageIndex = SETUP_SUCCESS_PAGE;
+          Weave.Svc.Prefs.set("firstSync", "newAccount");
+          this.wizardFinish();
           return false;
         }
 
         image.setAttribute("status", "error");
         label.value = Weave.Utils.getErrorString(error);
         return false;
-      case NEW_ACCOUNT_PP_PAGE:
-        // Time to load the captcha.
-        // First check for NoScript and whitelist the right sites.
-        this._handleNoScript(true);
-        this.captchaBrowser.loadURI(Weave.Service.miscAPI + "captcha_html");
-        break;
       case EXISTING_ACCOUNT_LOGIN_PAGE:
         Weave.Service.account = Weave.Utils.normalizeAccount(
           document.getElementById("existingAccountName").value);
         Weave.Service.password = document.getElementById("existingPassword").value;
         let pp = document.getElementById("existingPassphrase").value;
         Weave.Service.passphrase = Weave.Utils.normalizePassphrase(pp);
-        if (Weave.Service.login())
-          this.wizard.pageIndex = SETUP_SUCCESS_PAGE;
+        if (Weave.Service.login()) {
+          this.wizardFinish();
+        }
         return false;
       case OPTIONS_PAGE:
         let desc = document.getElementById("mergeChoiceRadio").selectedIndex;
@@ -493,8 +535,7 @@ var gSyncSetup = {
         return this._handleChoice();
       case OPTIONS_CONFIRM_PAGE:
         if (this._resettingSync) {
-          this.onWizardFinish();
-          window.close();
+          this.wizardFinish();
           return false;
         }
         return this.returnFromOptions();
@@ -512,6 +553,15 @@ var gSyncSetup = {
         this.abortEasySetup();
         this.wizard.pageIndex = INTRO_PAGE;
         return false;
+      case EXISTING_ACCOUNT_LOGIN_PAGE:
+        // If we were already pairing on entry, we went straight to the manual
+        // login page. If subsequently we go back, return to the page that lets
+        // us choose whether we already have an account.
+        if (this.wizardType == "pair") {
+          this.wizard.pageIndex = INTRO_PAGE;
+          return false;
+        }
+        return true;
       case OPTIONS_CONFIRM_PAGE:
         // Backing up from the confirmation page = resetting first sync to merge.
         document.getElementById("mergeChoiceRadio").selectedIndex = 0;
@@ -520,8 +570,12 @@ var gSyncSetup = {
     return true;
   },
 
-  onWizardFinish: function () {
+  wizardFinish: function () {
     this.setupInitialSync();
+
+    if (this.wizardType == "pair") {
+      this.completePairing();
+    }
 
     if (!this._resettingSync) {
       function isChecked(element) {
@@ -538,26 +592,17 @@ var gSyncSetup = {
 
       Weave.Service.persistLogin();
       Weave.Svc.Obs.notify("weave:service:setup-complete");
-      if (this._settingUpNew)
-        gSyncUtils.openFirstClientFirstrun();
-      else
-        gSyncUtils.openAddedClientFirstrun();
+
+      gSyncUtils.openFirstSyncProgressPage();
     }
-
-    if (!Weave.Service.isLoggedIn)
-      Weave.Service.login();
-
-    Weave.Service.syncOnIdle(1);
+    Weave.Utils.nextTick(Weave.Service.sync, Weave.Service);
+    window.close();
   },
 
   onWizardCancel: function () {
     if (this._resettingSync)
       return;
 
-    if (this.wizard.pageIndex == SETUP_SUCCESS_PAGE) {
-      this.onWizardFinish();
-      return;
-    }
     this.abortEasySetup();
     this._handleNoScript(false);
     Weave.Service.startOver();
@@ -581,11 +626,67 @@ var gSyncSetup = {
     return false;
   },
 
+  startPairing: function startPairing() {
+    this.pairDeviceErrorRow.hidden = true;
+    // When onAbort is called, Weave may already be gone.
+    const JPAKE_ERROR_USERABORT = Weave.JPAKE_ERROR_USERABORT;
+
+    let self = this;
+    let jpakeclient = this._jpakeclient = new Weave.JPAKEClient({
+      onPaired: function onPaired() {
+        self.wizard.pageIndex = INTRO_PAGE;
+      },
+      onComplete: function onComplete() {
+        // This method will never be called since SendCredentialsController
+        // will take over after the wizard completes.
+      },
+      onAbort: function onAbort(error) {
+        delete self._jpakeclient;
+
+        // Aborted by user, ignore. The window is almost certainly going to close
+        // or is already closed.
+        if (error == JPAKE_ERROR_USERABORT) {
+          return;
+        }
+
+        self.pairDeviceErrorRow.hidden = false;
+        self.pairDeviceThrobber.hidden = true;
+        self.pin1.value = self.pin2.value = self.pin3.value = "";
+        self.pin1.disabled = self.pin2.disabled = self.pin3.disabled = false;
+        if (self.wizard.pageIndex == PAIR_PAGE) {
+          self.pin1.focus();
+        }
+      }
+    });
+    this.pairDeviceThrobber.hidden = false;
+    this.pin1.disabled = this.pin2.disabled = this.pin3.disabled = true;
+    this.wizard.canAdvance = false;
+
+    let pin = this.pin1.value + this.pin2.value + this.pin3.value;
+    let expectDelay = true;
+    jpakeclient.pairWithPIN(pin, expectDelay);
+  },
+
+  completePairing: function completePairing() {
+    if (!this._jpakeclient) {
+      // The channel was aborted while we were setting up the account
+      // locally. XXX TODO should we do anything here, e.g. tell
+      // the user on the last wizard page that it's ok, they just
+      // have to pair again?
+      return;
+    }
+    let controller = new Weave.SendCredentialsController(this._jpakeclient);
+    this._jpakeclient.controller = controller;
+  },
+
   startEasySetup: function () {
     // Don't do anything if we have a client already (e.g. we went to
     // Sync Options and just came back).
     if (this._jpakeclient)
       return;
+
+    // When onAbort is called, Weave may already be gone
+    const JPAKE_ERROR_USERABORT = Weave.JPAKE_ERROR_USERABORT;
 
     let self = this;
     this._jpakeclient = new Weave.JPAKEClient({
@@ -595,19 +696,21 @@ var gSyncSetup = {
         document.getElementById("easySetupPIN3").value = pin.slice(8);
       },
 
+      onPairingStart: function onPairingStart() {},
+
       onComplete: function onComplete(credentials) {
         Weave.Service.account = credentials.account;
         Weave.Service.password = credentials.password;
         Weave.Service.passphrase = credentials.synckey;
         Weave.Service.serverURL = credentials.serverURL;
-        self.wizard.pageIndex = SETUP_SUCCESS_PAGE;
+        gSyncSetup.wizardFinish();
       },
 
       onAbort: function onAbort(error) {
         delete self._jpakeclient;
 
-        // No error means manual abort, e.g. wizard is aborted. Ignore.
-        if (!error)
+        // Ignore if wizard is aborted.
+        if (error == JPAKE_ERROR_USERABORT)
           return;
 
         // Automatically go to manual setup if we couldn't acquire a channel.
@@ -692,7 +795,7 @@ var gSyncSetup = {
   },
 
   onServerCommand: function () {
-    document.getElementById("TOSRow").hidden = !this._usingMainServers;
+    setVisibility(document.getElementById("TOSRow"), this._usingMainServers);
     let control = document.getElementById("server");
     if (!this._usingMainServers) {
       control.setAttribute("editable", "true");
@@ -706,6 +809,9 @@ var gSyncSetup = {
     }
     control.removeAttribute("editable");
     Weave.Svc.Prefs.reset("serverURL");
+    if (this._settingUpNew) {
+      this.loadCaptcha();
+    }
     this.checkAccount();
     this.status.server = true;
     document.getElementById("serverFeedbackRow").hidden = true;
@@ -728,7 +834,7 @@ var gSyncSetup = {
     let feedback = document.getElementById("serverFeedbackRow");
     let str = "";
     if (el.value) {
-      valid = this._validateServer(el, true);
+      valid = this._validateServer(el);
       let str = valid ? "" : "serverInvalid.label";
       this._setFeedbackMessage(feedback, valid, str);
     }
@@ -743,9 +849,7 @@ var gSyncSetup = {
     this.checkFields();
   },
 
-  // xxxmpc - checkRemote is a hack, we can't verify a minimal server is live
-  // without auth, so we won't validate in the existing-server case.
-  _validateServer: function (element, checkRemote) {
+  _validateServer: function (element) {
     let valid = false;
     let val = element.value;
     if (!val)
@@ -756,7 +860,7 @@ var gSyncSetup = {
     if (!uri)
       uri = Weave.Utils.makeURI("https://" + val);
 
-    if (uri && checkRemote) {
+    if (uri && this._settingUpNew) {
       function isValid(uri) {
         Weave.Service.serverURL = uri.spec;
         let check = Weave.Service.checkAccount("a");
@@ -773,6 +877,10 @@ var gSyncSetup = {
       }
       if (!valid)
         valid = isValid(uri);
+
+      if (valid) {
+        this.loadCaptcha();
+      }
     }
     else if (uri) {
       valid = true;
@@ -787,25 +895,6 @@ var gSyncSetup = {
     return valid;
   },
 
-  _handleSuccess: function() {
-    let self = this;
-    function fill(id, string)
-      document.getElementById(id).firstChild.nodeValue =
-        string ? self._stringBundle.GetStringFromName(string) : "";
-
-    fill("firstSyncAction", "");
-    fill("firstSyncActionWarning", "");
-    if (this._settingUpNew) {
-      fill("firstSyncAction", "newAccount.action.label");
-      fill("firstSyncActionChange", "newAccount.change.label");
-      return;
-    }
-    fill("firstSyncActionChange", "existingAccount.change.label");
-    let action = document.getElementById("mergeChoiceRadio").selectedItem.id;
-    let id = action == "resetClient" ? "firstSyncAction" : "firstSyncActionWarning";
-    fill(id, action + ".change.label");
-  },
-
   _handleChoice: function () {
     let desc = document.getElementById("mergeChoiceRadio").selectedIndex;
     document.getElementById("chosenActionDeck").selectedIndex = desc;
@@ -814,7 +903,9 @@ var gSyncSetup = {
         if (this._case1Setup)
           break;
 
-        let places_db = Weave.Svc.History.DBConnection;
+        let places_db = PlacesUtils.history
+                                   .QueryInterface(Ci.nsPIPlacesDatabase)
+                                   .DBConnection;
         if (Weave.Engines.get("history").enabled) {
           let daysOfHistory = 0;
           let stm = places_db.createStatement(
@@ -845,7 +936,7 @@ var gSyncSetup = {
             "FROM moz_bookmarks b " +
             "LEFT JOIN moz_bookmarks t ON " +
             "b.parent = t.id WHERE b.type = 1 AND t.parent <> :tag");
-          stm.params.tag = Weave.Svc.Bookmark.tagsFolder;
+          stm.params.tag = PlacesUtils.tagsFolderId;
           if (stm.executeStep())
             bookmarks = stm.row.bookmarks;
           // Support %S for historical reasons (see bug 600141)
@@ -859,7 +950,7 @@ var gSyncSetup = {
         }
 
         if (Weave.Engines.get("passwords").enabled) {
-          let logins = Weave.Svc.Login.getAllLogins({});
+          let logins = Services.logins.getAllLogins({});
           // Support %S for historical reasons (see bug 600141)
           document.getElementById("passwordCount").value =
             PluralForm.get(logins.length,
@@ -938,6 +1029,15 @@ var gSyncSetup = {
     this._setFeedback(element, success, str);
   },
 
+  loadCaptcha: function loadCaptcha() {
+    let captchaURI = Weave.Service.miscAPI + "captcha_html";
+    // First check for NoScript and whitelist the right sites.
+    this._handleNoScript(true);
+    if (this.captchaBrowser.currentURI.spec != captchaURI) {
+      this.captchaBrowser.loadURI(captchaURI);
+    }
+  },
+
   onStateChange: function(webProgress, request, stateFlags, status) {
     // We're only looking for the end of the frame load
     if ((stateFlags & Ci.nsIWebProgressListener.STATE_STOP) == 0)
@@ -947,20 +1047,36 @@ var gSyncSetup = {
     if ((stateFlags & Ci.nsIWebProgressListener.STATE_IS_WINDOW) == 0)
       return;
 
-    // If we didn't find the captcha, assume it's not needed and move on
-    if (request.QueryInterface(Ci.nsIHttpChannel).responseStatus == 404)
-      this.onWizardAdvance();
+    // If we didn't find a captcha, assume it's not needed and don't show it.
+    let responseStatus = request.QueryInterface(Ci.nsIHttpChannel).responseStatus;
+    setVisibility(this.captchaBrowser, responseStatus != 404);
+    //XXX TODO we should really log any responseStatus other than 200
   },
   onProgressChange: function() {},
   onStatusChange: function() {},
   onSecurityChange: function() {},
   onLocationChange: function () {}
-}
+};
 
-// onWizardAdvance() and onPageShow() are run before init(), so we'll set
-// wizard & _stringBundle up as lazy getters.
-XPCOMUtils.defineLazyGetter(gSyncSetup, "wizard", function() {
-  return document.getElementById("accountSetup");
+// Define lazy getters for various XUL elements.
+//
+// onWizardAdvance() and onPageShow() are run before init(), so we'll even
+// define things that will almost certainly be used (like 'wizard') as a lazy
+// getter here.
+["wizard",
+ "pin1",
+ "pin2",
+ "pin3",
+ "pairDeviceErrorRow",
+ "pairDeviceThrobber"].forEach(function (id) {
+  XPCOMUtils.defineLazyGetter(gSyncSetup, id, function() {
+    return document.getElementById(id);
+  });
+});
+XPCOMUtils.defineLazyGetter(gSyncSetup, "nextFocusEl", function () {
+  return {pin1: this.pin2,
+          pin2: this.pin3,
+          pin3: this.wizard.getButton("next")};
 });
 XPCOMUtils.defineLazyGetter(gSyncSetup, "_stringBundle", function() {
   return Services.strings.createBundle("chrome://browser/locale/syncSetup.properties");

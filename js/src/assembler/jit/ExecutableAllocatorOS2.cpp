@@ -26,7 +26,7 @@
 
 #include "ExecutableAllocator.h"
 
-#if ENABLE_ASSEMBLER && WTF_PLATFORM_OS2
+#if ENABLE_ASSEMBLER && WTF_OS_OS2
 
 #define INCL_DOS
 #include <os2.h>
@@ -38,17 +38,17 @@ size_t ExecutableAllocator::determinePageSize()
     return 4096u;
 }
 
-ExecutablePool::Allocation ExecutablePool::systemAlloc(size_t n)
+ExecutablePool::Allocation ExecutableAllocator::systemAlloc(size_t n)
 {
     void* allocation = NULL;
     if (DosAllocMem(&allocation, n, OBJ_ANY|PAG_COMMIT|PAG_READ|PAG_WRITE) &&
         DosAllocMem(&allocation, n, PAG_COMMIT|PAG_READ|PAG_WRITE))
         CRASH();
-    ExecutablePool::Allocation alloc = {reinterpret_cast<char*>(allocation), n};
+    ExecutablePool::Allocation alloc = { reinterpret_cast<char*>(allocation), n };
     return alloc;
 }
 
-void ExecutablePool::systemRelease(const ExecutablePool::Allocation& alloc)
+void ExecutableAllocator::systemRelease(const ExecutablePool::Allocation& alloc)
 {
     DosFreeMem(alloc.pages);
 }

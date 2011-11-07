@@ -37,17 +37,20 @@
 
 /* the features that media queries can test */
 
+#include "mozilla/Util.h"
+
 #include "nsMediaFeatures.h"
 #include "nsGkAtoms.h"
 #include "nsCSSKeywords.h"
 #include "nsStyleConsts.h"
 #include "nsPresContext.h"
-#include "nsIDeviceContext.h"
 #include "nsCSSValue.h"
 #include "nsIDocShell.h"
 #include "nsLayoutUtils.h"
-#include "nsILookAndFeel.h"
+#include "mozilla/LookAndFeel.h"
 #include "nsCSSRuleProcessor.h"
+
+using namespace mozilla;
 
 static const PRInt32 kOrientationKeywords[] = {
   eCSSKeyword_portrait,                 NS_STYLE_ORIENTATION_PORTRAIT,
@@ -63,19 +66,19 @@ static const PRInt32 kScanKeywords[] = {
 
 #ifdef XP_WIN
 struct WindowsThemeName {
-    nsILookAndFeel::WindowsThemeIdentifier id;
+    LookAndFeel::WindowsTheme id;
     const wchar_t* name;
 };
 
 // Windows theme identities used in the -moz-windows-theme media query.
 const WindowsThemeName themeStrings[] = {
-    { nsILookAndFeel::eWindowsTheme_Aero,       L"aero" },
-    { nsILookAndFeel::eWindowsTheme_LunaBlue,   L"luna-blue" },
-    { nsILookAndFeel::eWindowsTheme_LunaOlive,  L"luna-olive" },
-    { nsILookAndFeel::eWindowsTheme_LunaSilver, L"luna-silver" },
-    { nsILookAndFeel::eWindowsTheme_Royale,     L"royale" },
-    { nsILookAndFeel::eWindowsTheme_Zune,       L"zune" },
-    { nsILookAndFeel::eWindowsTheme_Generic,    L"generic" }
+    { LookAndFeel::eWindowsTheme_Aero,       L"aero" },
+    { LookAndFeel::eWindowsTheme_LunaBlue,   L"luna-blue" },
+    { LookAndFeel::eWindowsTheme_LunaOlive,  L"luna-olive" },
+    { LookAndFeel::eWindowsTheme_LunaSilver, L"luna-silver" },
+    { LookAndFeel::eWindowsTheme_Royale,     L"royale" },
+    { LookAndFeel::eWindowsTheme_Zune,       L"zune" },
+    { LookAndFeel::eWindowsTheme_Generic,    L"generic" }
 };
 #endif
 
@@ -112,7 +115,7 @@ GetHeight(nsPresContext* aPresContext, const nsMediaFeature*,
     return NS_OK;
 }
 
-inline static nsIDeviceContext*
+inline static nsDeviceContext*
 GetDeviceContextFor(nsPresContext* aPresContext)
 {
   // It would be nice to call
@@ -193,6 +196,15 @@ GetDeviceOrientation(nsPresContext* aPresContext, const nsMediaFeature*,
     return NS_OK;
 }
 
+static nsresult
+GetIsResourceDocument(nsPresContext* aPresContext, const nsMediaFeature*,
+                      nsCSSValue& aResult)
+{
+  nsIDocument* doc = aPresContext->Document();
+  aResult.SetIntValue(doc && doc->IsResourceDoc() ? 1 : 0, eCSSUnit_Integer);
+  return NS_OK;
+}
+
 // Helper for two features below
 static nsresult
 MakeArray(const nsSize& aSize, nsCSSValue& aResult)
@@ -224,11 +236,11 @@ static nsresult
 GetColor(nsPresContext* aPresContext, const nsMediaFeature*,
          nsCSSValue& aResult)
 {
-    // FIXME:  This implementation is bogus.  nsThebesDeviceContext
+    // FIXME:  This implementation is bogus.  nsDeviceContext
     // doesn't provide reliable information (should be fixed in bug
     // 424386).
     // FIXME: On a monochrome device, return 0!
-    nsIDeviceContext *dx = GetDeviceContextFor(aPresContext);
+    nsDeviceContext *dx = GetDeviceContextFor(aPresContext);
     PRUint32 depth;
     dx->GetDepth(depth);
     // The spec says to use bits *per color component*, so divide by 3,
@@ -269,7 +281,7 @@ GetResolution(nsPresContext* aPresContext, const nsMediaFeature*,
               nsCSSValue& aResult)
 {
     // Resolution values are in device pixels, not CSS pixels.
-    nsIDeviceContext *dx = GetDeviceContextFor(aPresContext);
+    nsDeviceContext *dx = GetDeviceContextFor(aPresContext);
     float dpi = float(dx->AppUnitsPerPhysicalInch()) / float(dx->AppUnitsPerDevPixel());
     aResult.SetFloatValue(dpi, eCSSUnit_Inch);
     return NS_OK;
@@ -311,7 +323,7 @@ GetSystemMetric(nsPresContext* aPresContext, const nsMediaFeature* aFeature,
     NS_ABORT_IF_FALSE(aFeature->mValueType == nsMediaFeature::eBoolInteger,
                       "unexpected type");
     nsIAtom *metricAtom = *aFeature->mData.mMetric;
-    PRBool hasMetric = nsCSSRuleProcessor::HasSystemMetric(metricAtom);
+    bool hasMetric = nsCSSRuleProcessor::HasSystemMetric(metricAtom);
     aResult.SetIntValue(hasMetric ? 1 : 0, eCSSUnit_Integer);
     return NS_OK;
 }
@@ -326,11 +338,11 @@ GetWindowsTheme(nsPresContext* aPresContext, const nsMediaFeature* aFeature,
         nsCSSRuleProcessor::GetWindowsThemeIdentifier();
 
     // Classic mode should fail to match.
-    if (windowsThemeId == nsILookAndFeel::eWindowsTheme_Classic)
+    if (windowsThemeId == LookAndFeel::eWindowsTheme_Classic)
         return NS_OK;
 
     // Look up the appropriate theme string
-    for (size_t i = 0; i < NS_ARRAY_LENGTH(themeStrings); ++i) {
+    for (size_t i = 0; i < ArrayLength(themeStrings); ++i) {
         if (windowsThemeId == themeStrings[i].id) {
             aResult.SetStringValue(nsDependentString(themeStrings[i].name),
                                    eCSSUnit_Ident);
@@ -460,6 +472,13 @@ nsMediaFeatures::features[] = {
         GetDeviceOrientation
     },
     {
+        &nsGkAtoms::_moz_is_resource_document,
+        nsMediaFeature::eMinMaxNotAllowed,
+        nsMediaFeature::eBoolInteger,
+        { nsnull },
+        GetIsResourceDocument
+    },
+    {
         &nsGkAtoms::_moz_scrollbar_start_backward,
         nsMediaFeature::eMinMaxNotAllowed,
         nsMediaFeature::eBoolInteger,
@@ -520,6 +539,13 @@ nsMediaFeatures::features[] = {
         nsMediaFeature::eMinMaxNotAllowed,
         nsMediaFeature::eBoolInteger,
         { &nsGkAtoms::mac_graphite_theme },
+        GetSystemMetric
+    },
+    {
+        &nsGkAtoms::_moz_mac_lion_theme,
+        nsMediaFeature::eMinMaxNotAllowed,
+        nsMediaFeature::eBoolInteger,
+        { &nsGkAtoms::mac_lion_theme },
         GetSystemMetric
     },
     {

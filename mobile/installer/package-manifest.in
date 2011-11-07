@@ -32,6 +32,7 @@
 @BINPATH@/updater.ini
 #endif
 @BINPATH@/dictionaries/*
+@BINPATH@/hyphenation/*
 #ifdef XP_WIN32
 @BINPATH@/uninstall/helper.exe
 #endif
@@ -46,6 +47,7 @@
 @BINPATH@/@DLL_PREFIX@xpcom@DLL_SUFFIX@
 @BINPATH@/@DLL_PREFIX@nspr4@DLL_SUFFIX@
 @BINPATH@/@DLL_PREFIX@mozalloc@DLL_SUFFIX@
+@BINPATH@/@DLL_PREFIX@mozutils@DLL_SUFFIX@
 #ifdef XP_MACOSX
 @BINPATH@/XUL
 #else
@@ -57,7 +59,6 @@
 @BINPATH@/@MOZ_CHILD_PROCESS_NAME@
 #endif
 #ifdef XP_WIN32
-#ifndef MOZ_MEMORY
 #if _MSC_VER == 1400
 @BINPATH@/Microsoft.VC80.CRT.manifest
 @BINPATH@/msvcm80.dll
@@ -71,12 +72,13 @@
 #elif _MSC_VER == 1600
 @BINPATH@/msvcp100.dll
 @BINPATH@/msvcr100.dll
+#elif _MSC_VER == 1700
+@BINPATH@/msvcp110.dll
+@BINPATH@/msvcr110.dll
 #endif
-#else
-@BINPATH@/mozcrt19.dll
-@BINPATH@/mozcpp19.dll
+
 #endif
-#endif
+
 #ifdef ANDROID
 @BINPATH@/AndroidManifest.xml
 @BINPATH@/resources.arsc
@@ -85,6 +87,10 @@
 @BINPATH@/res/drawable
 @BINPATH@/res/drawable-hdpi
 @BINPATH@/res/layout
+#endif
+
+#ifdef MOZ_PLATFORM_MAEMO
+@BINPATH@/res/drawable
 #endif
 
 [browser]
@@ -102,16 +108,12 @@
 #else
 @BINPATH@/mozsqlt3@DLL_SUFFIX@
 #endif
-@BINPATH@/README.txt
 @BINPATH@/blocklist.xml
 #ifdef XP_UNIX
 @BINPATH@/run-mozilla.sh
 #ifndef XP_MACOSX
 @BINPATH@/mozilla-xremote-client
 #endif
-#endif
-#ifdef MOZ_SPLASHSCREEN
-@BINPATH@/splash.bmp
 #endif
 
 ; [Components]
@@ -141,7 +143,6 @@
 @BINPATH@/components/content_canvas.xpt
 @BINPATH@/components/content_htmldoc.xpt
 @BINPATH@/components/content_html.xpt
-@BINPATH@/components/content_xmldoc.xpt
 @BINPATH@/components/content_xslt.xpt
 @BINPATH@/components/content_xtf.xpt
 @BINPATH@/components/cookie.xpt
@@ -149,6 +150,7 @@
 @BINPATH@/components/docshell.xpt
 @BINPATH@/components/dom.xpt
 @BINPATH@/components/dom_base.xpt
+@BINPATH@/components/dom_battery.xpt
 @BINPATH@/components/dom_canvas.xpt
 @BINPATH@/components/dom_core.xpt
 @BINPATH@/components/dom_css.xpt
@@ -238,15 +240,13 @@
 @BINPATH@/components/shistory.xpt
 @BINPATH@/components/spellchecker.xpt
 @BINPATH@/components/storage.xpt
+@BINPATH@/components/telemetry.xpt
 @BINPATH@/components/toolkitprofile.xpt
 #ifdef MOZ_ENABLE_XREMOTE
 @BINPATH@/components/toolkitremote.xpt
 #endif
 @BINPATH@/components/txtsvc.xpt
 @BINPATH@/components/txmgr.xpt
-#ifdef MOZ_USE_NATIVE_UCONV
-@BINPATH@/components/ucnative.xpt
-#endif
 @BINPATH@/components/uconv.xpt
 @BINPATH@/components/unicharutil.xpt
 #ifdef MOZ_UPDATER
@@ -272,9 +272,11 @@
 @BINPATH@/components/xpcom_xpti.xpt
 @BINPATH@/components/xpconnect.xpt
 @BINPATH@/components/xulapp.xpt
+@BINPATH@/components/xul.xpt
 @BINPATH@/components/xuldoc.xpt
 @BINPATH@/components/xultmpl.xpt
 @BINPATH@/components/zipwriter.xpt
+@BINPATH@/components/openwebapps.xpt
 
 ; JavaScript components
 @BINPATH@/components/ConsoleAPI.manifest
@@ -292,15 +294,12 @@
 @BINPATH@/components/nsBrowserGlue.js
 @BINPATH@/components/nsSetDefaultBrowser.manifest
 @BINPATH@/components/nsSetDefaultBrowser.js
-@BINPATH@/components/nsMicrosummaryService.js
 @BINPATH@/components/BrowserPlaces.manifest
 @BINPATH@/components/nsPrivateBrowsingService.manifest
 @BINPATH@/components/nsPrivateBrowsingService.js
 @BINPATH@/components/toolkitsearch.manifest
 @BINPATH@/components/nsSearchService.js
 @BINPATH@/components/nsSearchSuggestions.js
-@BINPATH@/components/nsTryToClose.manifest
-@BINPATH@/components/nsTryToClose.js
 @BINPATH@/components/passwordmgr.manifest
 @BINPATH@/components/nsLoginInfo.js
 @BINPATH@/components/nsLoginManager.js
@@ -331,6 +330,8 @@
 @BINPATH@/components/amContentHandler.js
 @BINPATH@/components/amWebInstallListener.js
 @BINPATH@/components/nsBlocklistService.js
+@BINPATH@/components/OpenWebapps.manifest
+
 #ifdef MOZ_UPDATER
 @BINPATH@/components/nsUpdateService.manifest
 @BINPATH@/components/nsUpdateService.js
@@ -400,14 +401,15 @@
 @BINPATH@/components/WeaveCrypto.manifest
 @BINPATH@/components/WeaveCrypto.js
 #endif
+@BINPATH@/components/TelemetryPing.js
+@BINPATH@/components/TelemetryPing.manifest
 
 ; Modules
 @BINPATH@/modules/*
 
 ; Safe Browsing
-@BINPATH@/components/nsSafebrowsingApplication.manifest
-@BINPATH@/components/nsSafebrowsingApplication.js
 @BINPATH@/components/nsURLClassifier.manifest
+@BINPATH@/components/nsUrlClassifierHashCompleter.js
 @BINPATH@/components/nsUrlClassifierListManager.js
 @BINPATH@/components/nsUrlClassifierLib.js
 @BINPATH@/components/url-classifier.xpt
@@ -506,9 +508,7 @@
 ; svg
 @BINPATH@/res/svg.css
 @BINPATH@/components/dom_svg.xpt
-#ifdef MOZ_SMIL
 @BINPATH@/components/dom_smil.xpt
-#endif
 
 ; [Personal Security Manager]
 ;
@@ -606,9 +606,14 @@ bin/components/@DLL_PREFIX@nkgnomevfs@DLL_SUFFIX@
 @BINPATH@/components/PromptService.js
 @BINPATH@/components/SessionStore.js
 @BINPATH@/components/Sidebar.js
+@BINPATH@/components/OpenWebapps.js
+#ifdef MOZ_SAFE_BROWSING
+@BINPATH@/components/SafeBrowsing.js
+#endif
 #ifdef MOZ_UPDATER
 @BINPATH@/components/UpdatePrompt.js
 #endif
 @BINPATH@/components/XPIDialogService.js
+@BINPATH@/components/CapturePicker.js
 @BINPATH@/components/browsercomps.xpt
 @BINPATH@/extensions/feedback@mobile.mozilla.org.xpi

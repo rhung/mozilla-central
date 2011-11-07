@@ -72,19 +72,21 @@ public:
 
   // starts loading process, creating and initializing a nsFontFaceLoader obj
   // returns whether load process successfully started or not
-  nsresult StartLoad(gfxFontEntry *aFontToLoad, 
+  nsresult StartLoad(gfxProxyFontEntry *aFontToLoad, 
                      const gfxFontFaceSrc *aFontFaceSrc);
 
   // Called by nsFontFaceLoader when the loader has completed normally.
   // It's removed from the mLoaders set.
   void RemoveLoader(nsFontFaceLoader *aLoader);
 
-  PRBool UpdateRules(const nsTArray<nsFontFaceRuleContainer>& aRules);
+  bool UpdateRules(const nsTArray<nsFontFaceRuleContainer>& aRules);
 
   nsPresContext *GetPresContext() { return mPresContext; }
 
   virtual void ReplaceFontEntry(gfxProxyFontEntry *aProxy,
                                 gfxFontEntry *aFontEntry);
+
+  nsCSSFontFaceRule *FindRuleForEntry(gfxFontEntry *aFontEntry);
 
 protected:
   // The font-set keeps track of the collection of rules, and their
@@ -98,7 +100,12 @@ protected:
 
   void InsertRule(nsCSSFontFaceRule *aRule, PRUint8 aSheetType,
                   nsTArray<FontFaceRuleRecord>& oldRules,
-                  PRBool& aFontSetModified);
+                  bool& aFontSetModified);
+
+  virtual nsresult LogMessage(gfxProxyFontEntry *aProxy,
+                              const char *aMessage,
+                              PRUint32 aFlags = nsIScriptError::errorFlag,
+                              nsresult aStatus = 0);
 
   nsPresContext *mPresContext;  // weak reference
 
@@ -114,7 +121,7 @@ class nsFontFaceLoader : public nsIStreamLoaderObserver
 {
 public:
 
-  nsFontFaceLoader(gfxFontEntry *aFontToLoad, nsIURI *aFontURI, 
+  nsFontFaceLoader(gfxProxyFontEntry *aFontToLoad, nsIURI *aFontURI, 
                    nsUserFontSet *aFontSet, nsIChannel *aChannel);
   virtual ~nsFontFaceLoader();
 
@@ -137,7 +144,8 @@ public:
                                    nsISupports* aContext);
 
 private:
-  nsRefPtr<gfxFontEntry>  mFontEntry;
+  nsRefPtr<gfxProxyFontEntry>  mFontEntry;
+  nsRefPtr<gfxFontFamily>      mFontFamily;
   nsCOMPtr<nsIURI>        mFontURI;
   nsRefPtr<nsUserFontSet> mFontSet;
   nsCOMPtr<nsIChannel>    mChannel;

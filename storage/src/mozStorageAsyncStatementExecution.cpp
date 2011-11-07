@@ -22,6 +22,7 @@
  *
  * Contributor(s):
  *   Shawn Wilsher <me@shawnwilsher.com> (Original Author)
+ *   David Rajchenbach-Teller <dteller@mozilla.com> (added Telemetry)
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -38,7 +39,6 @@
  * ***** END LICENSE BLOCK ***** */
 
 #include "nsAutoPtr.h"
-#include "prtime.h"
 
 #include "sqlite3.h"
 
@@ -52,6 +52,8 @@
 #include "mozStoragePrivateHelpers.h"
 #include "mozStorageStatementData.h"
 #include "mozStorageAsyncStatementExecution.h"
+
+#include "mozilla/Telemetry.h"
 
 namespace mozilla {
 namespace storage {
@@ -235,6 +237,7 @@ AsyncExecuteStatements::AsyncExecuteStatements(StatementDataArray &aStatements,
 , mCancelRequested(false)
 , mMutex(aConnection->sharedAsyncExecutionMutex)
 , mDBMutex(aConnection->sharedDBMutex)
+  , mRequestStartDate(TimeStamp::Now())
 {
   (void)mStatements.SwapElements(aStatements);
   NS_ASSERTION(mStatements.Length(), "We weren't given any statements!");
@@ -247,7 +250,7 @@ AsyncExecuteStatements::shouldNotify()
 #ifdef DEBUG
   mMutex.AssertNotCurrentThreadOwns();
 
-  PRBool onCallingThread = PR_FALSE;
+  bool onCallingThread = false;
   (void)mCallingThread->IsOnCurrentThread(&onCallingThread);
   NS_ASSERTION(onCallingThread, "runEvent not running on the calling thread!");
 #endif
@@ -357,7 +360,7 @@ bool
 AsyncExecuteStatements::executeStatement(sqlite3_stmt *aStatement)
 {
   mMutex.AssertNotCurrentThreadOwns();
-
+  Telemetry::AutoTimer<Telemetry::MOZ_STORAGE_ASYNC_REQUESTS_MS> finallySendExecutionDuration(mRequestStartDate);
   while (true) {
     // lock the sqlite mutex so sqlite3_errmsg cannot change
     SQLiteMutexAutoLock lockedScope(mDBMutex);
@@ -365,11 +368,17 @@ AsyncExecuteStatements::executeStatement(sqlite3_stmt *aStatement)
     int rc = stepStmt(aStatement);
     // Stop if we have no more results.
     if (rc == SQLITE_DONE)
+    {
+      Telemetry::Accumulate(Telemetry::MOZ_STORAGE_ASYNC_REQUESTS_SUCCESS, true);
       return false;
+    }
 
     // If we got results, we can return now.
     if (rc == SQLITE_ROW)
+    {
+      Telemetry::Accumulate(Telemetry::MOZ_STORAGE_ASYNC_REQUESTS_SUCCESS, true);
       return true;
+    }
 
     // Some errors are not fatal, and we can handle them and continue.
     if (rc == SQLITE_BUSY) {
@@ -383,6 +392,7 @@ AsyncExecuteStatements::executeStatement(sqlite3_stmt *aStatement)
 
     // Set an error state.
     mState = ERROR;
+    Telemetry::Accumulate(Telemetry::MOZ_STORAGE_ASYNC_REQUESTS_SUCCESS, false);
 
     // Construct the error message before giving up the mutex (which we cannot
     // hold during the call to notifyError).
@@ -534,6 +544,21 @@ NS_IMPL_THREADSAFE_ISUPPORTS2(
   mozIStoragePendingStatement
 )
 
+bool
+AsyncExecuteStatements::statementsNeedTransaction()
+{
+  // If there is more than one write statement, run in a transaction.
+  // Additionally, if we have only one statement but it needs a transaction, due
+  // to multiple BindingParams, we will wrap it in one.
+  for (PRUint32 i = 0, transactionsCount = 0; i < mStatements.Length(); ++i) {
+    transactionsCount += mStatements[i].needsTransaction();
+    if (transactionsCount > 1) {
+      return true;
+    }
+  }
+  return false;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 //// mozIStoragePendingStatement
 
@@ -541,7 +566,7 @@ NS_IMETHODIMP
 AsyncExecuteStatements::Cancel()
 {
 #ifdef DEBUG
-  PRBool onCallingThread = PR_FALSE;
+  bool onCallingThread = false;
   (void)mCallingThread->IsOnCurrentThread(&onCallingThread);
   NS_ASSERTION(onCallingThread, "Not canceling from the calling thread!");
 #endif
@@ -575,14 +600,8 @@ AsyncExecuteStatements::Run()
   if (mState == CANCELED)
     return notifyComplete();
 
-  // If there is more than one statement, run it in a transaction.  We assume
-  // that we have been given write statements since getting a batch of read
-  // statements doesn't make a whole lot of sense.
-  // Additionally, if we have only one statement and it needs a transaction, we
-  // will wrap it in one.
-  if (mStatements.Length() > 1 || mStatements[0].needsTransaction()) {
-    // We don't error if this failed because it's not terrible if it does.
-    mTransactionManager = new mozStorageTransaction(mConnection, PR_FALSE,
+  if (statementsNeedTransaction()) {
+    mTransactionManager = new mozStorageTransaction(mConnection, false,
                                                     mozIStorageConnection::TRANSACTION_IMMEDIATE);
   }
 

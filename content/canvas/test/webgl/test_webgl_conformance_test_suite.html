@@ -5,7 +5,6 @@
 <title>
 Mochitest version of the WebGL Conformance Test Suite
 </title>
-<script type="application/javascript" src="/MochiKit/packed.js"></script>
 <script type="application/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
 <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
 <script type="text/javascript" src="resources/webgl-test-harness.js"></script>
@@ -38,6 +37,26 @@ Mochitest version of the WebGL Conformance Test Suite
   };
 
 function start() {
+
+  var kIsWindows = false;
+  var kIsMac = false;
+  var kIsLinux = false;
+  if (navigator.platform.indexOf("Win") == 0)
+    kIsWindows = true;
+  else if (navigator.platform.indexOf("Linux") == 0)
+    kIsLinux = true;
+  else if (navigator.platform.indexOf("Mac") == 0)
+    kIsMac = true;
+
+  var kIsWindowsVistaOrHigher = false;
+  if (kIsWindows) {
+    // code borrowed from browser/components/wintaskbar/test/browser_taskbar_preview.js
+    netscape.security.PrivilegeManager.enablePrivilege("UniversalXPConnect");
+    var version = Components.classes["@mozilla.org/system-info;1"]
+                            .getService(Components.interfaces.nsIPropertyBag2)
+                            .getProperty("version");
+    kIsWindowsVistaOrHigher = (parseFloat(version) >= 6.0);
+  }
 
   function getEnv(env) {
     netscape.security.PrivilegeManager.enablePrivilege("UniversalXPConnect");
@@ -192,6 +211,14 @@ function start() {
 
   Reporter.prototype.startPage = function(url) {
     dump('WebGL mochitest: starting page ' + url + '\n');
+
+    // Calling garbageCollect before each test page fixes intermittent failures with
+    // out-of-memory errors, often failing to create a WebGL context.
+    // The explanation is that the JS engine keeps unreferenced WebGL contexts around
+    // for too long before GCing (bug 617453), so that during this mochitest dozens of unreferenced
+    // WebGL contexts can accumulate at a given time.
+    SpecialPowers.DOMWindowUtils.garbageCollect();
+
     var page = this.pagesByURL[url];
     this.currentPage = page;
     statusTextNode.textContent = 'Running URL: ' + url;
@@ -234,7 +261,7 @@ function start() {
   Reporter.prototype.finishedTestSuite = function() {
       for (var i = 0; i < testsExpectedToFail.length; ++i)
         if (testsSuccessful.indexOf(testsExpectedToFail[i]) != -1)
-          ok(false, 'Test expected to fail, but passed: ' + testsExpectedToFail[i]);
+          todo(true, 'Test expected to fail, but passed: ' + testsExpectedToFail[i]);
       statusTextNode.textContent = 'Finished';
       SimpleTest.finish();
   }
@@ -292,28 +319,6 @@ function start() {
   SimpleTest.waitForExplicitFinish();
   SimpleTest.requestLongerTimeout(3);
 
-  var kIsWindows = false;
-  var kIsMac = false;
-  var kIsLinux = false;
-  if (navigator.platform.indexOf("Win") == 0)
-    kIsWindows = true;
-  else if (navigator.platform.indexOf("Linux") == 0)
-    kIsLinux = true;
-  else if (navigator.platform.indexOf("Mac") == 0)
-    kIsMac = true;
-
-  var kIsWindowsVistaOrHigher = false;
-  // we currently disable this test on versions of Windows older than Windows Vista,
-  // due to failure to load ANGLE on win 2003 test slaves, see bug 582053.
-  if (kIsWindows) {
-    // code borrowed from browser/components/wintaskbar/test/browser_taskbar_preview.js
-    netscape.security.PrivilegeManager.enablePrivilege("UniversalXPConnect");
-    var version = Components.classes["@mozilla.org/system-info;1"]
-                            .getService(Components.interfaces.nsIPropertyBag2)
-                            .getProperty("version");
-    kIsWindowsVistaOrHigher = (parseFloat(version) >= 6.0);
-  }
-
   // we currently disable this test on version of Mac OSX older than 10.6,
   // due to various weird failures, including one making getRenderbufferParameter tests
   // on DEPTH_STENCIL fail
@@ -363,11 +368,17 @@ function start() {
                             .replace(/\r/g, '') // convert to unix line breaks
                             .split('\n');
 
-  var testsToIgnore = [];
+  // remove empty filenames
+  var indexOfEmptyFilename = testsExpectedToFail.indexOf("");
+  while(indexOfEmptyFilename != -1) {
+    testsExpectedToFail.splice(indexOfEmptyFilename, 1);
+    indexOfEmptyFilename = testsExpectedToFail.indexOf("");
+  }
 
-  // canvas-test.html is currently failing on Windows XP test slaves
   if (kIsWindows && !kIsWindowsVistaOrHigher)
-      testsToIgnore.push('conformance/canvas-test.html');
+    testsExpectedToFail.push('conformance/textures/texture-mips.html');
+
+  var testsToIgnore = [];
 
   var testsSuccessful = [];
 
@@ -381,35 +392,39 @@ function start() {
 <div id="content" style="display: none">
 
 </div>
-<table border="2">
-<tr style="height: 300px;">
-<td>
-<table>
-<tr><td><h4>WebGL Conformance Test Runner</h4>
-<tr><td>
-  <div style="border: 1px">
-    <b>Status:</b> <div><span id="status"></span></div><br />
-    <b>Results:</b>
-    <div><span id="results-default"></span></div>
-    <br />
-    <div><span id="expectedtofail"></span></div>
-    <br />
-    <div><span id="ignoredtests"></span></div>
-  </div>
-</td></tr>
-</table>
-</td>
-<td>
-<iframe id="testframe" scrolling="yes" width="100%" height="100%"></iframe>
-</td>
-</tr>
-<tr>
-<td colspan="2">
-<div style="text-align: left; width: 100%; height: 100%; overflow: auto;">
-<div><ul id="results"></ul></div>
-</div>
-</td>
-</tr>
+<table border="2px">
+  <tr style="height: 500px;">
+    <td style="width: 500px;">
+      <iframe id="testframe" scrolling="no" width="500px" height="500px"></iframe>
+    </td>
+    <td>
+      <table>
+        <tr>
+          <td><h4>WebGL Conformance Test Runner</h4></td>
+        </tr>
+        <tr>
+          <td>
+            <div style="border: 1px">
+              <b>Status:</b> <div><span id="status"></span></div><br />
+              <b>Results:</b>
+              <div><span id="results-default"></span></div>
+              <br />
+              <div><span id="expectedtofail"></span></div>
+              <br />
+              <div><span id="ignoredtests"></span></div>
+            </div>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2">
+      <div style="text-align: left; width: 100%; height: 100%; overflow: auto;">
+        <div><ul id="results"></ul></div>
+      </div>
+    </td>
+  </tr>
 </table>
 <canvas id="webglcheck-default" style="display: none;"></canvas>
 </body>
