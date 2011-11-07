@@ -48,25 +48,20 @@
 #include "nsGUIEvent.h"
 #include "nsStyleConsts.h"
 #include "nsGkAtoms.h"
-#include "nsIEventStateManager.h"
-#include "nsIDeviceContext.h"
+#include "nsEventStateManager.h"
 #include "nsIPresShell.h"
 #include "nsIScrollPositionListener.h"
 #include "nsDisplayList.h"
-#include "nsAbsoluteContainingBlock.h"
 #include "nsCSSFrameConstructor.h"
 #include "nsFrameManager.h"
 
 // for focus
-#include "nsIDOMWindowInternal.h"
 #include "nsIScrollableFrame.h"
 #include "nsIDocShell.h"
 
 #ifdef DEBUG_rods
 //#define DEBUG_CANVAS_FOCUS
 #endif
-
-#define CANVAS_ABS_POS_CHILD_LIST NS_CONTAINER_LIST_COUNT_INCL_OC
 
 
 nsIFrame*
@@ -84,8 +79,7 @@ NS_QUERYFRAME_TAIL_INHERITING(nsHTMLContainerFrame)
 void
 nsCanvasFrame::DestroyFrom(nsIFrame* aDestructRoot)
 {
-  mAbsoluteContainer.DestroyFrames(this, aDestructRoot);
-
+  DestroyAbsoluteFrames(aDestructRoot);
   nsIScrollableFrame* sf =
     PresContext()->GetPresShell()->GetRootScrollFrameAsScrollable();
   if (sf) {
@@ -99,13 +93,13 @@ void
 nsCanvasFrame::ScrollPositionWillChange(nscoord aX, nscoord aY)
 {
   if (mDoPaintFocus) {
-    mDoPaintFocus = PR_FALSE;
+    mDoPaintFocus = false;
     PresContext()->FrameManager()->GetRootFrame()->InvalidateFrameSubtree();
   }
 }
 
 NS_IMETHODIMP
-nsCanvasFrame::SetHasFocus(PRBool aHasFocus)
+nsCanvasFrame::SetHasFocus(bool aHasFocus)
 {
   if (mDoPaintFocus != aHasFocus) {
     mDoPaintFocus = aHasFocus;
@@ -116,7 +110,7 @@ nsCanvasFrame::SetHasFocus(PRBool aHasFocus)
         PresContext()->GetPresShell()->GetRootScrollFrameAsScrollable();
       if (sf) {
         sf->AddScrollPositionListener(this);
-        mAddedScrollPositionListener = PR_TRUE;
+        mAddedScrollPositionListener = true;
       }
     }
   }
@@ -124,33 +118,30 @@ nsCanvasFrame::SetHasFocus(PRBool aHasFocus)
 }
 
 NS_IMETHODIMP
-nsCanvasFrame::SetInitialChildList(nsIAtom*        aListName,
+nsCanvasFrame::SetInitialChildList(ChildListID     aListID,
                                    nsFrameList&    aChildList)
 {
-  if (nsGkAtoms::absoluteList == aListName)
-    return mAbsoluteContainer.SetInitialChildList(this, aListName, aChildList);
-
-  NS_ASSERTION(aListName || aChildList.IsEmpty() || aChildList.OnlyChild(),
+  NS_ASSERTION(aListID != kPrincipalList ||
+               aChildList.IsEmpty() || aChildList.OnlyChild(),
                "Primary child list can have at most one frame in it");
-  return nsHTMLContainerFrame::SetInitialChildList(aListName, aChildList);
+  return nsHTMLContainerFrame::SetInitialChildList(aListID, aChildList);
 }
 
 NS_IMETHODIMP
-nsCanvasFrame::AppendFrames(nsIAtom*        aListName,
+nsCanvasFrame::AppendFrames(ChildListID     aListID,
                             nsFrameList&    aFrameList)
 {
-  if (nsGkAtoms::absoluteList == aListName)
-    return mAbsoluteContainer.AppendFrames(this, aListName, aFrameList);
-
-  NS_ASSERTION(!aListName, "unexpected child list name");
-  NS_PRECONDITION(mFrames.IsEmpty(), "already have a child frame");
-  if (aListName) {
-    // We only support unnamed principal child list
+  NS_ASSERTION(aListID == kPrincipalList ||
+               aListID == kAbsoluteList, "unexpected child list ID");
+  NS_PRECONDITION(aListID != kAbsoluteList ||
+                  mFrames.IsEmpty(), "already have a child frame");
+  if (aListID != kPrincipalList) {
+    // We only support the Principal and Absolute child lists.
     return NS_ERROR_INVALID_ARG;
   }
 
   if (!mFrames.IsEmpty()) {
-    // We only allow a single child frame
+    // We only allow a single principal child frame.
     return NS_ERROR_INVALID_ARG;
   }
 
@@ -170,34 +161,27 @@ nsCanvasFrame::AppendFrames(nsIAtom*        aListName,
 }
 
 NS_IMETHODIMP
-nsCanvasFrame::InsertFrames(nsIAtom*        aListName,
+nsCanvasFrame::InsertFrames(ChildListID     aListID,
                             nsIFrame*       aPrevFrame,
                             nsFrameList&    aFrameList)
 {
-  if (nsGkAtoms::absoluteList == aListName)
-    return mAbsoluteContainer.InsertFrames(this, aListName, aPrevFrame, aFrameList);
-
   // Because we only support a single child frame inserting is the same
   // as appending
   NS_PRECONDITION(!aPrevFrame, "unexpected previous sibling frame");
   if (aPrevFrame)
     return NS_ERROR_UNEXPECTED;
 
-  return AppendFrames(aListName, aFrameList);
+  return AppendFrames(aListID, aFrameList);
 }
 
 NS_IMETHODIMP
-nsCanvasFrame::RemoveFrame(nsIAtom*        aListName,
+nsCanvasFrame::RemoveFrame(ChildListID     aListID,
                            nsIFrame*       aOldFrame)
 {
-  if (nsGkAtoms::absoluteList == aListName) {
-    mAbsoluteContainer.RemoveFrame(this, aListName, aOldFrame);
-    return NS_OK;
-  }
-
-  NS_ASSERTION(!aListName, "unexpected child list name");
-  if (aListName) {
-    // We only support the unnamed principal child list
+  NS_ASSERTION(aListID == kPrincipalList ||
+               aListID == kAbsoluteList, "unexpected child list ID");
+  if (aListID != kPrincipalList || aListID != kAbsoluteList) {
+    // We only support the Principal and Absolute child lists.
     return NS_ERROR_INVALID_ARG;
   }
 
@@ -217,24 +201,6 @@ nsCanvasFrame::RemoveFrame(nsIAtom*        aListName,
     FrameNeedsReflow(this, nsIPresShell::eTreeChange,
                      NS_FRAME_HAS_DIRTY_CHILDREN);
   return NS_OK;
-}
-
-nsIAtom*
-nsCanvasFrame::GetAdditionalChildListName(PRInt32 aIndex) const
-{
-  if (CANVAS_ABS_POS_CHILD_LIST == aIndex)
-    return nsGkAtoms::absoluteList;
-
-  return nsHTMLContainerFrame::GetAdditionalChildListName(aIndex);
-}
-
-nsFrameList
-nsCanvasFrame::GetChildList(nsIAtom* aListName) const
-{
-  if (nsGkAtoms::absoluteList == aListName)
-    return mAbsoluteContainer.GetChildList();
-
-  return nsHTMLContainerFrame::GetChildList(aListName);
 }
 
 nsRect nsCanvasFrame::CanvasArea() const
@@ -315,9 +281,6 @@ nsCanvasFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
     DisplayOverflowContainers(aBuilder, aDirtyRect, aLists);
   }
 
-  aBuilder->MarkFramesForDisplayList(this, mAbsoluteContainer.GetChildList(),
-                                     aDirtyRect);
-  
   // Force a background to be shown. We may have a background propagated to us,
   // in which case GetStyleBackground wouldn't have the right background
   // and the code in nsFrame::DisplayBorderBackgroundOutline might not give us
@@ -332,7 +295,7 @@ nsCanvasFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
   }
 
   nsIFrame* kid;
-  for (kid = GetFirstChild(nsnull); kid; kid = kid->GetNextSibling()) {
+  for (kid = GetFirstPrincipalChild(); kid; kid = kid->GetNextSibling()) {
     // Put our child into its own pseudo-stack.
     rv = BuildDisplayListForChild(aBuilder, kid, aDirtyRect, aLists);
     NS_ENSURE_SUCCESS(rv, rv);
@@ -343,7 +306,7 @@ nsCanvasFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
   aPresContext->EventStateManager()->
     GetFocusedContent(getter_AddRefs(focusContent));
 
-  PRBool hasFocus = PR_FALSE;
+  bool hasFocus = false;
   nsCOMPtr<nsISupports> container;
   aPresContext->GetContainer(getter_AddRefs(container));
   nsCOMPtr<nsIDocShell> docShell(do_QueryInterface(container));
@@ -439,8 +402,8 @@ nsCanvasFrame::Reflow(nsPresContext*           aPresContext,
     if (overflow) {
       NS_ASSERTION(overflow->OnlyChild(),
                    "must have doc root as canvas frame's only child");
-      nsHTMLContainerFrame::ReparentFrameViewList(aPresContext, *overflow,
-                                                  prevCanvasFrame, this);
+      nsContainerFrame::ReparentFrameViewList(aPresContext, *overflow,
+                                              prevCanvasFrame, this);
       // Prepend overflow to the our child list. There may already be
       // children placeholders for fixed-pos elements, which don't get
       // reflowed but must not be lost until the canvas frame is destroyed.
@@ -467,7 +430,7 @@ nsCanvasFrame::Reflow(nsPresContext*           aPresContext,
   } else {
     nsIFrame* kidFrame = mFrames.FirstChild();
     nsRect oldKidRect = kidFrame->GetRect();
-    PRBool kidDirty = (kidFrame->GetStateBits() & NS_FRAME_IS_DIRTY) != 0;
+    bool kidDirty = (kidFrame->GetStateBits() & NS_FRAME_IS_DIRTY) != 0;
 
     nsHTMLReflowState kidReflowState(aPresContext, aReflowState, kidFrame,
                                      nsSize(aReflowState.availableWidth,
@@ -477,7 +440,7 @@ nsCanvasFrame::Reflow(nsPresContext*           aPresContext,
         (kidFrame->GetStateBits() & NS_FRAME_CONTAINS_RELATIVE_HEIGHT)) {
       // Tell our kid it's being vertically resized too.  Bit of a
       // hack for framesets.
-      kidReflowState.mFlags.mVResize = PR_TRUE;
+      kidReflowState.mFlags.mVResize = true;
     }
 
     nsPoint kidPt(kidReflowState.mComputedMargin.left,
@@ -554,15 +517,6 @@ nsCanvasFrame::Reflow(nsPresContext*           aPresContext,
     aDesiredSize.mOverflowAreas.UnionWith(
       kidDesiredSize.mOverflowAreas + kidPt);
 
-    if (mAbsoluteContainer.HasAbsoluteFrames()) {
-      PRBool widthChanged = aDesiredSize.width != mRect.width;
-      PRBool heightChanged = aDesiredSize.height != mRect.height;
-      mAbsoluteContainer.Reflow(this, aPresContext, aReflowState, aStatus,
-                                aDesiredSize.width, aDesiredSize.height,
-                                PR_TRUE, widthChanged, heightChanged,
-                                &aDesiredSize.mOverflowAreas);
-    }
-
     // Handle invalidating fixed-attachment backgrounds propagated to the
     // canvas when the canvas size (and therefore the background positioning
     // area's size) changes.  Such backgrounds are not invalidated in the
@@ -603,7 +557,7 @@ nsCanvasFrame::Reflow(nsPresContext*           aPresContext,
                                     aStatus);
   }
 
-  FinishAndStoreOverflow(&aDesiredSize);
+  FinishReflowWithAbsoluteFrames(aPresContext, aDesiredSize, aReflowState, aStatus);
 
   NS_FRAME_TRACE_REFLOW_OUT("nsCanvasFrame::Reflow", aStatus);
   NS_FRAME_SET_TRUNCATION(aStatus, aReflowState, aDesiredSize);
@@ -623,19 +577,16 @@ nsCanvasFrame::GetType() const
 }
 
 NS_IMETHODIMP 
-nsCanvasFrame::GetContentForEvent(nsPresContext* aPresContext,
-                                nsEvent* aEvent,
-                                nsIContent** aContent)
+nsCanvasFrame::GetContentForEvent(nsEvent* aEvent,
+                                  nsIContent** aContent)
 {
   NS_ENSURE_ARG_POINTER(aContent);
-  nsresult rv = nsFrame::GetContentForEvent(aPresContext,
-                                            aEvent,
+  nsresult rv = nsFrame::GetContentForEvent(aEvent,
                                             aContent);
   if (NS_FAILED(rv) || !*aContent) {
     nsIFrame* kid = mFrames.FirstChild();
     if (kid) {
-      rv = kid->GetContentForEvent(aPresContext,
-                                   aEvent,
+      rv = kid->GetContentForEvent(aEvent,
                                    aContent);
     }
   }

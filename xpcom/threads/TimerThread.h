@@ -49,16 +49,14 @@
 
 #include "nsTArray.h"
 
-#include "mozilla/CondVar.h"
-#include "mozilla/Mutex.h"
+#include "mozilla/Monitor.h"
 #include "mozilla/TimeStamp.h"
 
 class TimerThread : public nsIRunnable,
                     public nsIObserver
 {
 public:
-  typedef mozilla::CondVar CondVar;
-  typedef mozilla::Mutex Mutex;
+  typedef mozilla::Monitor Monitor;
   typedef mozilla::TimeStamp TimeStamp;
   typedef mozilla::TimeDuration TimeDuration;
 
@@ -89,22 +87,21 @@ private:
   ~TimerThread();
 
   PRInt32 mInitInProgress;
-  PRBool  mInitialized;
+  bool    mInitialized;
 
   // These two internal helper methods must be called while mLock is held.
   // AddTimerInternal returns the position where the timer was added in the
   // list, or -1 if it failed.
   PRInt32 AddTimerInternal(nsTimerImpl *aTimer);
-  PRBool  RemoveTimerInternal(nsTimerImpl *aTimer);
+  bool    RemoveTimerInternal(nsTimerImpl *aTimer);
   void    ReleaseTimerInternal(nsTimerImpl *aTimer);
 
   nsCOMPtr<nsIThread> mThread;
-  Mutex mLock;
-  CondVar mCondVar;
+  Monitor mMonitor;
 
-  PRPackedBool mShutdown;
-  PRPackedBool mWaiting;
-  PRPackedBool mSleeping;
+  bool mShutdown;
+  bool mWaiting;
+  bool mSleeping;
   
   nsTArray<nsTimerImpl*> mTimers;
 

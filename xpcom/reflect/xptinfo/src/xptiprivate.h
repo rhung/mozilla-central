@@ -62,7 +62,7 @@
 #include "nsAppDirectoryServiceDefs.h"
 #include "nsIWeakReference.h"
 
-#include "mozilla/Monitor.h"
+#include "mozilla/ReentrantMonitor.h"
 #include "mozilla/Mutex.h"
 
 #include "nsCRT.h"
@@ -156,7 +156,7 @@ public:
     xptiWorkingSet();
     ~xptiWorkingSet();
     
-    PRBool IsValid() const;
+    bool IsValid() const;
 
     void InvalidateInterfaceInfos();
     void ClearHashTables();
@@ -170,9 +170,9 @@ public:
     PRUint32 GetDirectoryCount();
     nsresult GetCloneOfDirectoryAt(PRUint32 i, nsILocalFile** dir);
     nsresult GetDirectoryAt(PRUint32 i, nsILocalFile** dir);
-    PRBool   FindDirectory(nsILocalFile* dir, PRUint32* index);
-    PRBool   FindDirectoryOfFile(nsILocalFile* file, PRUint32* index);
-    PRBool   DirectoryAtMatchesPersistentDescriptor(PRUint32 i, const char* desc);
+    bool     FindDirectory(nsILocalFile* dir, PRUint32* index);
+    bool     FindDirectoryOfFile(nsILocalFile* file, PRUint32* index);
+    bool     DirectoryAtMatchesPersistentDescriptor(PRUint32 i, const char* desc);
 
 private:
     PRUint32        mFileCount;
@@ -180,6 +180,11 @@ private:
 
 public:
     // XXX make these private with accessors
+    // mTableMonitor must be held across:
+    //  * any read from or write to mIIDTable or mNameTable
+    //  * any writing to the links between an xptiInterfaceEntry
+    //    and its xptiInterfaceInfo (mEntry/mInfo)
+    mozilla::ReentrantMonitor mTableReentrantMonitor;
     nsDataHashtable<nsIDHashKey, xptiInterfaceEntry*> mIIDTable;
     nsDataHashtable<nsDepCharHashKey, xptiInterfaceEntry*> mNameTable;
 };
@@ -211,14 +216,14 @@ public:
     void SetState(PRUint8 state) 
         {mData &= ~GetStateMask(); mData |= state;}                                   
 
-    void SetFlagBit(PRUint8 flag, PRBool on) 
+    void SetFlagBit(PRUint8 flag, bool on) 
         {if(on)
             mData |= ~GetStateMask() & flag;
          else
             mData &= GetStateMask() | ~flag;}
 
-    PRBool GetFlagBit(PRUint8 flag) const 
-        {return (mData & flag) ? PR_TRUE : PR_FALSE;}
+    bool GetFlagBit(PRUint8 flag) const 
+        {return (mData & flag) ? true : false;}
 
 private:
     PRUint8 mData;    
@@ -245,26 +250,30 @@ public:
     };
     
     // Additional bit flags...
-    enum {SCRIPTABLE = 4};
+    enum {SCRIPTABLE = 4, BUILTINCLASS = 8};
 
     PRUint8 GetResolveState() const {return mFlags.GetState();}
     
-    PRBool IsFullyResolved() const 
+    bool IsFullyResolved() const 
         {return GetResolveState() == (PRUint8) FULLY_RESOLVED;}
 
-    void   SetScriptableFlag(PRBool on)
+    void   SetScriptableFlag(bool on)
                 {mFlags.SetFlagBit(PRUint8(SCRIPTABLE),on);}
-    PRBool GetScriptableFlag() const
+    bool GetScriptableFlag() const
                 {return mFlags.GetFlagBit(PRUint8(SCRIPTABLE));}
+    void   SetBuiltinClassFlag(bool on)
+                {mFlags.SetFlagBit(PRUint8(BUILTINCLASS),on);}
+    bool GetBuiltinClassFlag() const
+                {return mFlags.GetFlagBit(PRUint8(BUILTINCLASS));}
 
     const nsID* GetTheIID()  const {return &mIID;}
     const char* GetTheName() const {return mName;}
 
-    PRBool EnsureResolved()
-        {return IsFullyResolved() ? PR_TRUE : Resolve();}
+    bool EnsureResolved()
+        {return IsFullyResolved() ? true : Resolve();}
 
     nsresult GetInterfaceInfo(xptiInterfaceInfo** info);
-    PRBool   InterfaceInfoEquals(const xptiInterfaceInfo* info) const 
+    bool     InterfaceInfoEquals(const xptiInterfaceInfo* info) const 
         {return info == mInfo;}
     
     void     LockedInvalidateInterfaceInfo();
@@ -282,7 +291,11 @@ public:
 
     nsresult GetName(char * *aName);
     nsresult GetIID(nsIID * *aIID);
-    nsresult IsScriptable(PRBool *_retval);
+    nsresult IsScriptable(bool *_retval);
+    nsresult IsBuiltinClass(bool *_retval) {
+        *_retval = GetBuiltinClassFlag();
+        return NS_OK;
+    }
     // Except this one.
     //nsresult GetParent(nsIInterfaceInfo * *aParent);
     nsresult GetMethodCount(PRUint16 *aMethodCount);
@@ -296,11 +309,11 @@ public:
     nsresult GetSizeIsArgNumberForParam(PRUint16 methodIndex, const nsXPTParamInfo * param, PRUint16 dimension, PRUint8 *_retval);
     nsresult GetLengthIsArgNumberForParam(PRUint16 methodIndex, const nsXPTParamInfo * param, PRUint16 dimension, PRUint8 *_retval);
     nsresult GetInterfaceIsArgNumberForParam(PRUint16 methodIndex, const nsXPTParamInfo * param, PRUint8 *_retval);
-    nsresult IsIID(const nsIID * IID, PRBool *_retval);
+    nsresult IsIID(const nsIID * IID, bool *_retval);
     nsresult GetNameShared(const char **name);
     nsresult GetIIDShared(const nsIID * *iid);
-    nsresult IsFunction(PRBool *_retval);
-    nsresult HasAncestor(const nsIID * iid, PRBool *_retval);
+    nsresult IsFunction(bool *_retval);
+    nsresult HasAncestor(const nsIID * iid, bool *_retval);
     nsresult GetIIDForParamNoAlloc(PRUint16 methodIndex, const nsXPTParamInfo * param, nsIID *iid);
 
 private:
@@ -314,15 +327,15 @@ private:
     void SetResolvedState(int state) 
         {mFlags.SetState(PRUint8(state));}
 
-    PRBool Resolve();
+    bool Resolve();
 
     // We only call these "*Locked" variants after locking. This is done to 
     // allow reentrace as files are loaded and various interfaces resolved 
     // without having to worry about the locked state.
 
-    PRBool EnsureResolvedLocked()
-        {return IsFullyResolved() ? PR_TRUE : ResolveLocked();}
-    PRBool ResolveLocked();
+    bool EnsureResolvedLocked()
+        {return IsFullyResolved() ? true : ResolveLocked();}
+    bool ResolveLocked();
 
     // private helpers
 
@@ -357,7 +370,8 @@ public:
     // Use delegation to implement (most!) of nsIInterfaceInfo.
     NS_IMETHOD GetName(char * *aName) { return !mEntry ? NS_ERROR_UNEXPECTED : mEntry->GetName(aName); }
     NS_IMETHOD GetInterfaceIID(nsIID * *aIID) { return !mEntry ? NS_ERROR_UNEXPECTED : mEntry->GetIID(aIID); }
-    NS_IMETHOD IsScriptable(PRBool *_retval) { return !mEntry ? NS_ERROR_UNEXPECTED : mEntry->IsScriptable(_retval); }
+    NS_IMETHOD IsScriptable(bool *_retval) { return !mEntry ? NS_ERROR_UNEXPECTED : mEntry->IsScriptable(_retval); }
+    NS_IMETHOD IsBuiltinClass(bool *_retval) { return !mEntry ? NS_ERROR_UNEXPECTED : mEntry->IsBuiltinClass(_retval); }
     // Except this one.
     NS_IMETHOD GetParent(nsIInterfaceInfo * *aParent) 
     {
@@ -377,11 +391,11 @@ public:
     NS_IMETHOD GetSizeIsArgNumberForParam(PRUint16 methodIndex, const nsXPTParamInfo * param, PRUint16 dimension, PRUint8 *_retval) { return !mEntry ? NS_ERROR_UNEXPECTED : mEntry->GetSizeIsArgNumberForParam(methodIndex, param, dimension, _retval); }
     NS_IMETHOD GetLengthIsArgNumberForParam(PRUint16 methodIndex, const nsXPTParamInfo * param, PRUint16 dimension, PRUint8 *_retval) { return !mEntry ? NS_ERROR_UNEXPECTED : mEntry->GetLengthIsArgNumberForParam(methodIndex, param, dimension, _retval); }
     NS_IMETHOD GetInterfaceIsArgNumberForParam(PRUint16 methodIndex, const nsXPTParamInfo * param, PRUint8 *_retval) { return !mEntry ? NS_ERROR_UNEXPECTED : mEntry->GetInterfaceIsArgNumberForParam(methodIndex, param, _retval); }
-    NS_IMETHOD IsIID(const nsIID * IID, PRBool *_retval) { return !mEntry ? NS_ERROR_UNEXPECTED : mEntry->IsIID(IID, _retval); }
+    NS_IMETHOD IsIID(const nsIID * IID, bool *_retval) { return !mEntry ? NS_ERROR_UNEXPECTED : mEntry->IsIID(IID, _retval); }
     NS_IMETHOD GetNameShared(const char **name) { return !mEntry ? NS_ERROR_UNEXPECTED : mEntry->GetNameShared(name); }
     NS_IMETHOD GetIIDShared(const nsIID * *iid) { return !mEntry ? NS_ERROR_UNEXPECTED : mEntry->GetIIDShared(iid); }
-    NS_IMETHOD IsFunction(PRBool *_retval) { return !mEntry ? NS_ERROR_UNEXPECTED : mEntry->IsFunction(_retval); }
-    NS_IMETHOD HasAncestor(const nsIID * iid, PRBool *_retval) { return !mEntry ? NS_ERROR_UNEXPECTED : mEntry->HasAncestor(iid, _retval); }
+    NS_IMETHOD IsFunction(bool *_retval) { return !mEntry ? NS_ERROR_UNEXPECTED : mEntry->IsFunction(_retval); }
+    NS_IMETHOD HasAncestor(const nsIID * iid, bool *_retval) { return !mEntry ? NS_ERROR_UNEXPECTED : mEntry->HasAncestor(iid, _retval); }
     NS_IMETHOD GetIIDForParamNoAlloc(PRUint16 methodIndex, const nsXPTParamInfo * param, nsIID *iid) { return !mEntry ? NS_ERROR_UNEXPECTED : mEntry->GetIIDForParamNoAlloc(methodIndex, param, iid); }
 
 public:
@@ -395,26 +409,18 @@ private:
     ~xptiInterfaceInfo();
 
     // Note that mParent might still end up as nsnull if we don't have one.
-    PRBool EnsureParent()
+    bool EnsureParent()
     {
         NS_ASSERTION(mEntry && mEntry->IsFullyResolved(), "bad EnsureParent call");
         return mParent || !mEntry->Parent() || BuildParent();
     }
     
-    PRBool EnsureResolved()
+    bool EnsureResolved()
     {
         return mEntry && mEntry->EnsureResolved();
     }
 
-    PRBool BuildParent()
-    {
-        NS_ASSERTION(mEntry && 
-                     mEntry->IsFullyResolved() && 
-                     !mParent &&
-                     mEntry->Parent(),
-                    "bad BuildParent call");
-        return NS_SUCCEEDED(mEntry->Parent()->GetInterfaceInfo(&mParent));
-    }
+    bool BuildParent();
 
     xptiInterfaceInfo();  // not implemented
 
@@ -432,7 +438,7 @@ class xptiInterfaceInfoManager
     NS_DECL_NSIINTERFACEINFOMANAGER
     NS_DECL_NSIINTERFACEINFOSUPERMANAGER
 
-    typedef mozilla::Monitor Monitor;
+    typedef mozilla::ReentrantMonitor ReentrantMonitor;
     typedef mozilla::Mutex Mutex;
 
 public:
@@ -449,18 +455,6 @@ public:
     {
         self = self ? self : GetSingleton();
         return self->mResolveLock;
-    }
-
-    static Mutex& GetAutoRegLock(xptiInterfaceInfoManager* self = nsnull) 
-    {
-        self = self ? self : GetSingleton();
-        return self->mAutoRegLock;
-    }
-
-    static Monitor& GetInfoMonitor(xptiInterfaceInfoManager* self = nsnull) 
-    {
-        self = self ? self : GetSingleton();
-        return self->mInfoMonitor;
     }
 
     xptiInterfaceEntry* GetInterfaceEntryForIID(const nsIID *iid);
@@ -482,8 +476,6 @@ private:
 private:
     xptiWorkingSet               mWorkingSet;
     Mutex                        mResolveLock;
-    Mutex                        mAutoRegLock;
-    Monitor                      mInfoMonitor;
     Mutex                        mAdditionalManagersLock;
     nsCOMArray<nsISupports>      mAdditionalManagers;
 };

@@ -49,7 +49,7 @@
  *   Old version used this to set attributes on the bookmarks RDF root, such
  *   as the last modified date. We only use H1 to check for the attribute
  *   PLACES_ROOT, which tells us that this hierarchy root is the places root.
- *   For backwards compatability, if we don't find this, we assume that the
+ *   For backwards compatibility, if we don't find this, we assume that the
  *   hierarchy is rooted at the bookmarks menu.
  * Heading := any heading other than h1
  *   Old version used this to set attributes on the current container. We only
@@ -98,7 +98,6 @@
 #include "nsUnicharUtils.h"
 #include "nsAppDirectoryServiceDefs.h"
 #include "nsDirectoryServiceUtils.h"
-#include "nsIPrefService.h"
 #include "nsToolkitCompsCID.h"
 #include "nsIHTMLContentSink.h"
 #include "nsIParser.h"
@@ -106,6 +105,9 @@
 #include "nsIObserverService.h"
 #include "nsISupportsPrimitives.h"
 #include "nsPlacesMacros.h"
+#include "mozilla/Util.h"
+
+using namespace mozilla;
 
 static NS_DEFINE_CID(kParserCID, NS_PARSER_CID);
 
@@ -130,7 +132,6 @@ static NS_DEFINE_CID(kParserCID, NS_PARSER_CID);
 #define LOAD_IN_SIDEBAR_ANNO NS_LITERAL_CSTRING("bookmarkProperties/loadInSidebar")
 #define DESCRIPTION_ANNO NS_LITERAL_CSTRING("bookmarkProperties/description")
 #define POST_DATA_ANNO NS_LITERAL_CSTRING("bookmarkProperties/POSTData")
-#define STATIC_TITLE_ANNO NS_LITERAL_CSTRING("bookmarks/staticTitle")
 
 #define BOOKMARKS_MENU_ICON_URI "chrome://browser/skin/places/bookmarksMenu.png"
 
@@ -141,9 +142,6 @@ static NS_DEFINE_CID(kParserCID, NS_PARSER_CID);
 #define RESTORE_FAILED_NSIOBSERVER_TOPIC "bookmarks-restore-failed"
 #define RESTORE_NSIOBSERVER_DATA NS_LITERAL_STRING("html")
 #define RESTORE_INITIAL_NSIOBSERVER_DATA NS_LITERAL_STRING("html-initial")
-
-// Maximum number of backups to retain.
-#define BROWSER_BOOKMARKS_MAX_BACKUPS_PREF  "browser.bookmarks.max_backups"
 
 // define to get debugging messages on console about import/export
 //#define DEBUG_IMPORT
@@ -166,7 +164,7 @@ public:
       mContainerID(aID),
       mContainerNesting(0),
       mLastContainerType(Container_Normal),
-      mInDescription(PR_FALSE),
+      mInDescription(false),
       mPreviousId(0),
       mPreviousDateAdded(0),
       mPreviousLastModifiedDate(0)
@@ -213,7 +211,7 @@ public:
   //
   // This is handled in OpenContainer(), which commits previous text if
   // necessary.
-  PRBool mInDescription;
+  bool mInDescription;
 
   // contains the URL of the previous bookmark created. This is used so that
   // when we encounter a <dd>, we know what bookmark to associate the text with.
@@ -224,13 +222,6 @@ public:
   // contains the URL of the previous livemark, so that when the link ends,
   // and the livemark title is known, we can create it.
   nsCOMPtr<nsIURI> mPreviousFeed;
-
-  // contains the text content of the previous microsummary, so that when the
-  // link ends, we can replace the bookmark's title with it and store the user's
-  // title in the staticTitle annotation.
-  nsString mPreviousMicrosummaryText;
-
-  nsCOMPtr<nsIMicrosummary> mPreviousMicrosummary;
 
   void ConsumeHeading(nsAString* aHeading, ContainerType* aContainerType)
   {
@@ -302,8 +293,8 @@ nsEscapeHTML(const char* string)
         default:
           *ptr++ = *string;
       }
-      *ptr = '\0';
     }
+    *ptr = '\0';
   }
   return escaped;
 }
@@ -343,8 +334,6 @@ nsPlacesImportExportService::Init()
   NS_ENSURE_TRUE(mBookmarksService, NS_ERROR_OUT_OF_MEMORY);
   mLivemarkService = do_GetService(NS_LIVEMARKSERVICE_CONTRACTID);
   NS_ENSURE_TRUE(mLivemarkService, NS_ERROR_OUT_OF_MEMORY);
-  mMicrosummaryService = do_GetService("@mozilla.org/microsummary/service;1");
-  NS_ENSURE_TRUE(mMicrosummaryService, NS_ERROR_OUT_OF_MEMORY);
   return NS_OK;
 }
 
@@ -356,9 +345,9 @@ class BookmarkContentSink : public nsIHTMLContentSink
 public:
   BookmarkContentSink();
 
-  nsresult Init(PRBool aAllowRootChanges,
+  nsresult Init(bool aAllowRootChanges,
                 PRInt64 aFolder,
-                PRBool aIsImportDefaults);
+                bool aIsImportDefaults);
 
   NS_DECL_ISUPPORTS
 
@@ -375,8 +364,8 @@ public:
   NS_IMETHOD OpenHead() { return NS_OK; }
   NS_IMETHOD BeginContext(PRInt32 aPosition) { return NS_OK; }
   NS_IMETHOD EndContext(PRInt32 aPosition) { return NS_OK; }
-  NS_IMETHOD IsEnabled(PRInt32 aTag, PRBool* aReturn)
-    { *aReturn = PR_TRUE; return NS_OK; }
+  NS_IMETHOD IsEnabled(PRInt32 aTag, bool* aReturn)
+    { *aReturn = true; return NS_OK; }
   NS_IMETHOD DidProcessTokens() { return NS_OK; }
   NS_IMETHOD WillProcessAToken() { return NS_OK; }
   NS_IMETHOD DidProcessAToken() { return NS_OK; }
@@ -387,14 +376,13 @@ public:
   NS_IMETHOD AddProcessingInstruction(const nsIParserNode& aNode) { return NS_OK; }
   NS_IMETHOD AddDocTypeDecl(const nsIParserNode& aNode) { return NS_OK; }
   NS_IMETHOD NotifyTagObservers(nsIParserNode* aNode) { return NS_OK; }
-  NS_IMETHOD_(PRBool) IsFormOnStack() { return PR_FALSE; }
+  NS_IMETHOD_(bool) IsFormOnStack() { return false; }
 
 protected:
   nsCOMPtr<nsINavBookmarksService> mBookmarksService;
   nsCOMPtr<nsINavHistoryService> mHistoryService;
   nsCOMPtr<nsIAnnotationService> mAnnotationService;
   nsCOMPtr<nsILivemarkService> mLivemarkService;
-  nsCOMPtr<nsIMicrosummaryService> mMicrosummaryService;
 
   // If set, we will move root items to from their existing position
   // in the hierarchy, to where we find them in the bookmarks file
@@ -402,19 +390,19 @@ protected:
   // the default places html file, and should be unset when doing
   // normal imports so that root folders will not get moved when
   // importing bookmarks.html files.
-  PRBool mAllowRootChanges;
+  bool mAllowRootChanges;
 
   // If set, this is an import of initial bookmarks.html content,
   // so we don't want to kick off HTTP traffic
   // and we want the imported personal toolbar folder
   // to be set as the personal toolbar folder. (If not set
   // we will treat it as a normal folder.)
-  PRBool mIsImportDefaults;
+  bool mIsImportDefaults;
 
   // If a folder was specified to import into, then ignore flags to put
   // bookmarks in the bookmarks menu or toolbar and keep them inside
   // the folder.
-  PRBool mFolderSpecified;
+  bool mFolderSpecified;
 
   void HandleContainerBegin(const nsIParserNode& node);
   void HandleContainerEnd();
@@ -465,9 +453,9 @@ BookmarkContentSink::BookmarkContentSink() : mFrames(16)
 
 
 nsresult
-BookmarkContentSink::Init(PRBool aAllowRootChanges,
+BookmarkContentSink::Init(bool aAllowRootChanges,
                           PRInt64 aFolder,
-                          PRBool aIsImportDefaults)
+                          bool aIsImportDefaults)
 {
   mBookmarksService = do_GetService(NS_NAVBOOKMARKSSERVICE_CONTRACTID);
   NS_ENSURE_TRUE(mBookmarksService, NS_ERROR_OUT_OF_MEMORY);
@@ -477,8 +465,6 @@ BookmarkContentSink::Init(PRBool aAllowRootChanges,
   NS_ENSURE_TRUE(mAnnotationService, NS_ERROR_OUT_OF_MEMORY);
   mLivemarkService = do_GetService(NS_LIVEMARKSERVICE_CONTRACTID);
   NS_ENSURE_TRUE(mLivemarkService, NS_ERROR_OUT_OF_MEMORY);
-  mMicrosummaryService = do_GetService("@mozilla.org/microsummary/service;1");
-  NS_ENSURE_TRUE(mMicrosummaryService, NS_ERROR_OUT_OF_MEMORY);
 
   mAllowRootChanges = aAllowRootChanges;
   mIsImportDefaults = aIsImportDefaults;
@@ -530,7 +516,7 @@ BookmarkContentSink::OpenContainer(const nsIParserNode& aNode)
       HandleContainerBegin(aNode);
       break;
     case eHTMLTag_dd:
-      CurFrame().mInDescription = PR_TRUE;
+      CurFrame().mInDescription = true;
       break;
   }
   return NS_OK;
@@ -552,7 +538,7 @@ BookmarkContentSink::CloseContainer(const nsHTMLTag aTag)
       PRInt64 itemId = !frame.mPreviousLink ? frame.mContainerID
                                             : frame.mPreviousId;
                     
-      PRBool hasDescription = PR_FALSE;
+      bool hasDescription = false;
       nsresult rv = mAnnotationService->ItemHasAnnotation(itemId,
                                                           DESCRIPTION_ANNO,
                                                           &hasDescription);
@@ -586,7 +572,7 @@ BookmarkContentSink::CloseContainer(const nsHTMLTag aTag)
         NS_WARN_IF_FALSE(NS_SUCCEEDED(rv), "SetItemLastModified failed");
       }
     }
-    frame.mInDescription = PR_FALSE;
+    frame.mInDescription = false;
   }
 
   switch (aTag) {
@@ -684,9 +670,8 @@ BookmarkContentSink::HandleContainerEnd()
     // the addition of items will override the imported field.
     BookmarkImportFrame& prevFrame = PreviousFrame();
     if (prevFrame.mPreviousLastModifiedDate > 0) {
-      nsresult rv = mBookmarksService->SetItemLastModified(frame.mContainerID,
-                                                           prevFrame.mPreviousLastModifiedDate);
-      NS_WARN_IF_FALSE(NS_SUCCEEDED(rv), "SetItemLastModified failed");
+      (void)mBookmarksService->SetItemLastModified(frame.mContainerID,
+                                                   prevFrame.mPreviousLastModifiedDate);
     }
     PopFrame();
   }
@@ -712,8 +697,8 @@ BookmarkContentSink::HandleHead1Begin(const nsIParserNode& node)
       }
 
       PRInt64 placesRoot;
-      nsresult rv = mBookmarksService->GetPlacesRoot(&placesRoot);
-      NS_WARN_IF_FALSE(NS_SUCCEEDED(rv), "could not get placesRoot");
+      DebugOnly<nsresult> rv = mBookmarksService->GetPlacesRoot(&placesRoot);
+      NS_ABORT_IF_FALSE(NS_SUCCEEDED(rv), "could not get placesRoot");
       CurFrame().mContainerID = placesRoot;
       break;
     }
@@ -761,8 +746,8 @@ BookmarkContentSink::HandleHeadBegin(const nsIParserNode& node)
   // processed.
   PRInt32 attrCount = node.GetAttributeCount();
   frame.mLastContainerType = BookmarkImportFrame::Container_Normal;
-  if (!mFolderSpecified) {
-    for (PRInt32 i = 0; i < attrCount; i ++) {
+  for (PRInt32 i = 0; i < attrCount; ++i) {
+    if (!mFolderSpecified) {
       if (node.GetKeyAt(i).LowerCaseEqualsLiteral(KEY_TOOLBARFOLDER_LOWER)) {
         if (mIsImportDefaults)
           frame.mLastContainerType = BookmarkImportFrame::Container_Toolbar;
@@ -783,14 +768,15 @@ BookmarkContentSink::HandleHeadBegin(const nsIParserNode& node)
           frame.mLastContainerType = BookmarkImportFrame::Container_Places;
         break;
       }
-      else if (node.GetKeyAt(i).LowerCaseEqualsLiteral(KEY_DATE_ADDED_LOWER)) {
-        frame.mPreviousDateAdded =
-          ConvertImportedDateToInternalDate(NS_ConvertUTF16toUTF8(node.GetValueAt(i)));
-      }
-      else if (node.GetKeyAt(i).LowerCaseEqualsLiteral(KEY_LAST_MODIFIED_LOWER)) {
-        frame.mPreviousLastModifiedDate =
-          ConvertImportedDateToInternalDate(NS_ConvertUTF16toUTF8(node.GetValueAt(i)));
-      }
+    }
+
+    if (node.GetKeyAt(i).LowerCaseEqualsLiteral(KEY_DATE_ADDED_LOWER)) {
+      frame.mPreviousDateAdded =
+        ConvertImportedDateToInternalDate(NS_ConvertUTF16toUTF8(node.GetValueAt(i)));
+    }
+    else if (node.GetKeyAt(i).LowerCaseEqualsLiteral(KEY_LAST_MODIFIED_LOWER)) {
+      frame.mPreviousLastModifiedDate =
+        ConvertImportedDateToInternalDate(NS_ConvertUTF16toUTF8(node.GetValueAt(i)));
     }
   }
   CurFrame().mPreviousText.Truncate();
@@ -827,9 +813,6 @@ BookmarkContentSink::HandleLinkBegin(const nsIParserNode& node)
   frame.mPreviousId = 0;
   // mPreviousText will hold link text, clear it.
   frame.mPreviousText.Truncate();
-  // Empty microsummary items from previous frames.
-  frame.mPreviousMicrosummary = nsnull;
-  frame.mPreviousMicrosummaryText.Truncate();
 
   // Get the attributes we care about.
   nsAutoString href;
@@ -979,19 +962,6 @@ BookmarkContentSink::HandleLinkBegin(const nsIParserNode& node)
     NS_WARN_IF_FALSE(NS_SUCCEEDED(rv), "SetItemAnnotationInt32 failed");
   }
 
-  // Import microsummary.
-  if (!micsumGenURI.IsEmpty()) {
-    nsCOMPtr<nsIURI> micsumGenURIObject;
-    rv = NS_NewURI(getter_AddRefs(micsumGenURIObject), micsumGenURI);
-    if (NS_SUCCEEDED(rv)) {
-      rv = mMicrosummaryService->CreateMicrosummary(frame.mPreviousLink,
-                                                    micsumGenURIObject,
-                                                    getter_AddRefs(frame.mPreviousMicrosummary));
-      NS_WARN_IF_FALSE(NS_SUCCEEDED(rv), "CreateMicrosummary failed");
-      frame.mPreviousMicrosummaryText = generatedTitle;
-    }
-  }
-
   // Import last charset.
   if (!lastCharset.IsEmpty()) {
     rv = mHistoryService->SetCharsetForURI(frame.mPreviousLink,lastCharset);
@@ -1049,25 +1019,9 @@ BookmarkContentSink::HandleLinkEnd()
     printf("Created bookmark '%s' %lld\n",
            NS_ConvertUTF16toUTF8(frame.mPreviousText).get(), frame.mPreviousId);
 #endif
-    if (frame.mPreviousMicrosummary) {
-      // This bookmark has a microsummary.
-      rv = mAnnotationService->SetItemAnnotationString(frame.mPreviousId,
-                                                       STATIC_TITLE_ANNO,
-                                                       frame.mPreviousText, 0,
-                                                       nsIAnnotationService::EXPIRE_NEVER);
-      NS_WARN_IF_FALSE(NS_SUCCEEDED(rv), "Could not store user's static bookmark title!");
-      rv = mBookmarksService->SetItemTitle(frame.mPreviousId,
-                                           NS_ConvertUTF16toUTF8(frame.mPreviousMicrosummaryText));
-      NS_WARN_IF_FALSE(NS_SUCCEEDED(rv), "SetItemTitle failed");
-      rv = mMicrosummaryService->SetMicrosummary(frame.mPreviousId,
-                                                frame.mPreviousMicrosummary);
-      NS_WARN_IF_FALSE(NS_SUCCEEDED(rv), "SetMicrosummary failed");
-    }
-    else {
-      rv = mBookmarksService->SetItemTitle(frame.mPreviousId,
-                                           NS_ConvertUTF16toUTF8(frame.mPreviousText));
-      NS_WARN_IF_FALSE(NS_SUCCEEDED(rv), "SetItemTitle failed");
-    }
+    rv = mBookmarksService->SetItemTitle(frame.mPreviousId,
+                                         NS_ConvertUTF16toUTF8(frame.mPreviousText));
+    NS_WARN_IF_FALSE(NS_SUCCEEDED(rv), "SetItemTitle failed");
   }
 
   // Set last modified date as the last change.
@@ -1146,7 +1100,7 @@ BookmarkContentSink::NewFrame()
   BookmarkImportFrame& frame = CurFrame();
   frame.ConsumeHeading(&containerName, &containerType);
 
-  PRBool updateFolder = PR_FALSE;
+  bool updateFolder = false;
   
   switch (containerType) {
     case BookmarkImportFrame::Container_Normal:
@@ -1168,14 +1122,14 @@ BookmarkContentSink::NewFrame()
       rv = mBookmarksService->GetBookmarksMenuFolder(&ourID);
       NS_ENSURE_SUCCESS(rv, rv);
       if (mAllowRootChanges)
-        updateFolder = PR_TRUE;
+        updateFolder = true;
       break;
     case BookmarkImportFrame::Container_Unfiled:
       // unfiled bookmarks folder
       rv = mBookmarksService->GetUnfiledBookmarksFolder(&ourID);
       NS_ENSURE_SUCCESS(rv, rv);
       if (mAllowRootChanges)
-        updateFolder = PR_TRUE;
+        updateFolder = true;
       break;
     case BookmarkImportFrame::Container_Toolbar:
       // get toolbar folder
@@ -1687,7 +1641,7 @@ nsresult
 nsPlacesImportExportService::WriteDescription(PRInt64 aItemId, PRInt32 aType,
                                               nsIOutputStream* aOutput)
 {
-  PRBool hasDescription = PR_FALSE;
+  bool hasDescription = false;
   nsresult rv = mAnnotationService->ItemHasAnnotation(aItemId,
                                                       DESCRIPTION_ANNO,
                                                       &hasDescription);
@@ -1806,7 +1760,7 @@ nsPlacesImportExportService::WriteItem(nsINavHistoryResultNode* aItem,
   }
 
   // post data
-  PRBool hasPostData;
+  bool hasPostData;
   rv = mAnnotationService->ItemHasAnnotation(itemId, POST_DATA_ANNO,
                                              &hasPostData);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -1827,36 +1781,12 @@ nsPlacesImportExportService::WriteItem(nsINavHistoryResultNode* aItem,
 
   // Write WEB_PANEL="true" if the load-in-sidebar annotation is set for the
   // item
-  PRBool loadInSidebar = PR_FALSE;
+  bool loadInSidebar = false;
   rv = mAnnotationService->ItemHasAnnotation(itemId, LOAD_IN_SIDEBAR_ANNO,
                                              &loadInSidebar);
   NS_ENSURE_SUCCESS(rv, rv);
   if (loadInSidebar)
     aOutput->Write(kWebPanelAttribute, sizeof(kWebPanelAttribute)-1, &dummy);
-
-  // microsummary
-  nsCOMPtr<nsIMicrosummary> microsummary;
-  rv = mMicrosummaryService->GetMicrosummary(itemId, getter_AddRefs(microsummary));
-  NS_ENSURE_SUCCESS(rv, rv);
-  if (microsummary) {
-    nsCOMPtr<nsIMicrosummaryGenerator> generator;
-    rv = microsummary->GetGenerator(getter_AddRefs(generator));
-    NS_ENSURE_SUCCESS(rv, rv);
-    nsCOMPtr<nsIURI> genURI;
-    rv = generator->GetUri(getter_AddRefs(genURI));
-    NS_ENSURE_SUCCESS(rv, rv);
-    nsCAutoString spec;
-    rv = genURI->GetSpec(spec);
-    NS_ENSURE_SUCCESS(rv, rv);
-
-    // write out generator URI
-    rv = aOutput->Write(kMicsumGenURIAttribute, sizeof(kMicsumGenURIAttribute)-1, &dummy);
-    NS_ENSURE_SUCCESS(rv, rv);
-    rv = WriteEscapedUrl(spec, aOutput);
-    NS_ENSURE_SUCCESS(rv, rv);
-    rv = aOutput->Write(kQuoteStr, sizeof(kQuoteStr)-1, &dummy);
-    NS_ENSURE_SUCCESS(rv, rv);
-  }
 
   // last charset
   nsAutoString lastCharset;
@@ -2079,7 +2009,7 @@ nsPlacesImportExportService::WriteContainerContents(nsINavHistoryResultNode* aFo
   nsCOMPtr<nsINavHistoryContainerResultNode> folderNode = do_QueryInterface(aFolder, &rv);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  rv = folderNode->SetContainerOpen(PR_TRUE);
+  rv = folderNode->SetContainerOpen(true);
   NS_ENSURE_SUCCESS(rv, rv);
 
   PRUint32 childCount = 0;
@@ -2098,7 +2028,7 @@ nsPlacesImportExportService::WriteContainerContents(nsINavHistoryResultNode* aFo
       NS_ENSURE_SUCCESS(rv, rv);
 
       // it could be a regular folder or it could be a livemark
-      PRBool isLivemark;
+      bool isLivemark;
       rv = mLivemarkService->IsLivemark(childFolderId, &isLivemark);
       NS_ENSURE_SUCCESS(rv, rv);
 
@@ -2127,7 +2057,7 @@ nsPlacesImportExportService::WriteContainerContents(nsINavHistoryResultNode* aFo
 static void
 NotifyImportObservers(const char* aTopic,
                       PRInt64 aFolderId,
-                      PRBool aIsInitialImport)
+                      bool aIsInitialImport)
 {
   nsCOMPtr<nsIObserverService> obs =
     do_GetService(NS_OBSERVERSERVICE_CONTRACTID);
@@ -2156,13 +2086,13 @@ NotifyImportObservers(const char* aTopic,
 
 NS_IMETHODIMP
 nsPlacesImportExportService::ImportHTMLFromFile(nsILocalFile* aFile,
-                                                PRBool aIsInitialImport)
+                                                bool aIsInitialImport)
 {
   NotifyImportObservers(RESTORE_BEGIN_NSIOBSERVER_TOPIC, -1, aIsInitialImport);
 
   // this version is exposed on the interface and disallows changing of roots
   nsresult rv = ImportHTMLFromFileInternal(aFile,
-                                           PR_FALSE,
+                                           false,
                                            0,
                                            aIsInitialImport);
 
@@ -2183,13 +2113,13 @@ nsPlacesImportExportService::ImportHTMLFromFile(nsILocalFile* aFile,
 
 NS_IMETHODIMP
 nsPlacesImportExportService::ImportHTMLFromURI(nsIURI* aURI,
-                                               PRBool aIsInitialImport)
+                                               bool aIsInitialImport)
 {
   NotifyImportObservers(RESTORE_BEGIN_NSIOBSERVER_TOPIC, -1, aIsInitialImport);
 
   // this version is exposed on the interface and disallows changing of roots
   nsresult rv = ImportHTMLFromURIInternal(aURI,
-                                          PR_FALSE,
+                                          false,
                                           0,
                                           aIsInitialImport);
 
@@ -2211,7 +2141,7 @@ nsPlacesImportExportService::ImportHTMLFromURI(nsIURI* aURI,
 NS_IMETHODIMP
 nsPlacesImportExportService::ImportHTMLFromFileToFolder(nsILocalFile* aFile,
                                                         PRInt64 aFolderId,
-                                                        PRBool aIsInitialImport)
+                                                        bool aIsInitialImport)
 {
   NotifyImportObservers(RESTORE_BEGIN_NSIOBSERVER_TOPIC,
                         aFolderId,
@@ -2219,7 +2149,7 @@ nsPlacesImportExportService::ImportHTMLFromFileToFolder(nsILocalFile* aFile,
 
   // this version is exposed on the interface and disallows changing of roots
   nsresult rv = ImportHTMLFromFileInternal(aFile,
-                                           PR_FALSE,
+                                           false,
                                            aFolderId,
                                            aIsInitialImport);
 
@@ -2240,9 +2170,9 @@ nsPlacesImportExportService::ImportHTMLFromFileToFolder(nsILocalFile* aFile,
 
 nsresult
 nsPlacesImportExportService::ImportHTMLFromFileInternal(nsILocalFile* aFile,
-                                                        PRBool aAllowRootChanges,
+                                                        bool aAllowRootChanges,
                                                         PRInt64 aFolder,
-                                                        PRBool aIsImportDefaults)
+                                                        bool aIsImportDefaults)
 {
   nsresult rv;
 
@@ -2256,7 +2186,7 @@ nsPlacesImportExportService::ImportHTMLFromFileInternal(nsILocalFile* aFile,
 #endif
 
   // Confirm file to be imported exists.
-  PRBool exists;
+  bool exists;
   rv = file->Exists(&exists);
   NS_ENSURE_SUCCESS(rv, rv);
   if (!exists) {
@@ -2274,9 +2204,9 @@ nsPlacesImportExportService::ImportHTMLFromFileInternal(nsILocalFile* aFile,
 
 nsresult
 nsPlacesImportExportService::ImportHTMLFromURIInternal(nsIURI* aURI,
-                                                       PRBool aAllowRootChanges,
+                                                       bool aAllowRootChanges,
                                                        PRInt64 aFolder,
-                                                       PRBool aIsImportDefaults)
+                                                       bool aIsImportDefaults)
 {
   nsresult rv = EnsureServiceState();
   NS_ENSURE_SUCCESS(rv, rv);
@@ -2483,12 +2413,12 @@ nsPlacesImportExportService::ExportHTMLToFile(nsILocalFile* aBookmarksFile)
   rv = result->GetRoot(getter_AddRefs(rootNode));
   NS_ENSURE_SUCCESS(rv, rv);
   // Write it out only if it's not empty.
-  rv = rootNode->SetContainerOpen(PR_TRUE);
+  rv = rootNode->SetContainerOpen(true);
   NS_ENSURE_SUCCESS(rv, rv);
   PRUint32 childCount = 0;
   rv = rootNode->GetChildCount(&childCount);
   NS_ENSURE_SUCCESS(rv, rv);
-  rv = rootNode->SetContainerOpen(PR_FALSE);
+  rv = rootNode->SetContainerOpen(false);
   NS_ENSURE_SUCCESS(rv, rv);
   if (childCount) {
     rv = WriteContainer(rootNode, nsDependentCString(kIndent), strm);
@@ -2507,12 +2437,12 @@ nsPlacesImportExportService::ExportHTMLToFile(nsILocalFile* aBookmarksFile)
   rv = result->GetRoot(getter_AddRefs(rootNode));
   NS_ENSURE_SUCCESS(rv, rv);
   // Write it out only if it's not empty.
-  rv = rootNode->SetContainerOpen(PR_TRUE);
+  rv = rootNode->SetContainerOpen(true);
   NS_ENSURE_SUCCESS(rv, rv);
   childCount = 0;
   rootNode->GetChildCount(&childCount);
   NS_ENSURE_SUCCESS(rv, rv);
-  rv = rootNode->SetContainerOpen(PR_FALSE);
+  rv = rootNode->SetContainerOpen(false);
   NS_ENSURE_SUCCESS(rv, rv);
   if (childCount) {
     rv = WriteContainer(rootNode, nsDependentCString(kIndent), strm);
@@ -2543,9 +2473,6 @@ nsPlacesImportExportService::BackupBookmarksFile()
   nsresult rv = EnsureServiceState();
   NS_ENSURE_SUCCESS(rv, rv);
 
-  nsCOMPtr<nsIPrefBranch> prefs(do_GetService(NS_PREFSERVICE_CONTRACTID, &rv));
-  NS_ENSURE_SUCCESS(rv, rv);
-
   // get bookmarks file
   nsCOMPtr<nsIFile> bookmarksFileDir;
   rv = NS_GetSpecialDirectory(NS_APP_BOOKMARKS_50_FILE,
@@ -2556,7 +2483,7 @@ nsPlacesImportExportService::BackupBookmarksFile()
   NS_ENSURE_STATE(bookmarksFile);
 
   // Create the file if it doesn't exist.
-  PRBool exists;
+  bool exists;
   rv = bookmarksFile->Exists(&exists);
   if (NS_FAILED(rv) || !exists) {
     rv = bookmarksFile->Create(nsIFile::NORMAL_FILE_TYPE, 0600);

@@ -40,7 +40,7 @@
 #ifndef __RECENTBADCERTS_H__
 #define __RECENTBADCERTS_H__
 
-#include "mozilla/Monitor.h"
+#include "mozilla/ReentrantMonitor.h"
 #include "nsIRecentBadCertsService.h"
 #include "nsTHashtable.h"
 #include "nsString.h"
@@ -54,9 +54,9 @@ public:
   {
     mDERCert.len = 0;
     mDERCert.data = nsnull;
-    isDomainMismatch = PR_FALSE;
-    isNotValidAtThisTime = PR_FALSE;
-    isUntrusted = PR_FALSE;
+    isDomainMismatch = false;
+    isNotValidAtThisTime = false;
+    isUntrusted = false;
   }
 
   ~RecentBadCert()
@@ -75,9 +75,9 @@ public:
 
   nsString mHostWithPort;
   SECItem mDERCert;
-  PRBool isDomainMismatch;
-  PRBool isNotValidAtThisTime;
-  PRBool isUntrusted;
+  bool isDomainMismatch;
+  bool isNotValidAtThisTime;
+  bool isUntrusted;
 
 private:
   RecentBadCert(const RecentBadCert &other)
@@ -105,7 +105,7 @@ public:
   nsresult Init();
 
 protected:
-    mozilla::Monitor monitor;
+    mozilla::ReentrantMonitor monitor;
 
     enum {const_recently_seen_list_size = 5};
     RecentBadCert mCerts[const_recently_seen_list_size];

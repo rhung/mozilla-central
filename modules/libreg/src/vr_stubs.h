@@ -50,10 +50,6 @@
 
 #include <errno.h>
 #include <string.h>
-#ifdef XP_MAC
-#include "macstdlibextras.h"  /* For strcasecmp and strncasecmp */
-#include <extras.h>
-#endif
 
 #else
 
@@ -64,14 +60,10 @@
 
 #endif /* STANDALONE_REGISTRY*/
 
-#ifdef XP_MAC
-#include <stat.h>
-#else
 #if ( defined(BSDI) && !defined(BSDI_2) ) || defined(XP_OS2)
 #include <sys/types.h>
 #endif
 #include <sys/stat.h>
-#endif
 
 #ifndef FALSE
 #define FALSE 0
@@ -145,26 +137,7 @@ typedef FILE          * XP_File;
 /* Alternate fileI/O function mappings */
 /*-------------------------------------*/
 
-#if USE_MMAP_REGISTRY_IO
-  /*-----------------------------------------------*/
-  /* NSPR mememory-mapped I/O (write through)      */
-  /* unfortunately this isn't supported on the Mac */
-  /*-----------------------------------------------*/
-#define USE_NSPR_MODES
-
-#include "mmapio.h"
-#define XP_FileSeek(file,offset,whence) mmio_FileSeek((file),(offset),(whence))
-#define XP_FileRead(dest,count,file)    mmio_FileRead((file), (dest), (count))
-#define XP_FileWrite(src,count,file)    mmio_FileWrite((file), (src), (count))
-#define XP_FileTell(file)               mmio_FileTell(file)
-#define XP_FileClose(file)              mmio_FileClose(file)
-#define XP_FileOpen(path, mode)         mmio_FileOpen((path), mode )
-#define XP_FileFlush(file)              ((void)1)
-#define XP_FileSetBufferSize(file, bufsize) (-1)
-
-typedef MmioFile* XP_File;
-
-#elif USE_BUFFERED_REGISTRY_IO
+#if USE_BUFFERED_REGISTRY_IO
   /*-----------------------------------------------*/
   /* home-grown XP buffering                       */
   /* writes are buffered too so use flush!         */
@@ -285,17 +258,9 @@ typedef int XP_Bool;
 typedef struct stat    XP_StatStruct;
 #define  XP_Stat(file,data)     stat((file),(data))
 
-#if defined(XP_MAC)
- extern int nr_RenameFile(char *from, char *to);
-#else
-    XP_BEGIN_PROTOS
-    #define nr_RenameFile(from, to)    rename((from), (to))
-    XP_END_PROTOS
-#endif
-
-
-
 XP_BEGIN_PROTOS
+
+#define nr_RenameFile(from, to)    rename((from), (to))
 
 extern char* globalRegName;
 extern char* verRegName;

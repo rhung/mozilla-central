@@ -37,6 +37,9 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+#include "nsWidgetsCID.h"
+#include "nsIComponentRegistrar.h"
+
 #ifndef TEST_NAME
 #error "Must #define TEST_NAME before including places_test_harness_tail.h"
 #endif
@@ -55,7 +58,7 @@ public:
   NS_IMETHOD Run()
   {
     NS_ASSERTION(NS_IsMainThread(), "Not running on the main thread?");
-    if (gTestsIndex < int(NS_ARRAY_LENGTH(gTests))) {
+    if (gTestsIndex < int(mozilla::ArrayLength(gTests))) {
       do_test_pending();
       Test &test = gTests[gTestsIndex++];
       (void)fprintf(stderr, TEST_INFO_STR "Running %s.\n", TEST_FILE,
@@ -92,11 +95,31 @@ do_test_finished()
   gPendingTests--;
 }
 
+void
+disable_idle_service()
+{
+  (void)fprintf(stderr, TEST_INFO_STR  "Disabling Idle Service.\n", TEST_FILE);
+  static NS_DEFINE_IID(kIdleCID, NS_IDLE_SERVICE_CID);
+  nsresult rv;
+  nsCOMPtr<nsIFactory> idleFactory = do_GetClassObject(kIdleCID, &rv);
+  do_check_success(rv);
+  nsCOMPtr<nsIComponentRegistrar> registrar;
+  rv = NS_GetComponentRegistrar(getter_AddRefs(registrar));
+  do_check_success(rv);
+  rv = registrar->UnregisterFactory(kIdleCID, idleFactory);
+  do_check_success(rv);
+}
+
 int
 main(int aArgc,
      char** aArgv)
 {
-  ScopedXPCOM xpcom(TEST_NAME);
+  ProfileScopedXPCOM xpcom(TEST_NAME);
+  nsCOMPtr<nsIFile> profile = xpcom.GetProfileDirectory();
+
+  // Tinderboxes are constantly on idle.  Since idle tasks can interact with
+  // tests, causing random failures, disable the idle service.
+  disable_idle_service();
 
   do_test_pending();
   run_next_test();

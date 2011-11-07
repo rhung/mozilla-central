@@ -137,11 +137,12 @@ gfxWindowsNativeDrawing::BeginNativeDrawing()
                 // and it fixes bug 382458
                 // There's probably a better fix, but I haven't figured out
                 // the root cause of the problem.
-                mTempSurfaceSize.width = (PRInt32) NS_ceil(mNativeRect.size.width + 1);
-                mTempSurfaceSize.height = (PRInt32) NS_ceil(mNativeRect.size.height + 1);
+                mTempSurfaceSize =
+                    gfxIntSize((PRInt32) ceil(mNativeRect.Width() + 1),
+                               (PRInt32) ceil(mNativeRect.Height() + 1));
             } else {
                 // figure out the scale factors
-                mScale = m.ScaleFactors(PR_TRUE);
+                mScale = m.ScaleFactors(true);
 
                 mWorldTransform.eM11 = (FLOAT) mScale.width;
                 mWorldTransform.eM12 = 0.0f;
@@ -151,8 +152,9 @@ gfxWindowsNativeDrawing::BeginNativeDrawing()
                 mWorldTransform.eDy  = 0.0f;
 
                 // See comment above about "+1"
-                mTempSurfaceSize.width = (PRInt32) NS_ceil(mNativeRect.size.width * mScale.width + 1);
-                mTempSurfaceSize.height = (PRInt32) NS_ceil(mNativeRect.size.height * mScale.height + 1);
+                mTempSurfaceSize =
+                    gfxIntSize((PRInt32) ceil(mNativeRect.Width() * mScale.width + 1),
+                               (PRInt32) ceil(mNativeRect.Height() * mScale.height + 1));
             }
         }
     }
@@ -166,12 +168,7 @@ gfxWindowsNativeDrawing::BeginNativeDrawing()
             GetWorldTransform(mDC, &mOldWorldTransform);
             SetWorldTransform(mDC, &mWorldTransform);
         }
-
-#ifdef WINCE
-        SetViewportOrgEx(mDC, 0, 0, &mOrigViewportOrigin);
-#else
         GetViewportOrgEx(mDC, &mOrigViewportOrigin);
-#endif
         SetViewportOrgEx(mDC,
                          mOrigViewportOrigin.x + (int)mDeviceOffset.x,
                          mOrigViewportOrigin.y + (int)mDeviceOffset.y,
@@ -208,7 +205,7 @@ gfxWindowsNativeDrawing::BeginNativeDrawing()
     }
 }
 
-PRBool
+bool
 gfxWindowsNativeDrawing::IsDoublePass()
 {
     nsRefPtr<gfxASurface> surf = mContext->CurrentSurface(&mDeviceOffset.x, &mDeviceOffset.y);
@@ -216,35 +213,35 @@ gfxWindowsNativeDrawing::IsDoublePass()
         return false;
     if (surf->GetType() != gfxASurface::SurfaceTypeWin32 &&
 	surf->GetType() != gfxASurface::SurfaceTypeWin32Printing) {
-	return PR_TRUE;
+	return true;
     }
     if ((surf->GetContentType() != gfxASurface::CONTENT_COLOR ||
          (surf->GetContentType() == gfxASurface::CONTENT_COLOR_ALPHA &&
           !(mNativeDrawFlags & CAN_DRAW_TO_COLOR_ALPHA))))
-        return PR_TRUE;
-    return PR_FALSE;
+        return true;
+    return false;
 }
 
-PRBool
+bool
 gfxWindowsNativeDrawing::ShouldRenderAgain()
 {
     switch (mRenderState) {
         case RENDER_STATE_NATIVE_DRAWING_DONE:
-            return PR_FALSE;
+            return false;
 
         case RENDER_STATE_ALPHA_RECOVERY_BLACK_DONE:
             mRenderState = RENDER_STATE_ALPHA_RECOVERY_WHITE;
-            return PR_TRUE;
+            return true;
 
         case RENDER_STATE_ALPHA_RECOVERY_WHITE_DONE:
-            return PR_FALSE;
+            return false;
 
         default:
             NS_ERROR("Invalid RenderState in gfxWindowsNativeDrawing::ShouldRenderAgain");
             break;
     }
 
-    return PR_FALSE;
+    return false;
 }
 
 void
@@ -294,9 +291,9 @@ gfxWindowsNativeDrawing::PaintToContext()
                                 gfxASurface::ImageFormatARGB32);
 
         mContext->Save();
-        mContext->Translate(mNativeRect.pos);
+        mContext->Translate(mNativeRect.TopLeft());
         mContext->NewPath();
-        mContext->Rectangle(gfxRect(gfxPoint(0.0, 0.0), mNativeRect.size));
+        mContext->Rectangle(gfxRect(gfxPoint(0.0, 0.0), mNativeRect.Size()));
 
         nsRefPtr<gfxPattern> pat = new gfxPattern(alphaSurface);
 
@@ -334,7 +331,7 @@ gfxWindowsNativeDrawing::TransformToNativeRect(const gfxRect& r,
             roundedRect.MoveBy(mTranslation);
         }
     } else {
-        roundedRect.MoveBy(- mNativeRect.pos);
+        roundedRect.MoveBy(-mNativeRect.TopLeft());
     }
 
     roundedRect.Round();

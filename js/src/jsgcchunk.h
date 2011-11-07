@@ -44,49 +44,25 @@
 #include "jsutil.h"
 
 namespace js {
+namespace gc {
 
-const size_t GC_CHUNK_SHIFT = 20;
-const size_t GC_CHUNK_SIZE = size_t(1) << GC_CHUNK_SHIFT;
-const size_t GC_CHUNK_MASK = GC_CHUNK_SIZE - 1;
+const size_t ChunkShift = 20;
+const size_t ChunkSize = size_t(1) << ChunkShift;
+const size_t ChunkMask = ChunkSize - 1;
 
-JS_FRIEND_API(void *)
-AllocGCChunk();
+void *
+AllocChunk();
 
-JS_FRIEND_API(void)
-FreeGCChunk(void *p);
+void
+FreeChunk(void *p);
 
-class GCChunkAllocator {
-  public:
-    GCChunkAllocator() {}
-    
-    void *alloc() {
-        void *chunk = doAlloc();
-        JS_ASSERT(!(reinterpret_cast<jsuword>(chunk) & GC_CHUNK_MASK));
-        return chunk;
-    }
+bool
+CommitMemory(void *addr, size_t size);
 
-    void free_(void *chunk) {
-        JS_ASSERT(chunk);
-        JS_ASSERT(!(reinterpret_cast<jsuword>(chunk) & GC_CHUNK_MASK));
-        doFree(chunk);
-    }
-    
-  private:
-    virtual void *doAlloc() {
-        return AllocGCChunk();
-    }
-    
-    virtual void doFree(void *chunk) {
-        FreeGCChunk(chunk);
-    }
+bool
+DecommitMemory(void *addr, size_t size);
 
-    /* No copy or assignment semantics. */
-    GCChunkAllocator(const GCChunkAllocator &);
-    void operator=(const GCChunkAllocator &);
-};
-
-extern GCChunkAllocator defaultGCChunkAllocator;
-
-}
+} /* namespace gc */
+} /* namespace js */
 
 #endif /* jsgchunk_h__ */

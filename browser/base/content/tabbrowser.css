@@ -16,12 +16,6 @@
   display: -moz-box;
 }
 
-.tab-close-button[selected="true"] {
-  /* Make this button focusable so clicking on it will not focus the tab while
-     it's getting closed */
-  -moz-user-focus: normal;
-}
-
 .tab-label[pinned] {
   width: 0;
   margin-left: 0 !important;
@@ -35,7 +29,7 @@
 }
 
 tabpanels {
-  background-color: white;
+  background-color: transparent;
 }
 
 .tab-drop-indicator {

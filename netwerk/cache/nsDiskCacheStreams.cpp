@@ -58,9 +58,6 @@
 /******************************************************************************
  *  nsDiskCacheInputStream
  *****************************************************************************/
-#ifdef XP_MAC
-#pragma mark nsDiskCacheInputStream
-#endif
 class nsDiskCacheInputStream : public nsIInputStream {
 
 public:
@@ -81,7 +78,7 @@ private:
     const char *                    mBuffer;
     PRUint32                        mStreamEnd;
     PRUint32                        mPos;       // stream position
-    PRBool                          mClosed;
+    bool                            mClosed;
 };
 
 
@@ -97,7 +94,7 @@ nsDiskCacheInputStream::nsDiskCacheInputStream( nsDiskCacheStreamIO * parent,
     , mBuffer(buffer)
     , mStreamEnd(endOfStream)
     , mPos(0)
-    , mClosed(PR_FALSE)
+    , mClosed(false)
 {
     NS_ADDREF(mStreamIO);
     mStreamIO->IncrementInputStreamCount();
@@ -120,7 +117,7 @@ nsDiskCacheInputStream::Close()
             (void) PR_Close(mFD);
             mFD = nsnull;
         }
-        mClosed = PR_TRUE;
+        mClosed = true;
     }
     return NS_OK;
 }
@@ -183,9 +180,9 @@ nsDiskCacheInputStream::ReadSegments(nsWriteSegmentFun writer,
 
 
 NS_IMETHODIMP
-nsDiskCacheInputStream::IsNonBlocking(PRBool * nonBlocking)
+nsDiskCacheInputStream::IsNonBlocking(bool * nonBlocking)
 {
-    *nonBlocking = PR_FALSE;
+    *nonBlocking = false;
     return NS_OK;
 }
 
@@ -193,10 +190,6 @@ nsDiskCacheInputStream::IsNonBlocking(PRBool * nonBlocking)
 /******************************************************************************
  *  nsDiskCacheOutputStream
  *****************************************************************************/
-#ifdef XP_MAC
-#pragma mark -
-#pragma mark nsDiskCacheOutputStream
-#endif
 class nsDiskCacheOutputStream : public nsIOutputStream
                               , public nsIDiskCacheStreamInternal
 {
@@ -212,7 +205,7 @@ public:
 
 private:
     nsDiskCacheStreamIO *           mStreamIO;  // backpointer to parent
-    PRBool                          mClosed;
+    bool                            mClosed;
 };
 
 
@@ -222,7 +215,7 @@ NS_IMPL_THREADSAFE_ISUPPORTS2(nsDiskCacheOutputStream,
 
 nsDiskCacheOutputStream::nsDiskCacheOutputStream( nsDiskCacheStreamIO * parent)
     : mStreamIO(parent)
-    , mClosed(PR_FALSE)
+    , mClosed(false)
 {
     NS_ADDREF(mStreamIO);
 }
@@ -239,7 +232,7 @@ NS_IMETHODIMP
 nsDiskCacheOutputStream::Close()
 {
     if (!mClosed) {
-        mClosed = PR_TRUE;
+        mClosed = true;
         // tell parent streamIO we are closing
         mStreamIO->CloseOutputStream(this);
     }
@@ -250,7 +243,7 @@ NS_IMETHODIMP
 nsDiskCacheOutputStream::CloseInternal()
 {
     if (!mClosed) {
-        mClosed = PR_TRUE;
+        mClosed = true;
         // tell parent streamIO we are closing
         mStreamIO->CloseOutputStreamInternal(this);
     }
@@ -294,9 +287,9 @@ nsDiskCacheOutputStream::WriteSegments( nsReadSegmentFun reader,
 
 
 NS_IMETHODIMP
-nsDiskCacheOutputStream::IsNonBlocking(PRBool * nonBlocking)
+nsDiskCacheOutputStream::IsNonBlocking(bool * nonBlocking)
 {
-    *nonBlocking = PR_FALSE;
+    *nonBlocking = false;
     return NS_OK;
 }
 
@@ -305,11 +298,6 @@ nsDiskCacheOutputStream::IsNonBlocking(PRBool * nonBlocking)
 /******************************************************************************
  *  nsDiskCacheStreamIO
  *****************************************************************************/
-#ifdef XP_MAC
-#pragma mark -
-#pragma mark nsDiskCacheStreamIO
-#endif
-
 NS_IMPL_THREADSAFE_ISUPPORTS0(nsDiskCacheStreamIO)
 
 // we pick 16k as the max buffer size because that is the threshold above which
@@ -327,7 +315,7 @@ nsDiskCacheStreamIO::nsDiskCacheStreamIO(nsDiskCacheBinding *   binding)
     , mBufPos(0)
     , mBufEnd(0)
     , mBufSize(0)
-    , mBufDirty(PR_FALSE)
+    , mBufDirty(false)
     , mBuffer(nsnull)
 {
     mDevice = (nsDiskCacheDevice *)mBinding->mCacheEntry->CacheDevice();
@@ -496,20 +484,25 @@ nsDiskCacheStreamIO::Flush()
     CACHE_LOG_DEBUG(("CACHE: Flush [%x doomed=%u]\n",
         mBinding->mRecord.HashNumber(), mBinding->mDoomed));
 
-    if (!mBufDirty)
+    if (!mBufDirty) {
+        if (mFD) {
+            (void) PR_Close(mFD);
+            mFD = nsnull;
+        }
         return NS_OK;
+    }
 
     // write data to cache blocks, or flush mBuffer to file
     nsDiskCacheMap *cacheMap = mDevice->CacheMap();  // get map reference
     nsresult rv;
 
-    PRBool written = PR_FALSE;
+    bool written = false;
 
     if ((mStreamEnd <= kMaxBufferSize) &&
         (mBinding->mCacheEntry->StoragePolicy() != nsICache::STORE_ON_DISK_AS_FILE)) {
         // store data (if any) in cache block files
 
-        mBufDirty = PR_FALSE;
+        mBufDirty = false;
 
         // delete existing storage
         nsDiskCacheRecord * record = &mBinding->mRecord;
@@ -523,12 +516,12 @@ nsDiskCacheStreamIO::Flush()
         }
 
         // flush buffer to block files
-        written = PR_TRUE;
+        written = true;
         if (mStreamEnd > 0) {
             rv = cacheMap->WriteDataCacheBlocks(mBinding, mBuffer, mBufEnd);
             if (NS_FAILED(rv)) {
                 NS_WARNING("WriteDataCacheBlocks() failed.");
-                written = PR_FALSE;
+                written = false;
             }
         }
     }
@@ -599,7 +592,7 @@ nsDiskCacheStreamIO::Write( const char * buffer,
     NS_ASSERTION(mBufPos <= mBufEnd, "streamIO buffer corrupted");
 
     PRUint32 bytesLeft = count;
-    PRBool   flushed = PR_FALSE;
+    bool     flushed = false;
     
     while (bytesLeft) {
         if (mBufPos == mBufSize) {
@@ -616,7 +609,7 @@ nsDiskCacheStreamIO::Write( const char * buffer,
             } else {
                 nsresult rv = FlushBufferToFile();
                 if (NS_FAILED(rv))  break;
-                flushed = PR_TRUE;
+                flushed = true;
             }
         }
         
@@ -625,7 +618,7 @@ nsDiskCacheStreamIO::Write( const char * buffer,
             chunkSize =  mBufSize - mBufPos;
         
         memcpy(mBuffer + mBufPos, buffer, chunkSize);
-        mBufDirty = PR_TRUE;
+        mBufDirty = true;
         mBufPos += chunkSize;
         bytesLeft -= chunkSize;
         buffer += chunkSize;
@@ -662,8 +655,12 @@ nsDiskCacheStreamIO::UpdateFileSize()
     
     nsDiskCacheRecord * record = &mBinding->mRecord;
     const PRUint32      oldSizeK  = record->DataFileSize();
-    const PRUint32      newSizeK  = (mStreamEnd + 0x03FF) >> 10;
-    
+    PRUint32            newSizeK  = (mStreamEnd + 0x03FF) >> 10;
+
+    // make sure the size won't overflow (bug #651100)
+    if (newSizeK > kMaxDataSizeK)
+        newSizeK = kMaxDataSizeK;
+
     if (newSizeK == oldSizeK)  return;
     
     record->SetDataFileSize(newSizeK);
@@ -759,7 +756,7 @@ nsDiskCacheStreamIO::FlushBufferToFile()
 
         PRInt64 dataSize = mBinding->mCacheEntry->PredictedDataSize();
         if (dataSize != -1)
-            mozilla::fallocate(mFD, PR_MIN(dataSize, kPreallocateLimit));
+            mozilla::fallocate(mFD, NS_MIN<PRInt64>(dataSize, kPreallocateLimit));
     }
     
     // write buffer
@@ -768,7 +765,7 @@ nsDiskCacheStreamIO::FlushBufferToFile()
         NS_WARNING("failed to flush all data");
         return NS_ERROR_UNEXPECTED;     // NS_ErrorAccordingToNSPR()
     }
-    mBufDirty = PR_FALSE;
+    mBufDirty = false;
     
     // reset buffer
     mBufPos = 0;
@@ -888,7 +885,7 @@ nsresult
 nsDiskCacheStreamIO::SetEOF()
 {
     nsresult    rv;
-    PRBool      needToCloseFD = PR_FALSE;
+    bool        needToCloseFD = false;
 
     NS_ASSERTION(mStreamPos <= mStreamEnd, "bad stream");
     if (!mBinding)  return NS_ERROR_NOT_AVAILABLE;
@@ -899,7 +896,7 @@ nsDiskCacheStreamIO::SetEOF()
                 // we need an mFD, we better open it now
                 rv = OpenCacheFile(PR_RDWR | PR_CREATE_FILE, &mFD);
                 if (NS_FAILED(rv))  return rv;
-                needToCloseFD = PR_TRUE;
+                needToCloseFD = true;
             }
         } else {
             // data in cache block files
@@ -912,7 +909,7 @@ nsDiskCacheStreamIO::SetEOF()
             // We need to make sure we reflect this change in Flush().
             // In particular, if mStreamPos is 0 and we never write to
             // the buffer, we want the storage to be deleted.
-            mBufDirty = PR_TRUE;
+            mBufDirty = true;
         }
     }
     
@@ -925,7 +922,7 @@ nsDiskCacheStreamIO::SetEOF()
         // data stored in buffer.
         NS_ASSERTION(mStreamEnd <= kMaxBufferSize, "buffer truncation inadequate");
         NS_ASSERTION(mBufPos == mStreamPos, "bad stream");
-        NS_ASSERTION(mBuffer ? mBufEnd == mStreamEnd : PR_TRUE, "bad stream");
+        NS_ASSERTION(mBuffer ? mBufEnd == mStreamEnd : true, "bad stream");
 #endif
     }
 

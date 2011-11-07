@@ -11277,7 +11277,7 @@ case "$host" in
   powerpc-*-aix* | rs6000-*-aix*)
 	TARGET=POWERPC_AIX; TARGETDIR=powerpc
 	;;
-  powerpc-*-freebsd*)
+  powerpc-*-freebsd* | powerpc-*-openbsd*)
 	TARGET=POWERPC_FREEBSD; TARGETDIR=powerpc
 	;;
   powerpc*-*-rtems*)
@@ -12275,10 +12275,10 @@ if test "${libffi_cv_as_x86_pcrel+set}" = set; then :
   $as_echo_n "(cached) " >&6
 else
 
-	libffi_cv_as_x86_pcrel=yes
+	libffi_cv_as_x86_pcrel=no
 	echo '.text; foo: nop; .data; .long foo-.; .text' > conftest.s
-	if $CC $CFLAGS -c conftest.s 2>&1 | $EGREP -i 'illegal|warning' > /dev/null; then
-	    libffi_cv_as_x86_pcrel=no
+	if $CC $CFLAGS -c conftest.s > /dev/null; then
+	    libffi_cv_as_x86_pcrel=yes
 	fi
 
 fi
@@ -12362,7 +12362,7 @@ $as_echo "#define HAVE_AS_STRING_PSEUDO_OP 1" >>confdefs.h
 fi
 
 case "$target" in
-     *-apple-darwin10* | *-*-freebsd* | *-*-openbsd* | *-pc-solaris*)
+     *-apple-darwin1* | *-*-freebsd* | *-*-openbsd* | *-pc-solaris*)
 
 $as_echo "#define FFI_MMAP_EXEC_WRIT 1" >>confdefs.h
 

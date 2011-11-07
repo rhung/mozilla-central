@@ -47,15 +47,15 @@
 
 #include "nsIObserver.h"
 #include "nsIThreadInternal.h"
-#include "mozilla/Monitor.h"
 #include "nsNetUtil.h"
 #include "nsIPrefService.h"
 #include "nsIPermissionManager.h"
 #include "nsIDOMGeoPositionCallback.h"
-#include "nsIAccelerometer.h"
+#include "nsIDeviceMotion.h"
 #include "nsIMemoryReporter.h"
 #include "nsCOMArray.h"
 
+class nsFrameMessageManager;
 namespace mozilla {
 
 namespace ipc {
@@ -71,30 +71,27 @@ class ContentParent : public PContentParent
                     , public nsIObserver
                     , public nsIThreadObserver
                     , public nsIDOMGeoPositionCallback
-                    , public nsIAccelerationListener
+                    , public nsIDeviceMotionListener
 {
 private:
     typedef mozilla::ipc::GeckoChildProcessHost GeckoChildProcessHost;
     typedef mozilla::ipc::TestShellParent TestShellParent;
 
 public:
-    static ContentParent* GetSingleton(PRBool aForceNew = PR_TRUE);
-
-#if 0
-    // TODO: implement this somewhere!
-    static ContentParent* FreeSingleton();
-#endif
+    static ContentParent* GetNewOrUsed();
+    static void GetAll(nsTArray<ContentParent*>& aArray);
 
     NS_DECL_ISUPPORTS
     NS_DECL_NSIOBSERVER
     NS_DECL_NSITHREADOBSERVER
     NS_DECL_NSIDOMGEOPOSITIONCALLBACK
-    NS_DECL_NSIACCELERATIONLISTENER
+    NS_DECL_NSIDEVICEMOTIONLISTENER
 
     TabParent* CreateTab(PRUint32 aChromeFlags);
 
     TestShellParent* CreateTestShell();
     bool DestroyTestShell(TestShellParent* aTestShell);
+    TestShellParent* GetTestShellSingleton();
 
     void ReportChildAlreadyBlocked();
     bool RequestRunToCompletion();
@@ -103,12 +100,20 @@ public:
 
     void SetChildMemoryReporters(const InfallibleTArray<MemoryReport>& report);
 
+    GeckoChildProcessHost* Process() {
+        return mSubprocess;
+    }
+
+    bool NeedsPermissionsUpdate() {
+        return mSendPermissionUpdates;
+    }
+
 protected:
     void OnChannelConnected(int32 pid);
     virtual void ActorDestroy(ActorDestroyReason why);
 
 private:
-    static ContentParent* gSingleton;
+    static nsTArray<ContentParent*>* gContentParents;
 
     // Hide the raw constructor methods since we don't want client code
     // using them.
@@ -123,8 +128,15 @@ private:
     virtual PBrowserParent* AllocPBrowser(const PRUint32& aChromeFlags);
     virtual bool DeallocPBrowser(PBrowserParent* frame);
 
-    virtual PCrashReporterParent* AllocPCrashReporter();
+    virtual PCrashReporterParent* AllocPCrashReporter(const NativeThreadId& tid,
+                                                      const PRUint32& processType);
     virtual bool DeallocPCrashReporter(PCrashReporterParent* crashreporter);
+    virtual bool RecvPCrashReporterConstructor(PCrashReporterParent* actor,
+                                               const NativeThreadId& tid,
+                                               const PRUint32& processType);
+
+    NS_OVERRIDE virtual PHalParent* AllocPHal();
+    NS_OVERRIDE virtual bool DeallocPHal(PHalParent*);
 
     virtual PMemoryReportRequestParent* AllocPMemoryReportRequest();
     virtual bool DeallocPMemoryReportRequest(PMemoryReportRequestParent* actor);
@@ -158,10 +170,17 @@ private:
     void EnsurePrefService();
 
     virtual bool RecvReadPermissions(InfallibleTArray<IPC::Permission>* aPermissions);
+
+    virtual bool RecvGetIndexedDBDirectory(nsString* aDirectory);
+
     virtual bool RecvSetClipboardText(const nsString& text, const PRInt32& whichClipboard);
     virtual bool RecvGetClipboardText(const PRInt32& whichClipboard, nsString* text);
     virtual bool RecvEmptyClipboard();
-    virtual bool RecvClipboardHasText(PRBool* hasText);
+    virtual bool RecvClipboardHasText(bool* hasText);
+
+    virtual bool RecvGetSystemColors(const PRUint32& colorsCount, InfallibleTArray<PRUint32>* colors);
+    virtual bool RecvGetIconForExtension(const nsCString& aFileExt, const PRUint32& aIconSize, InfallibleTArray<PRUint8>* bits);
+    virtual bool RecvGetShowPasswordSetting(bool* showPassword);
 
     virtual bool RecvStartVisitedQuery(const IPC::URI& uri);
 
@@ -174,6 +193,7 @@ private:
     
     virtual bool RecvShowFilePicker(const PRInt16& mode,
                                     const PRInt16& selectedType,
+                                    const bool& addToRecentDocs,
                                     const nsString& title,
                                     const nsString& defaultFile,
                                     const nsString& defaultExtension,
@@ -184,7 +204,7 @@ private:
                                     nsresult* result);
  
     virtual bool RecvShowAlertNotification(const nsString& aImageUrl, const nsString& aTitle,
-                                           const nsString& aText, const PRBool& aTextClickable,
+                                           const nsString& aText, const bool& aTextClickable,
                                            const nsString& aCookie, const nsString& aName);
 
     virtual bool RecvLoadURIExternal(const IPC::URI& uri);
@@ -195,8 +215,8 @@ private:
 
     virtual bool RecvAddGeolocationListener();
     virtual bool RecvRemoveGeolocationListener();
-    virtual bool RecvAddAccelerometerListener();
-    virtual bool RecvRemoveAccelerometerListener();
+    virtual bool RecvAddDeviceMotionListener();
+    virtual bool RecvRemoveDeviceMotionListener();
 
     virtual bool RecvConsoleMessage(const nsString& aMessage);
     virtual bool RecvScriptError(const nsString& aMessage,
@@ -206,8 +226,6 @@ private:
                                  const PRUint32& aColNumber,
                                  const PRUint32& aFlags,
                                  const nsCString& aCategory);
-
-    mozilla::Monitor mMonitor;
 
     GeckoChildProcessHost* mSubprocess;
 
@@ -223,8 +241,13 @@ private:
     nsCOMArray<nsIMemoryReporter> mMemoryReporters;
 
     bool mIsAlive;
-    nsCOMPtr<nsIPrefServiceInternal> mPrefService;
-    time_t mProcessStartTime;
+    nsCOMPtr<nsIPrefService> mPrefService;
+
+    bool mSendPermissionUpdates;
+
+    nsRefPtr<nsFrameMessageManager> mMessageManager;
+
+    friend class CrashReporterParent;
 };
 
 } // namespace dom

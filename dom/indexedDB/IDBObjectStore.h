@@ -42,7 +42,6 @@
 
 #include "mozilla/dom/indexedDB/IndexedDatabase.h"
 #include "mozilla/dom/indexedDB/IDBTransaction.h"
-#include "mozilla/dom/indexedDB/Key.h"
 
 #include "nsIIDBObjectStore.h"
 #include "nsIIDBTransaction.h"
@@ -55,6 +54,7 @@ class nsPIDOMWindow;
 BEGIN_INDEXEDDB_NAMESPACE
 
 class AsyncConnectionHelper;
+class Key;
 
 struct ObjectStoreInfo;
 struct IndexInfo;
@@ -73,24 +73,10 @@ public:
          const ObjectStoreInfo* aInfo);
 
   static nsresult
-  GetKeyFromVariant(nsIVariant* aKeyVariant,
-                    Key& aKey);
-
-  static nsresult
-  GetKeyFromJSVal(jsval aKeyVal,
-                  JSContext* aCx,
-                  Key& aKey);
-
-  static nsresult
-  GetJSValFromKey(const Key& aKey,
-                  JSContext* aCx,
-                  jsval* aKeyVal);
-
-  static nsresult
   GetKeyPathValueFromStructuredData(const PRUint8* aData,
                                     PRUint32 aDataLength,
                                     const nsAString& aKeyPath,
-                                    JSContext** aCx,
+                                    JSContext* aCx,
                                     Key& aValue);
 
   static nsresult
@@ -115,6 +101,20 @@ public:
 
   static void
   ClearStructuredCloneBuffer(JSAutoStructuredCloneBuffer& aBuffer);
+
+  static bool
+  DeserializeValue(JSContext* aCx,
+                   JSAutoStructuredCloneBuffer& aBuffer,
+                   jsval* aValue,
+                   JSStructuredCloneCallbacks* aCallbacks = nsnull,
+                   void* aClosure = nsnull);
+
+  static bool
+  SerializeValue(JSContext* aCx,
+                 JSAutoStructuredCloneBuffer& aBuffer,
+                 jsval aValue,
+                 JSStructuredCloneCallbacks* aCallbacks = nsnull,
+                 void* aClosure = nsnull);
 
   const nsString& Name() const
   {
@@ -147,6 +147,10 @@ public:
     return mTransaction;
   }
 
+  nsresult ModifyValueForNewKey(JSAutoStructuredCloneBuffer& aBuffer,
+                                Key& aKey,
+                                PRUint64 aOffsetToKeyProp);
+
 protected:
   IDBObjectStore();
   ~IDBObjectStore();
@@ -156,7 +160,8 @@ protected:
                       jsval aKeyVal,
                       JSAutoStructuredCloneBuffer& aCloneBuffer,
                       Key& aKey,
-                      nsTArray<IndexUpdateInfo>& aUpdateInfoArray);
+                      nsTArray<IndexUpdateInfo>& aUpdateInfoArray,
+                      PRUint64* aOffsetToKeyProp);
 
   nsresult AddOrPut(const jsval& aValue,
                     const jsval& aKey,
@@ -174,12 +179,11 @@ private:
   PRInt64 mId;
   nsString mName;
   nsString mKeyPath;
-  PRBool mAutoIncrement;
-  PRUint32 mDatabaseId;
+  bool mAutoIncrement;
+  nsCOMPtr<nsIAtom> mDatabaseId;
   PRUint32 mStructuredCloneVersion;
 
   nsTArray<nsRefPtr<IDBIndex> > mCreatedIndexes;
-
 };
 
 END_INDEXEDDB_NAMESPACE

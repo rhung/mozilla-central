@@ -1005,8 +1005,9 @@ function Engine(aLocation, aSourceDataType, aIsReadOnly) {
 }
 
 Engine.prototype = {
-  // The engine's alias.
-  _alias: null,
+  // The engine's alias (can be null). Initialized to |undefined| to indicate
+  // not-initialized-from-engineMetadataService.
+  _alias: undefined,
   // The data describing the engine. Is either an array of bytes, for Sherlock
   // files, or an XML document element, for XML plugins.
   _data: null,
@@ -2201,7 +2202,7 @@ Engine.prototype = {
 
   // nsISearchEngine
   get alias() {
-    if (this._alias === null)
+    if (this._alias === undefined)
       this._alias = engineMetadataService.getAttr(this, "alias");
 
     return this._alias;
@@ -3393,8 +3394,7 @@ SearchService.prototype = {
     var currentEnginePref = BROWSER_SEARCH_PREF + "selectedEngine";
 
     if (this._currentEngine == this.defaultEngine) {
-      if (gPrefSvc.prefHasUserValue(currentEnginePref))
-        gPrefSvc.clearUserPref(currentEnginePref);
+      gPrefSvc.clearUserPref(currentEnginePref);
     }
     else {
       setLocalizedPref(currentEnginePref, this._currentEngine.name);

@@ -48,10 +48,12 @@
 #include "nsPresContext.h"
 #include "nsIPresShell.h"
 #include "nsGUIEvent.h"
-#include "nsIEventStateManager.h"
+#include "nsEventStateManager.h"
 #include "nsIDOMElement.h"
 #include "nsDisplayList.h"
 #include "nsContentUtils.h"
+#include "mozilla/dom/Element.h"
+
 
 //
 // NS_NewXULButtonFrame
@@ -92,7 +94,7 @@ nsButtonBoxFrame::HandleEvent(nsPresContext* aPresContext,
       if (NS_KEY_EVENT == aEvent->eventStructType) {
         nsKeyEvent* keyEvent = (nsKeyEvent*)aEvent;
         if (NS_VK_SPACE == keyEvent->keyCode) {
-          nsIEventStateManager *esm = aPresContext->EventStateManager();
+          nsEventStateManager *esm = aPresContext->EventStateManager();
           // :hover:active state
           esm->SetContentState(mContent, NS_EVENT_STATE_HOVER);
           esm->SetContentState(mContent, NS_EVENT_STATE_ACTIVE);
@@ -121,11 +123,12 @@ nsButtonBoxFrame::HandleEvent(nsPresContext* aPresContext,
         nsKeyEvent* keyEvent = (nsKeyEvent*)aEvent;
         if (NS_VK_SPACE == keyEvent->keyCode) {
           // only activate on keyup if we're already in the :hover:active state
-          nsIEventStateManager *esm = aPresContext->EventStateManager();
-          nsEventStates buttonState = esm->GetContentState(mContent);
+          NS_ASSERTION(mContent->IsElement(), "How do we have a non-element?");
+          nsEventStates buttonState = mContent->AsElement()->State();
           if (buttonState.HasAllStates(NS_EVENT_STATE_ACTIVE |
                                        NS_EVENT_STATE_HOVER)) {
             // return to normal state
+            nsEventStateManager *esm = aPresContext->EventStateManager();
             esm->SetContentState(nsnull, NS_EVENT_STATE_ACTIVE);
             esm->SetContentState(nsnull, NS_EVENT_STATE_HOVER);
             MouseClicked(aPresContext, aEvent);
@@ -145,7 +148,7 @@ nsButtonBoxFrame::HandleEvent(nsPresContext* aPresContext,
 }
 
 void 
-nsButtonBoxFrame::DoMouseClick(nsGUIEvent* aEvent, PRBool aTrustEvent) 
+nsButtonBoxFrame::DoMouseClick(nsGUIEvent* aEvent, bool aTrustEvent) 
 {
   // Don't execute if we're disabled.
   if (mContent->AttrValueIs(kNameSpaceID_None, nsGkAtoms::disabled,
@@ -153,10 +156,10 @@ nsButtonBoxFrame::DoMouseClick(nsGUIEvent* aEvent, PRBool aTrustEvent)
     return;
 
   // Execute the oncommand event handler.
-  PRBool isShift = PR_FALSE;
-  PRBool isControl = PR_FALSE;
-  PRBool isAlt = PR_FALSE;
-  PRBool isMeta = PR_FALSE;
+  bool isShift = false;
+  bool isControl = false;
+  bool isAlt = false;
+  bool isMeta = false;
   if(aEvent) {
     isShift = ((nsInputEvent*)(aEvent))->isShift;
     isControl = ((nsInputEvent*)(aEvent))->isControl;

@@ -52,22 +52,22 @@
 #include "nsIDOMEventTarget.h"
 #include "nsIWindowWatcher.h"
 #include "nsIDOMWindow.h"
-#include "nsIIdentityInfo.h"
 #include "nsPIDOMWindow.h"
 #include "TabChild.h"
 #include "nsIDOMEvent.h"
 #include "nsIPrivateDOMEvent.h"
 #include "nsFrameLoader.h"
 #include "nsNetUtil.h"
-#include "jsarray.h"
 #include "nsContentUtils.h"
 #include "nsContentPermissionHelper.h"
-#include "nsIDOMNSHTMLFrameElement.h"
+#include "nsIDOMHTMLFrameElement.h"
 #include "nsIDialogCreator.h"
 #include "nsThreadUtils.h"
 #include "nsSerializationHelper.h"
 #include "nsIPromptFactory.h"
 #include "nsIContent.h"
+#include "nsIWidget.h"
+#include "nsIViewManager.h"
 #include "mozilla/unused.h"
 #include "nsDebug.h"
 
@@ -87,8 +87,8 @@ TabParent *TabParent::mIMETabParent = nsnull;
 NS_IMPL_ISUPPORTS3(TabParent, nsITabParent, nsIAuthPromptProvider, nsISecureBrowserUI)
 
 TabParent::TabParent()
-  : mIMEComposing(PR_FALSE)
-  , mIMECompositionEnding(PR_FALSE)
+  : mIMEComposing(false)
+  , mIMECompositionEnding(false)
   , mIMESeqno(0)
   , mDPI(0)
 {
@@ -160,7 +160,7 @@ TabParent::RecvEvent(const RemoteDOMEvent& aEvent)
   nsCOMPtr<nsIDOMEventTarget> target = do_QueryInterface(mFrameElement);
   NS_ENSURE_TRUE(target, true);
 
-  PRBool dummy;
+  bool dummy;
   target->DispatchEvent(event, &dummy);
   return true;
 }
@@ -209,15 +209,21 @@ TabParent::Show(const nsIntSize& size)
 }
 
 void
-TabParent::Move(const nsIntSize& size)
+TabParent::UpdateDimensions(const nsRect& rect, const nsIntSize& size)
 {
-    unused << SendMove(size);
+    unused << SendUpdateDimensions(rect, size);
 }
 
 void
 TabParent::Activate()
 {
     unused << SendActivate();
+}
+
+void
+TabParent::Deactivate()
+{
+  unused << SendDeactivate();
 }
 
 NS_IMETHODIMP
@@ -276,7 +282,7 @@ TabParent::DeallocPContentPermissionRequest(PContentPermissionRequestParent* act
 void
 TabParent::SendMouseEvent(const nsAString& aType, float aX, float aY,
                           PRInt32 aButton, PRInt32 aClickCount,
-                          PRInt32 aModifiers, PRBool aIgnoreRootScrollFrame)
+                          PRInt32 aModifiers, bool aIgnoreRootScrollFrame)
 {
   unused << PBrowserParent::SendMouseEvent(nsString(aType), aX, aY,
                                            aButton, aClickCount,
@@ -288,10 +294,25 @@ TabParent::SendKeyEvent(const nsAString& aType,
                         PRInt32 aKeyCode,
                         PRInt32 aCharCode,
                         PRInt32 aModifiers,
-                        PRBool aPreventDefault)
+                        bool aPreventDefault)
 {
   unused << PBrowserParent::SendKeyEvent(nsString(aType), aKeyCode, aCharCode,
                                          aModifiers, aPreventDefault);
+}
+
+bool TabParent::SendRealMouseEvent(nsMouseEvent& event)
+{
+  return PBrowserParent::SendRealMouseEvent(event);
+}
+
+bool TabParent::SendMouseScrollEvent(nsMouseScrollEvent& event)
+{
+  return PBrowserParent::SendMouseScrollEvent(event);
+}
+
+bool TabParent::SendRealKeyEvent(nsKeyEvent& event)
+{
+  return PBrowserParent::SendRealKeyEvent(event);
 }
 
 bool
@@ -299,18 +320,39 @@ TabParent::RecvSyncMessage(const nsString& aMessage,
                            const nsString& aJSON,
                            InfallibleTArray<nsString>* aJSONRetVal)
 {
-  return ReceiveMessage(aMessage, PR_TRUE, aJSON, aJSONRetVal);
+  return ReceiveMessage(aMessage, true, aJSON, aJSONRetVal);
 }
 
 bool
 TabParent::RecvAsyncMessage(const nsString& aMessage,
                             const nsString& aJSON)
 {
-  return ReceiveMessage(aMessage, PR_FALSE, aJSON, nsnull);
+  return ReceiveMessage(aMessage, false, aJSON, nsnull);
 }
 
 bool
-TabParent::RecvNotifyIMEFocus(const PRBool& aFocus,
+TabParent::RecvSetCursor(const PRUint32& aCursor)
+{
+  nsCOMPtr<nsIWidget> widget = GetWidget();
+  if (widget) {
+    widget->SetCursor((nsCursor) aCursor);
+  }
+  return true;
+}
+
+bool
+TabParent::RecvSetBackgroundColor(const nscolor& aColor)
+{
+  if (nsRefPtr<nsFrameLoader> frameLoader = GetFrameLoader()) {
+    if (RenderFrameParent* frame = frameLoader->GetCurrentRemoteFrame()) {
+      frame->SetBackgroundColor(aColor);
+    }
+  }
+  return true;
+}
+
+bool
+TabParent::RecvNotifyIMEFocus(const bool& aFocus,
                               nsIMEUpdatePreference* aPreference,
                               PRUint32* aSeqno)
 {
@@ -328,8 +370,8 @@ TabParent::RecvNotifyIMEFocus(const PRBool& aFocus,
     if (NS_SUCCEEDED(rv) && rv != NS_SUCCESS_IME_NO_UPDATES) {
       *aPreference = widget->GetIMEUpdatePreference();
     } else {
-      aPreference->mWantUpdates = PR_FALSE;
-      aPreference->mWantHints = PR_FALSE;
+      aPreference->mWantUpdates = false;
+      aPreference->mWantHints = false;
     }
   } else {
     mIMECacheText.Truncate(0);
@@ -392,15 +434,15 @@ TabParent::RecvNotifyIMETextHint(const nsString& aText)
 bool
 TabParent::HandleQueryContentEvent(nsQueryContentEvent& aEvent)
 {
-  aEvent.mSucceeded = PR_FALSE;
-  aEvent.mWasAsync = PR_FALSE;
+  aEvent.mSucceeded = false;
+  aEvent.mWasAsync = false;
   aEvent.mReply.mFocusedWidget = nsCOMPtr<nsIWidget>(GetWidget()).get();
 
   switch (aEvent.message)
   {
   case NS_QUERY_SELECTED_TEXT:
     {
-      aEvent.mReply.mOffset = PR_MIN(mIMESelectionAnchor, mIMESelectionFocus);
+      aEvent.mReply.mOffset = NS_MIN(mIMESelectionAnchor, mIMESelectionFocus);
       if (mIMESelectionAnchor == mIMESelectionFocus) {
         aEvent.mReply.mString.Truncate(0);
       } else {
@@ -416,8 +458,8 @@ TabParent::HandleQueryContentEvent(nsQueryContentEvent& aEvent)
                                           selLen);
       }
       aEvent.mReply.mReversed = mIMESelectionFocus < mIMESelectionAnchor;
-      aEvent.mReply.mHasSelection = PR_TRUE;
-      aEvent.mSucceeded = PR_TRUE;
+      aEvent.mReply.mHasSelection = true;
+      aEvent.mSucceeded = true;
     }
     break;
   case NS_QUERY_TEXT_CONTENT:
@@ -435,7 +477,7 @@ TabParent::HandleQueryContentEvent(nsQueryContentEvent& aEvent)
       aEvent.mReply.mString = Substring(mIMECacheText,
                                         inputOffset,
                                         inputEnd - inputOffset);
-      aEvent.mSucceeded = PR_TRUE;
+      aEvent.mSucceeded = true;
     }
     break;
   }
@@ -445,8 +487,8 @@ TabParent::HandleQueryContentEvent(nsQueryContentEvent& aEvent)
 bool
 TabParent::SendCompositionEvent(nsCompositionEvent& event)
 {
-  mIMEComposing = event.message == NS_COMPOSITION_START;
-  mIMECompositionStart = PR_MIN(mIMESelectionAnchor, mIMESelectionFocus);
+  mIMEComposing = event.message != NS_COMPOSITION_END;
+  mIMECompositionStart = NS_MIN(mIMESelectionAnchor, mIMESelectionFocus);
   if (mIMECompositionEnding)
     return true;
   event.seqno = ++mIMESeqno;
@@ -471,7 +513,7 @@ TabParent::SendTextEvent(nsTextEvent& event)
   // We must be able to simulate the selection because
   // we might not receive selection updates in time
   if (!mIMEComposing) {
-    mIMECompositionStart = PR_MIN(mIMESelectionAnchor, mIMESelectionFocus);
+    mIMECompositionStart = NS_MIN(mIMESelectionAnchor, mIMESelectionFocus);
   }
   mIMESelectionAnchor = mIMESelectionFocus =
       mIMECompositionStart + event.theText.Length();
@@ -490,14 +532,14 @@ TabParent::SendSelectionEvent(nsSelectionEvent& event)
 }
 
 bool
-TabParent::RecvEndIMEComposition(const PRBool& aCancel,
+TabParent::RecvEndIMEComposition(const bool& aCancel,
                                  nsString* aComposition)
 {
   nsCOMPtr<nsIWidget> widget = GetWidget();
   if (!widget)
     return true;
 
-  mIMECompositionEnding = PR_TRUE;
+  mIMECompositionEnding = true;
 
   if (aCancel) {
     widget->CancelIMEComposition();
@@ -505,7 +547,7 @@ TabParent::RecvEndIMEComposition(const PRBool& aCancel,
     widget->ResetInputState();
   }
 
-  mIMECompositionEnding = PR_FALSE;
+  mIMECompositionEnding = false;
   *aComposition = mIMECompositionText;
   mIMECompositionText.Truncate(0);  
   return true;
@@ -515,8 +557,10 @@ bool
 TabParent::RecvGetIMEEnabled(PRUint32* aValue)
 {
   nsCOMPtr<nsIWidget> widget = GetWidget();
-  if (!widget)
+  if (!widget) {
+    *aValue = nsIWidget::IME_STATUS_DISABLED;
     return true;
+  }
 
   IMEContext context;
   widget->GetInputMode(context);
@@ -525,8 +569,11 @@ TabParent::RecvGetIMEEnabled(PRUint32* aValue)
 }
 
 bool
-TabParent::RecvSetInputMode(const PRUint32& aValue, const nsString& aType, const nsString& aAction)
+TabParent::RecvSetInputMode(const PRUint32& aValue, const nsString& aType, const nsString& aAction, const PRUint32& aReason)
 {
+  // mIMETabParent (which is actually static) tracks which if any TabParent has IMEFocus
+  // When the input mode is set to anything but IME_STATUS_NONE, mIMETabParent should be set to this
+  mIMETabParent = aValue & nsIContent::IME_STATUS_MASK_ENABLED ? this : nsnull;
   nsCOMPtr<nsIWidget> widget = GetWidget();
   if (!widget || !AllowContentIME())
     return true;
@@ -535,6 +582,7 @@ TabParent::RecvSetInputMode(const PRUint32& aValue, const nsString& aType, const
   context.mStatus = aValue;
   context.mHTMLInputType.Assign(aType);
   context.mActionHint.Assign(aAction);
+  context.mReason = aReason;
   widget->SetInputMode(context);
 
   nsCOMPtr<nsIObserverService> observerService = mozilla::services::GetObserverService();
@@ -549,7 +597,7 @@ TabParent::RecvSetInputMode(const PRUint32& aValue, const nsString& aType, const
 }
 
 bool
-TabParent::RecvGetIMEOpenState(PRBool* aValue)
+TabParent::RecvGetIMEOpenState(bool* aValue)
 {
   nsCOMPtr<nsIWidget> widget = GetWidget();
   if (widget)
@@ -558,7 +606,7 @@ TabParent::RecvGetIMEOpenState(PRBool* aValue)
 }
 
 bool
-TabParent::RecvSetIMEOpenState(const PRBool& aValue)
+TabParent::RecvSetIMEOpenState(const bool& aValue)
 {
   nsCOMPtr<nsIWidget> widget = GetWidget();
   if (widget && AllowContentIME())
@@ -576,14 +624,35 @@ TabParent::RecvGetDPI(float* aValue)
 }
 
 bool
+TabParent::RecvGetWidgetNativeData(WindowsHandle* aValue)
+{
+  nsCOMPtr<nsIContent> content = do_QueryInterface(mFrameElement);
+  if (content) {
+    nsIPresShell* shell = content->OwnerDoc()->GetShell();
+    if (shell) {
+      nsIViewManager* vm = shell->GetViewManager();
+      nsCOMPtr<nsIWidget> widget;
+      vm->GetRootWidget(getter_AddRefs(widget));
+      if (widget) {
+        *aValue = reinterpret_cast<WindowsHandle>(
+          widget->GetNativeData(NS_NATIVE_SHAREABLE_WINDOW));
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+bool
 TabParent::ReceiveMessage(const nsString& aMessage,
-                          PRBool aSync,
+                          bool aSync,
                           const nsString& aJSON,
                           InfallibleTArray<nsString>* aJSONRetVal)
 {
   nsRefPtr<nsFrameLoader> frameLoader = GetFrameLoader();
   if (frameLoader && frameLoader->GetFrameMessageManager()) {
-    nsFrameMessageManager* manager = frameLoader->GetFrameMessageManager();
+    nsRefPtr<nsFrameMessageManager> manager =
+      frameLoader->GetFrameMessageManager();
     JSContext* ctx = manager->GetJSContext();
     JSAutoRequest ar(ctx);
     PRUint32 len = 0; //TODO: obtain a real value in bug 572685
@@ -620,7 +689,7 @@ TabParent::GetAuthPrompt(PRUint32 aPromptReason, const nsIID& iid,
   nsCOMPtr<nsIDOMWindow> window;
   nsCOMPtr<nsIContent> frame = do_QueryInterface(mFrameElement);
   if (frame)
-    window = do_QueryInterface(frame->GetOwnerDoc()->GetWindow());
+    window = do_QueryInterface(frame->OwnerDoc()->GetWindow());
 
   // Get an auth prompter for our window so that the parenting
   // of the dialogs works as it should when using tabs.
@@ -654,7 +723,7 @@ TabParent::HandleDelayedDialogs()
   nsCOMPtr<nsIDOMWindow> window;
   nsCOMPtr<nsIContent> frame = do_QueryInterface(mFrameElement);
   if (frame) {
-    window = do_QueryInterface(frame->GetOwnerDoc()->GetWindow());
+    window = do_QueryInterface(frame->OwnerDoc()->GetWindow());
   }
   nsCOMPtr<nsIDialogCreator> dialogCreator = do_QueryInterface(mBrowserDOMWindow);
   while (!ShouldDelayDialogs() && mDelayedDialogs.Length()) {
@@ -696,9 +765,9 @@ TabParent::HandleDelayedDialogs()
     }
   }
   if (ShouldDelayDialogs() && mDelayedDialogs.Length()) {
-    nsContentUtils::DispatchTrustedEvent(frame->GetOwnerDoc(), frame,
+    nsContentUtils::DispatchTrustedEvent(frame->OwnerDoc(), frame,
                                          NS_LITERAL_STRING("MozDelayedModalDialog"),
-                                         PR_TRUE, PR_TRUE);
+                                         true, true);
   }
 }
 
@@ -706,8 +775,7 @@ PRenderFrameParent*
 TabParent::AllocPRenderFrame()
 {
   nsRefPtr<nsFrameLoader> frameLoader = GetFrameLoader();
-  NS_WARN_IF_FALSE(frameLoader, "'message sent to unknown actor ID' coming up");
-  return frameLoader ? new RenderFrameParent(frameLoader) : nsnull;
+  return new RenderFrameParent(frameLoader);
 }
 
 bool
@@ -746,27 +814,27 @@ TabParent::DeallocPOfflineCacheUpdate(mozilla::docshell::POfflineCacheUpdatePare
   return true;
 }
 
-PRBool
+bool
 TabParent::ShouldDelayDialogs()
 {
   nsRefPtr<nsFrameLoader> frameLoader = GetFrameLoader();
-  NS_ENSURE_TRUE(frameLoader, PR_TRUE);
-  PRBool delay = PR_FALSE;
+  NS_ENSURE_TRUE(frameLoader, true);
+  bool delay = false;
   frameLoader->GetDelayRemoteDialogs(&delay);
   return delay;
 }
 
-PRBool
+bool
 TabParent::AllowContentIME()
 {
   nsFocusManager* fm = nsFocusManager::GetFocusManager();
-  NS_ENSURE_TRUE(fm, PR_FALSE);
+  NS_ENSURE_TRUE(fm, false);
 
   nsCOMPtr<nsIContent> focusedContent = fm->GetFocusedContent();
   if (focusedContent && focusedContent->IsEditable())
-    return PR_FALSE;
+    return false;
 
-  return PR_TRUE;
+  return true;
 }
 
 already_AddRefed<nsFrameLoader>

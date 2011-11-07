@@ -45,7 +45,6 @@
 #include "nsLeafBoxFrame.h"
 #include "nsBoxFrame.h"
 #include "nsCOMPtr.h"
-#include "nsIDeviceContext.h"
 #include "nsGkAtoms.h"
 #include "nsPresContext.h"
 #include "nsStyleContext.h"
@@ -205,7 +204,7 @@ nsSize
 nsLeafBoxFrame::ComputeAutoSize(nsRenderingContext *aRenderingContext,
                                 nsSize aCBSize, nscoord aAvailableWidth,
                                 nsSize aMargin, nsSize aBorder,
-                                nsSize aPadding, PRBool aShrinkWrap)
+                                nsSize aPadding, bool aShrinkWrap)
 {
   // Important: NOT calling our direct superclass here!
   return nsFrame::ComputeAutoSize(aRenderingContext, aCBSize, aAvailableWidth,

@@ -267,7 +267,7 @@ void nsIOSurfaceLib::CloseLibrary() {
   sOpenGLFramework = nsnull;
 }
 
-nsIOSurface* nsIOSurface::CreateIOSurface(int aWidth, int aHeight) { 
+already_AddRefed<nsIOSurface> nsIOSurface::CreateIOSurface(int aWidth, int aHeight) { 
   if (!nsIOSurfaceLib::isInit())
     return nsnull;
 
@@ -300,33 +300,29 @@ nsIOSurface* nsIOSurface::CreateIOSurface(int aWidth, int aHeight) {
   if (!surfaceRef)
     return nsnull;
 
-  nsIOSurface* ioSurface = new nsIOSurface(surfaceRef);
+  nsRefPtr<nsIOSurface> ioSurface = new nsIOSurface(surfaceRef);
   if (!ioSurface) {
     ::CFRelease(surfaceRef);
     return nsnull;
   }
 
-  return ioSurface;
+  return ioSurface.forget();
 }
 
-nsIOSurface* nsIOSurface::LookupSurface(IOSurfaceID aIOSurfaceID) { 
+already_AddRefed<nsIOSurface> nsIOSurface::LookupSurface(IOSurfaceID aIOSurfaceID) { 
   if (!nsIOSurfaceLib::isInit())
     return nsnull;
 
   IOSurfacePtr surfaceRef = nsIOSurfaceLib::IOSurfaceLookup(aIOSurfaceID);
   if (!surfaceRef)
     return nsnull;
-  // IOSurfaceLookup does not retain the object for us,
-  // we want IOSurfacePtr to remain for the lifetime of
-  // nsIOSurface.
-  CFRetain(surfaceRef);
 
-  nsIOSurface* ioSurface = new nsIOSurface(surfaceRef);
+  nsRefPtr<nsIOSurface> ioSurface = new nsIOSurface(surfaceRef);
   if (!ioSurface) {
     ::CFRelease(surfaceRef);
     return nsnull;
   }
-  return ioSurface;
+  return ioSurface.forget();
 }
 
 IOSurfaceID nsIOSurface::GetIOSurfaceID() { 
@@ -406,15 +402,15 @@ void nsCARenderer::Destroy() {
     caRenderer.layer = nsnull;
     [caRenderer release];
   }
-  if (mPixelBuffer) {
-    ::CGLDestroyPBuffer((CGLPBufferObj)mPixelBuffer);
-  }
   if (mOpenGLContext) {
-    if (mFBO || mIOTexture) {
+    if (mFBO || mIOTexture || mFBOTexture) {
       // Release these resources with the context that allocated them
       CGLContextObj oldContext = ::CGLGetCurrentContext();
       ::CGLSetCurrentContext(mOpenGLContext);
 
+      if (mFBOTexture) {
+        ::glDeleteTextures(1, &mFBOTexture);
+      }
       if (mIOTexture) {
         ::glDeleteTextures(1, &mIOTexture);
       }
@@ -431,13 +427,10 @@ void nsCARenderer::Destroy() {
   if (mCGImage) {
     ::CGImageRelease(mCGImage);
   }
-  if (mIOSurface) {
-    delete mIOSurface;
-  }
   // mCGData is deallocated by cgdata_release_callback
 
   mCARenderer = nil;
-  mPixelBuffer = nsnull;
+  mFBOTexture = 0;
   mOpenGLContext = nsnull;
   mCGImage = nsnull;
   mIOSurface = nsnull;
@@ -445,38 +438,44 @@ void nsCARenderer::Destroy() {
   mIOTexture = nsnull;
 }
 
-nsresult nsCARenderer::SetupRenderer(void *aCALayer, int aWidth, int aHeight) {
+nsresult nsCARenderer::SetupRenderer(void *aCALayer, int aWidth, int aHeight,
+                                     AllowOfflineRendererEnum aAllowOfflineRenderer) {
+  mAllowOfflineRenderer = aAllowOfflineRenderer;
+
   if (aWidth == 0 || aHeight == 0)
     return NS_ERROR_FAILURE;
+
+  if (aWidth == mUnsupportedWidth &&
+      aHeight == mUnsupportedHeight) {
+    return NS_ERROR_FAILURE;
+  }
 
   CALayer* layer = (CALayer*)aCALayer;
   CARenderer* caRenderer = nsnull;
 
   CGLPixelFormatAttribute attributes[] = {
-    kCGLPFANoRecovery,
     kCGLPFAAccelerated,
-    kCGLPFAPBuffer,
     kCGLPFADepthSize, (CGLPixelFormatAttribute)24,
+    kCGLPFAAllowOfflineRenderers,
     (CGLPixelFormatAttribute)0
   };
 
-  if (!mIOSurface) {
-    CGLError result = ::CGLCreatePBuffer(aWidth, aHeight,
-                         GL_TEXTURE_2D, GL_RGBA, 0, &mPixelBuffer);
-    if (result != kCGLNoError) {
-      Destroy();
-      return NS_ERROR_FAILURE;
-    }
+  if (mAllowOfflineRenderer == DISALLOW_OFFLINE_RENDERER) {
+    attributes[3] = (CGLPixelFormatAttribute)0;
   }
 
   GLint screen;
   CGLPixelFormatObj format;
   if (::CGLChoosePixelFormat(attributes, &format, &screen) != kCGLNoError) {
+    mUnsupportedWidth = aWidth;
+    mUnsupportedHeight = aHeight;
     Destroy();
     return NS_ERROR_FAILURE;
   }
 
   if (::CGLCreateContext(format, nsnull, &mOpenGLContext) != kCGLNoError) {
+    mUnsupportedWidth = aWidth;
+    mUnsupportedHeight = aHeight;
     Destroy();
     return NS_ERROR_FAILURE;
   }
@@ -486,35 +485,58 @@ nsresult nsCARenderer::SetupRenderer(void *aCALayer, int aWidth, int aHeight) {
                             options:nil] retain];
   mCARenderer = caRenderer;
   if (caRenderer == nil) {
+    mUnsupportedWidth = aWidth;
+    mUnsupportedHeight = aHeight;
     Destroy();
     return NS_ERROR_FAILURE;
   }
+
+  // Create a transaction and disable animations
+  // to make the position update instant.
+  [CATransaction begin];
+  NSMutableDictionary *newActions = [[NSMutableDictionary alloc] initWithObjectsAndKeys:[NSNull null], @"onOrderIn",
+                                   [NSNull null], @"onOrderOut",
+                                   [NSNull null], @"sublayers",
+                                   [NSNull null], @"contents",
+                                   [NSNull null], @"position",
+                                   [NSNull null], @"bounds",
+                                   nil];
+  layer.actions = newActions;
+  [newActions release];
+
+  [CATransaction setValue: [NSNumber numberWithFloat:0.0f] forKey: kCATransactionAnimationDuration];
+  [CATransaction setValue: (id) kCFBooleanTrue forKey: kCATransactionDisableActions];
   [layer setBounds:CGRectMake(0, 0, aWidth, aHeight)];
   [layer setPosition:CGPointMake(aWidth/2.0, aHeight/2.0)];
   caRenderer.layer = layer;
   caRenderer.bounds = CGRectMake(0, 0, aWidth, aHeight);
+  [CATransaction commit];
 
-  // We either target rendering to a CGImage or IOSurface.
+  // We target rendering to a CGImage if no shared IOSurface are given.
   if (!mIOSurface) {
     mCGData = malloc(aWidth*aHeight*4);
     if (!mCGData) {
+      mUnsupportedWidth = aWidth;
+      mUnsupportedHeight = aHeight;
       Destroy();
     }
     memset(mCGData, 0, aWidth*aHeight*4);
 
     CGDataProviderRef dataProvider = nsnull;
     dataProvider = ::CGDataProviderCreateWithData(mCGData,
-                                        mCGData, aHeight*aWidth*4, 
+                                        mCGData, aHeight*aWidth*4,
                                         cgdata_release_callback);
     if (!dataProvider) {
       cgdata_release_callback(mCGData, mCGData, aHeight*aWidth*4);
+      mUnsupportedWidth = aWidth;
+      mUnsupportedHeight = aHeight;
       Destroy();
       return NS_ERROR_FAILURE;
     }
 
     CGColorSpaceRef colorSpace = CreateSystemColorSpace();
 
-    mCGImage = ::CGImageCreate(aWidth, aHeight, 8, 32, aWidth * 4, colorSpace, 
+    mCGImage = ::CGImageCreate(aWidth, aHeight, 8, 32, aWidth * 4, colorSpace,
                 kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host,
                 dataProvider, NULL, true, kCGRenderingIntentDefault);
 
@@ -523,13 +545,17 @@ nsresult nsCARenderer::SetupRenderer(void *aCALayer, int aWidth, int aHeight) {
       ::CGColorSpaceRelease(colorSpace);
     }
     if (!mCGImage) {
+      mUnsupportedWidth = aWidth;
+      mUnsupportedHeight = aHeight;
       Destroy();
       return NS_ERROR_FAILURE;
     }
-  } else {
-    CGLContextObj oldContext = ::CGLGetCurrentContext();
-    ::CGLSetCurrentContext(mOpenGLContext);
+  }
 
+  CGLContextObj oldContext = ::CGLGetCurrentContext();
+  ::CGLSetCurrentContext(mOpenGLContext);
+
+  if (mIOSurface) {
     // Create the IOSurface mapped texture.
     ::glGenTextures(1, &mIOTexture);
     ::glBindTexture(GL_TEXTURE_RECTANGLE_ARB, mIOTexture);
@@ -537,33 +563,41 @@ nsresult nsCARenderer::SetupRenderer(void *aCALayer, int aWidth, int aHeight) {
     ::glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     nsIOSurfaceLib::CGLTexImageIOSurface2D(mOpenGLContext, GL_TEXTURE_RECTANGLE_ARB,
                                            GL_RGBA, aWidth, aHeight,
-                                           GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, 
+                                           GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV,
                                            mIOSurface->mIOSurfacePtr, 0);
     ::glBindTexture(GL_TEXTURE_RECTANGLE_ARB, 0);
-
-    // Create the fbo
-    ::glGenFramebuffersEXT(1, &mFBO);
-    ::glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, mFBO);
-    ::glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, 
-                                GL_TEXTURE_RECTANGLE_ARB, mIOTexture, 0);
-
-    // Make sure that the Framebuffer configuration is supported on the client machine
-    GLenum fboStatus;
-    fboStatus = ::glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT);
-    if (fboStatus != GL_FRAMEBUFFER_COMPLETE_EXT) {
-      NS_ERROR("FBO not supported");
-      if (oldContext)
-        ::CGLSetCurrentContext(oldContext);
-      Destroy();
-      return NS_ERROR_FAILURE; 
-    }
-
-    if (oldContext)
-      ::CGLSetCurrentContext(oldContext);
+  } else {
+    ::glGenTextures(1, &mFBOTexture);
+    ::glBindTexture(GL_TEXTURE_RECTANGLE_ARB, mFBOTexture);
+    ::glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    ::glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    ::glBindTexture(GL_TEXTURE_RECTANGLE_ARB, 0);
   }
 
-  CGLContextObj oldContext = ::CGLGetCurrentContext();
-  ::CGLSetCurrentContext(mOpenGLContext);
+  // Create the fbo
+  ::glGenFramebuffersEXT(1, &mFBO);
+  ::glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, mFBO);
+  if (mIOSurface) {
+   ::glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT,
+                                GL_TEXTURE_RECTANGLE_ARB, mIOTexture, 0);
+  } else {
+    ::glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT,
+                                GL_TEXTURE_RECTANGLE_ARB, mFBOTexture, 0);
+  }
+
+
+  // Make sure that the Framebuffer configuration is supported on the client machine
+  GLenum fboStatus;
+  fboStatus = ::glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT);
+  if (fboStatus != GL_FRAMEBUFFER_COMPLETE_EXT) {
+    NS_ERROR("FBO not supported");
+    if (oldContext)
+      ::CGLSetCurrentContext(oldContext);
+    mUnsupportedWidth = aWidth;
+    mUnsupportedHeight = aHeight;
+    Destroy();
+    return NS_ERROR_FAILURE;
+  }
 
   ::glViewport(0.0, 0.0, aWidth, aHeight);
   ::glMatrixMode(GL_PROJECTION);
@@ -577,6 +611,8 @@ nsresult nsCARenderer::SetupRenderer(void *aCALayer, int aWidth, int aHeight) {
   GLenum result = ::glGetError();
   if (result != GL_NO_ERROR) {
     NS_ERROR("Unexpected OpenGL Error");
+    mUnsupportedWidth = aWidth;
+    mUnsupportedHeight = aHeight;
     Destroy();
     if (oldContext)
       ::CGLSetCurrentContext(oldContext);
@@ -589,10 +625,12 @@ nsresult nsCARenderer::SetupRenderer(void *aCALayer, int aWidth, int aHeight) {
   return NS_OK;
 }
 
-void nsCARenderer::AttachIOSurface(nsIOSurface *aSurface) {
+void nsCARenderer::AttachIOSurface(nsRefPtr<nsIOSurface> aSurface) {
   if (mIOSurface && 
       aSurface->GetIOSurfaceID() == mIOSurface->GetIOSurfaceID()) {
-    delete aSurface; 
+    // This object isn't needed since we already have a
+    // handle to the same io surface.
+    aSurface = nsnull;
     return;
   }
   if (mCARenderer) {
@@ -600,10 +638,16 @@ void nsCARenderer::AttachIOSurface(nsIOSurface *aSurface) {
     // resize our elements.
     Destroy(); 
   }
-  if (mIOSurface)
-    delete mIOSurface;
 
   mIOSurface = aSurface;
+}
+
+IOSurfaceID nsCARenderer::GetIOSurfaceID() {
+  if (!mIOSurface) {
+    return 0;
+  }
+
+  return mIOSurface->GetIOSurfaceID();
 }
 
 nsresult nsCARenderer::Render(int aWidth, int aHeight, 
@@ -632,16 +676,20 @@ nsresult nsCARenderer::Render(int aWidth, int aHeight,
     //      if we are resizing down.
     CALayer* caLayer = [caRenderer layer];
     Destroy();
-    if (SetupRenderer(caLayer, aWidth, aHeight) != NS_OK) {
+    if (SetupRenderer(caLayer, aWidth, aHeight,
+                      mAllowOfflineRenderer) != NS_OK) {
       return NS_ERROR_FAILURE;
     }
+
     caRenderer = (CARenderer*)mCARenderer;
   }
 
   CGLContextObj oldContext = ::CGLGetCurrentContext();
   ::CGLSetCurrentContext(mOpenGLContext);
   if (!mIOSurface) {
-    ::CGLSetPBuffer(mOpenGLContext, mPixelBuffer, 0, 0, 0);
+    // If no shared IOSurface is given render to our own
+    // texture for readback.
+    ::glGenTextures(1, &mFBOTexture);
   }
 
   GLenum result = ::glGetError();
@@ -656,6 +704,7 @@ nsresult nsCARenderer::Render(int aWidth, int aHeight,
   ::glClearColor(0.0, 0.0, 0.0, 0.0);
   ::glClear(GL_COLOR_BUFFER_BIT);
 
+  [CATransaction commit];
   double caTime = ::CACurrentMediaTime();
   [caRenderer beginFrameAtTime:caTime timeStamp:NULL];
   [caRenderer addUpdateRect:CGRectMake(0,0, aWidth, aHeight)];
@@ -689,7 +738,7 @@ nsresult nsCARenderer::DrawSurfaceToCGContext(CGContextRef aContext,
                                               nsIOSurface *surf, 
                                               CGColorSpaceRef aColorSpace,
                                               int aX, int aY,
-                                              int aWidth, int aHeight) {
+                                              size_t aWidth, size_t aHeight) {
   surf->Lock();
   size_t bytesPerRow = surf->GetBytesPerRow();
   size_t ioWidth = surf->GetWidth();
@@ -705,10 +754,15 @@ nsresult nsCARenderer::DrawSurfaceToCGContext(CGContextRef aContext,
 
   // We get rendering glitches if we use a width/height that falls
   // outside of the IOSurface.
-  if (aWidth > ioWidth - aX) 
+  if (aWidth + aX > ioWidth) 
     aWidth = ioWidth - aX;
-  if (aHeight > ioHeight - aY) 
+  if (aHeight + aY > ioHeight) 
     aHeight = ioHeight - aY;
+
+  if (aX < 0 || aX >= ioWidth ||
+      aY < 0 || aY >= ioHeight) {
+    return NS_ERROR_FAILURE;
+  }
 
   CGImageRef cgImage = ::CGImageCreate(ioWidth, ioHeight, 8, 32, bytesPerRow,
               aColorSpace, kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host,
@@ -727,11 +781,80 @@ nsresult nsCARenderer::DrawSurfaceToCGContext(CGContextRef aContext,
   }
 
   ::CGContextScaleCTM(aContext, 1.0f, -1.0f);
-  ::CGContextDrawImage(aContext, CGRectMake(aX, -aY-aHeight, aWidth, aHeight), subImage);
+  ::CGContextDrawImage(aContext, 
+                       CGRectMake(aX, -(CGFloat)aY - (CGFloat)aHeight, 
+                                  aWidth, aHeight), 
+                       subImage);
 
   ::CGImageRelease(subImage);
   ::CGImageRelease(cgImage);
   surf->Unlock();
   return NS_OK;
 }
+
+void nsCARenderer::DettachCALayer() {
+  CARenderer* caRenderer = (CARenderer*)mCARenderer;
+
+  caRenderer.layer = nil;
+}
+
+void nsCARenderer::AttachCALayer(void *aCALayer) {
+  CARenderer* caRenderer = (CARenderer*)mCARenderer;
+
+  CALayer* caLayer = (CALayer*)aCALayer;
+  caRenderer.layer = caLayer;
+}
+
+#ifdef DEBUG
+
+int sSaveToDiskSequence = 0;
+void nsCARenderer::SaveToDisk(nsIOSurface *surf) {
+  surf->Lock();
+  size_t bytesPerRow = surf->GetBytesPerRow();
+  size_t ioWidth = surf->GetWidth();
+  size_t ioHeight = surf->GetHeight();
+  void* ioData = surf->GetBaseAddress();
+  CGDataProviderRef dataProvider = ::CGDataProviderCreateWithData(ioData,
+                                      ioData, ioHeight*(bytesPerRow)*4, 
+                                      NULL); //No release callback 
+  if (!dataProvider) {
+    surf->Unlock();
+    return;
+  }
+
+  CGImageRef cgImage = ::CGImageCreate(ioWidth, ioHeight, 8, 32, bytesPerRow,
+              CreateSystemColorSpace(), kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host,
+              dataProvider, NULL, true, kCGRenderingIntentDefault);
+  ::CGDataProviderRelease(dataProvider);
+  if (!cgImage) {
+    surf->Unlock();
+    return;
+  }
+
+  char cstr[1000];
+
+  sprintf(cstr, "file:///Users/benoitgirard/debug/iosurface_%i.png", ++sSaveToDiskSequence);
+
+  CFStringRef cfStr = ::CFStringCreateWithCString(kCFAllocatorDefault, cstr, kCFStringEncodingMacRoman);
+
+  printf("Exporting: %s\n", cstr);
+  CFURLRef url = ::CFURLCreateWithString( NULL, cfStr, NULL);
+
+  CFStringRef type = kUTTypePNG;
+  size_t count = 1; 
+  CFDictionaryRef options = NULL;
+  CGImageDestinationRef dest = ::CGImageDestinationCreateWithURL(url, type, count, options);
+
+  ::CGImageDestinationAddImage(dest, cgImage, NULL);
+
+  ::CGImageDestinationFinalize(dest);
+  ::CFRelease(dest);
+
+  surf->Unlock();
+
+  return;
+
+}
+
+#endif
 

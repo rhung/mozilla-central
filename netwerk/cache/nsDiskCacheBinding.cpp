@@ -50,11 +50,6 @@
  *  static hash table callback functions
  *
  *****************************************************************************/
-#ifdef XP_MAC
-#pragma mark -
-#pragma mark HASHTABLE CALLBACKS
-#endif
-
 struct HashTableEntry : PLDHashEntryHdr {
     nsDiskCacheBinding *  mBinding;
 };
@@ -67,7 +62,7 @@ HashKey( PLDHashTable *table, const void *key)
 }
 
 
-static PRBool
+static bool
 MatchEntry(PLDHashTable *              /* table */,
             const PLDHashEntryHdr *       header,
             const void *                  key)
@@ -96,11 +91,6 @@ ClearEntry(PLDHashTable *      /* table */,
 /******************************************************************************
  *  Utility Functions
  *****************************************************************************/
-#ifdef XP_MAC
-#pragma mark -
-#pragma mark DISK CACHE BINDERY
-#endif
-
 nsDiskCacheBinding *
 GetCacheEntryBinding(nsCacheEntry * entry)
 {
@@ -117,6 +107,7 @@ NS_IMPL_THREADSAFE_ISUPPORTS0(nsDiskCacheBinding)
 nsDiskCacheBinding::nsDiskCacheBinding(nsCacheEntry* entry, nsDiskCacheRecord * record)
     :   mCacheEntry(entry)
     ,   mStreamIO(nsnull)
+    ,   mDeactivateEvent(nsnull)
 {
     NS_ASSERTION(record->ValidRecord(), "bad record");
     PR_INIT_CLIST(this);
@@ -170,7 +161,7 @@ PLDHashTableOps nsDiskCacheBindery::ops =
 
 
 nsDiskCacheBindery::nsDiskCacheBindery()
-    : initialized(PR_FALSE)
+    : initialized(false)
 {
 }
 
@@ -197,7 +188,7 @@ nsDiskCacheBindery::Reset()
 {
     if (initialized) {
         PL_DHashTableFinish(&table);
-        initialized = PR_FALSE;
+        initialized = false;
     }
 }
 
@@ -287,7 +278,7 @@ nsDiskCacheBindery::AddBinding(nsDiskCacheBinding * binding)
     
     // insert binding in generation order
     nsDiskCacheBinding * p  = hashEntry->mBinding;
-    PRBool   calcGeneration = (binding->mGeneration == 0);  // do we need to calculate generation?
+    bool     calcGeneration = (binding->mGeneration == 0);  // do we need to calculate generation?
     if (calcGeneration)  binding->mGeneration = 1;          // initialize to 1 if uninitialized
     while (1) {
     
@@ -376,7 +367,7 @@ ActiveBinding(PLDHashTable *    table,
     nsDiskCacheBinding * head = binding;
     do {   
         if (binding->IsActive()) {
-           *((PRBool *)arg) = PR_TRUE;
+           *((bool *)arg) = true;
             return PL_DHASH_STOP;
         }
 
@@ -388,15 +379,15 @@ ActiveBinding(PLDHashTable *    table,
 
 
 /**
- *  ActiveBindings : return PR_TRUE if any bindings have open descriptors
+ *  ActiveBindings : return true if any bindings have open descriptors
  */
-PRBool
+bool
 nsDiskCacheBindery::ActiveBindings()
 {
     NS_ASSERTION(initialized, "nsDiskCacheBindery not initialized");
-    if (!initialized) return PR_FALSE;
+    if (!initialized) return false;
 
-    PRBool  activeBinding = PR_FALSE;
+    bool    activeBinding = false;
     PL_DHashTableEnumerate(&table, ActiveBinding, &activeBinding);
 
     return activeBinding;

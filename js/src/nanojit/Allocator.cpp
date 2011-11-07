@@ -89,6 +89,7 @@ namespace nanojit
         if (mem) {
             Chunk* chunk = (Chunk*) mem;
             chunk->prev = current_chunk;
+            chunk->size = chunkbytes;
             current_chunk = chunk;
             current_top = (char*)chunk->data;
             current_limit = (char*)mem + chunkbytes;
@@ -97,6 +98,18 @@ namespace nanojit
             NanoAssert(fallible);
             return false;
         }
+    }
+
+    size_t Allocator::getBytesAllocated(size_t(*my_malloc_usable_size)(void *))
+    {
+        size_t n = 0;
+        Chunk *c = current_chunk;
+        while (c) {
+            size_t usable = my_malloc_usable_size(c);
+            n += usable ? usable : c->size;
+            c = c->prev;
+        }
+        return n;
     }
 }
 

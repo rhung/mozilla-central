@@ -46,7 +46,6 @@
 #include "base/basictypes.h"
 
 #include "jsapi.h"
-#include "jscntxt.h"
 #include "jsdbgapi.h"
 #include "jsprf.h"
 
@@ -112,7 +111,7 @@ public:
     XPCShellDirProvider() { }
     ~XPCShellDirProvider() { }
 
-    PRBool SetGREDir(const char *dir);
+    bool SetGREDir(const char *dir);
     void ClearGREDir() { mGREDir = nsnull; }
 
 private:
@@ -297,7 +296,11 @@ Dump(JSContext *cx,
     str = JS_ValueToString(cx, JS_ARGV(cx, vp)[0]);
     if (!str)
         return JS_FALSE;
-    JS_FileEscapedString(stdout, str, 0);
+    JSAutoByteString bytes(cx, str);
+    if (!bytes)
+      return JS_FALSE;
+
+    fputs(bytes.ptr(), stdout);
     fflush(stdout);
     return JS_TRUE;
 }
@@ -309,7 +312,7 @@ Load(JSContext *cx,
 {
     uintN i;
     JSString *str;
-    JSObject *scriptObj;
+    JSScript *script;
     jsval result;
     FILE *file;
 
@@ -331,14 +334,14 @@ Load(JSContext *cx,
             JS_ReportError(cx, "cannot open file '%s' for reading", filename.ptr());
             return JS_FALSE;
         }
-        scriptObj = JS_CompileFileHandleForPrincipals(cx, obj, filename.ptr(), file,
-                                                      Environment(cx)->GetPrincipal());
+        script = JS_CompileFileHandleForPrincipals(cx, obj, filename.ptr(), file,
+                                                   Environment(cx)->GetPrincipal());
         fclose(file);
-        if (!scriptObj)
+        if (!script)
             return JS_FALSE;
 
         if (!Environment(cx)->ShouldCompileOnly() &&
-            !JS_ExecuteScript(cx, obj, scriptObj, &result)) {
+            !JS_ExecuteScript(cx, obj, script, &result)) {
             return JS_FALSE;
         }
     }
@@ -405,21 +408,9 @@ GC(JSContext *cx,
    uintN argc,
    jsval *vp)
 {
-    JSRuntime *rt;
-    uint32 preBytes;
-
-    rt = cx->runtime;
-    preBytes = rt->gcBytes;
     JS_GC(cx);
-    fprintf(stdout, "before %lu, after %lu, break %08lx\n",
-           (unsigned long)preBytes, (unsigned long)rt->gcBytes,
-#ifdef XP_UNIX
-           (unsigned long)sbrk(0)
-#else
-           0
-#endif
-           );
 #ifdef JS_GCMETER
+    JSRuntime *rt = JS_GetRuntime(cx);
     js_DumpGCStats(rt, stdout);
 #endif
     JS_SET_RVAL(cx, vp, JSVAL_VOID);
@@ -438,7 +429,7 @@ GCZeal(JSContext *cx,
   if (!JS_ValueToECMAUint32(cx, argv[0], &zeal))
     return JS_FALSE;
 
-  JS_SetGCZeal(cx, PRUint8(zeal));
+  JS_SetGCZeal(cx, PRUint8(zeal), JS_DEFAULT_ZEAL_FREQ, JS_FALSE);
   return JS_TRUE;
 }
 #endif
@@ -452,7 +443,7 @@ DumpHeap(JSContext *cx,
 {
     JSAutoByteString fileName;
     void* startThing = NULL;
-    uint32 startTraceKind = 0;
+    JSGCTraceKind startTraceKind = JSTRACE_OBJECT;
     void *thingToFind = NULL;
     size_t maxDepth = (size_t)-1;
     void *thingToIgnore = NULL;
@@ -564,11 +555,6 @@ JSFunctionSpec gGlobalFunctions[] =
 #ifdef DEBUG
     {"dumpHeap",        DumpHeap,       5,0},
 #endif
-#ifdef MOZ_CALLGRIND
-    {"startCallgrind",  js_StartCallgrind,  0,0},
-    {"stopCallgrind",   js_StopCallgrind,   0,0},
-    {"dumpCallgrind",   js_DumpCallgrind,   1,0},
-#endif
     {nsnull,nsnull,0,0}
 };
 
@@ -592,7 +578,7 @@ ProcessFile(JSContext *cx,
     XPCShellEnvironment* env = Environment(cx);
     XPCShellEnvironment::AutoContextPusher pusher(env);
 
-    JSObject *scriptObj;
+    JSScript *script;
     jsval result;
     int lineno, startline;
     JSBool ok, hitEOF;
@@ -632,11 +618,11 @@ ProcessFile(JSContext *cx,
             return;
         }
 
-        JSObject* scriptObj =
+        JSScript* script =
             JS_CompileFileHandleForPrincipals(cx, obj, filename, file,
                                               env->GetPrincipal());
-        if (scriptObj && !env->ShouldCompileOnly())
-            (void)JS_ExecuteScript(cx, obj, scriptObj, &result);
+        if (script && !env->ShouldCompileOnly())
+            (void)JS_ExecuteScript(cx, obj, script, &result);
 
         return;
     }
@@ -670,18 +656,18 @@ ProcessFile(JSContext *cx,
             }
             bufp += strlen(bufp);
             lineno++;
-        } while (!JS_BufferIsCompilableUnit(cx, obj, buffer, strlen(buffer)));
+        } while (!JS_BufferIsCompilableUnit(cx, JS_FALSE, obj, buffer, strlen(buffer)));
 
         /* Clear any pending exception from previous failed compiles.  */
         JS_ClearPendingException(cx);
-        scriptObj =
+        script =
             JS_CompileScriptForPrincipals(cx, obj, env->GetPrincipal(), buffer,
                                           strlen(buffer), "typein", startline);
-        if (scriptObj) {
+        if (script) {
             JSErrorReporter older;
 
             if (!env->ShouldCompileOnly()) {
-                ok = JS_ExecuteScript(cx, obj, scriptObj, &result);
+                ok = JS_ExecuteScript(cx, obj, script, &result);
                 if (ok && result != JSVAL_VOID) {
                     /* Suppress error reports from JS_ValueToString(). */
                     older = JS_SetErrorReporter(cx, NULL);
@@ -811,9 +797,9 @@ FullTrustSecMan::CheckFunctionAccess(JSContext * cx,
 NS_IMETHODIMP
 FullTrustSecMan::CanExecuteScripts(JSContext * cx,
                                    nsIPrincipal *principal,
-                                   PRBool *_retval)
+                                   bool *_retval)
 {
-    *_retval = PR_TRUE;
+    *_retval = true;
     return NS_OK;
 }
 
@@ -862,9 +848,9 @@ FullTrustSecMan::RequestCapability(nsIPrincipal *principal,
 
 NS_IMETHODIMP
 FullTrustSecMan::IsCapabilityEnabled(const char *capability,
-                                     PRBool *_retval)
+                                     bool *_retval)
 {
-    *_retval = PR_TRUE;
+    *_retval = true;
     return NS_OK;
 }
 
@@ -904,9 +890,9 @@ FullTrustSecMan::GetObjectPrincipal(JSContext * cx,
 }
 
 NS_IMETHODIMP
-FullTrustSecMan::SubjectPrincipalIsSystem(PRBool *_retval)
+FullTrustSecMan::SubjectPrincipalIsSystem(bool *_retval)
 {
-    *_retval = PR_TRUE;
+    *_retval = true;
     return NS_OK;
 }
 
@@ -920,7 +906,7 @@ FullTrustSecMan::CheckSameOrigin(JSContext * aJSContext,
 NS_IMETHODIMP
 FullTrustSecMan::CheckSameOriginURI(nsIURI *aSourceURI,
                                     nsIURI *aTargetURI,
-                                    PRBool reportError)
+                                    bool reportError)
 {
     return NS_OK;
 }
@@ -943,7 +929,7 @@ FullTrustSecMan::GetChannelPrincipal(nsIChannel *aChannel,
 
 NS_IMETHODIMP
 FullTrustSecMan::IsSystemPrincipal(nsIPrincipal *aPrincipal,
-                                   PRBool *_retval)
+                                   bool *_retval)
 {
     *_retval = aPrincipal == mSystemPrincipal;
     return NS_OK;
@@ -991,7 +977,7 @@ XPCShellDirProvider::Release()
 
 NS_IMPL_QUERY_INTERFACE1(XPCShellDirProvider, nsIDirectoryServiceProvider)
 
-PRBool
+bool
 XPCShellDirProvider::SetGREDir(const char *dir)
 {
     nsresult rv = XRE_GetFileFromPath(dir, getter_AddRefs(mGREDir));
@@ -1000,11 +986,11 @@ XPCShellDirProvider::SetGREDir(const char *dir)
 
 NS_IMETHODIMP
 XPCShellDirProvider::GetFile(const char *prop,
-                             PRBool *persistent,
+                             bool *persistent,
                              nsIFile* *result)
 {
     if (mGREDir && !strcmp(prop, NS_GRE_DIR)) {
-        *persistent = PR_TRUE;
+        *persistent = true;
         NS_ADDREF(*result = mGREDir);
         return NS_OK;
     }
@@ -1247,11 +1233,11 @@ XPCShellEnvironment::EvaluateString(const nsString& aString,
       return false;
   }
 
-  JSObject* scriptObj =
+  JSScript* script =
       JS_CompileUCScriptForPrincipals(mCx, global, GetPrincipal(),
                                       aString.get(), aString.Length(),
                                       "typein", 0);
-  if (!scriptObj) {
+  if (!script) {
      return false;
   }
 
@@ -1261,7 +1247,7 @@ XPCShellEnvironment::EvaluateString(const nsString& aString,
       }
 
       jsval result;
-      JSBool ok = JS_ExecuteScript(mCx, global, scriptObj, &result);
+      JSBool ok = JS_ExecuteScript(mCx, global, script, &result);
       if (ok && result != JSVAL_VOID) {
           JSErrorReporter old = JS_SetErrorReporter(mCx, NULL);
           JSString* str = JS_ValueToString(mCx, result);

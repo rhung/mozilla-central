@@ -52,18 +52,19 @@ class nsPresContext;
 
 nsHtml5TreeBuilder::nsHtml5TreeBuilder(nsAHtml5TreeOpSink* aOpSink,
                                        nsHtml5TreeOpStage* aStage)
-  : scriptingEnabled(PR_FALSE)
-  , fragment(PR_FALSE)
+  : scriptingEnabled(false)
+  , fragment(false)
   , contextNode(nsnull)
   , formPointer(nsnull)
   , headPointer(nsnull)
+  , mViewSource(nsnull)
   , mOpSink(aOpSink)
   , mHandles(new nsIContent*[NS_HTML5_TREE_BUILDER_HANDLE_ARRAY_LENGTH])
   , mHandlesUsed(0)
   , mSpeculativeLoadStage(aStage)
-  , mCurrentHtmlScriptIsAsyncOrDefer(PR_FALSE)
+  , mCurrentHtmlScriptIsAsyncOrDefer(false)
 #ifdef DEBUG
-  , mActive(PR_FALSE)
+  , mActive(false)
 #endif
 {
   MOZ_COUNT_CTOR(nsHtml5TreeBuilder);
@@ -105,7 +106,13 @@ nsHtml5TreeBuilder::createElement(PRInt32 aNamespace, nsIAtom* aName, nsHtml5Htm
         if (nsHtml5Atoms::img == aName) {
           nsString* url = aAttributes->getValue(nsHtml5AttributeName::ATTR_SRC);
           if (url) {
-            mSpeculativeLoadQueue.AppendElement()->InitImage(*url);
+            nsString* crossOrigin =
+              aAttributes->getValue(nsHtml5AttributeName::ATTR_CROSSORIGIN);
+            if (crossOrigin) {
+              mSpeculativeLoadQueue.AppendElement()->InitImage(*url, *crossOrigin);
+            } else {
+              mSpeculativeLoadQueue.AppendElement()->InitImage(*url, EmptyString());
+            }
           }
         } else if (nsHtml5Atoms::script == aName) {
           nsHtml5TreeOperation* treeOp = mOpQueue.AppendElement();
@@ -138,7 +145,7 @@ nsHtml5TreeBuilder::createElement(PRInt32 aNamespace, nsIAtom* aName, nsHtml5Htm
         } else if (nsHtml5Atoms::video == aName) {
           nsString* url = aAttributes->getValue(nsHtml5AttributeName::ATTR_POSTER);
           if (url) {
-            mSpeculativeLoadQueue.AppendElement()->InitImage(*url);
+            mSpeculativeLoadQueue.AppendElement()->InitImage(*url, EmptyString());
           }
         } else if (nsHtml5Atoms::style == aName) {
           nsHtml5TreeOperation* treeOp = mOpQueue.AppendElement();
@@ -148,6 +155,8 @@ nsHtml5TreeBuilder::createElement(PRInt32 aNamespace, nsIAtom* aName, nsHtml5Htm
           nsString* url = aAttributes->getValue(nsHtml5AttributeName::ATTR_MANIFEST);
           if (url) {
             mSpeculativeLoadQueue.AppendElement()->InitManifest(*url);
+          } else {
+            mSpeculativeLoadQueue.AppendElement()->InitManifest(EmptyString());
           }
         } else if (nsHtml5Atoms::base == aName) {
           nsString* url =
@@ -161,7 +170,7 @@ nsHtml5TreeBuilder::createElement(PRInt32 aNamespace, nsIAtom* aName, nsHtml5Htm
         if (nsHtml5Atoms::image == aName) {
           nsString* url = aAttributes->getValue(nsHtml5AttributeName::ATTR_XLINK_HREF);
           if (url) {
-            mSpeculativeLoadQueue.AppendElement()->InitImage(*url);
+            mSpeculativeLoadQueue.AppendElement()->InitImage(*url, EmptyString());
           }
         } else if (nsHtml5Atoms::script == aName) {
           nsHtml5TreeOperation* treeOp = mOpQueue.AppendElement();
@@ -205,10 +214,12 @@ nsHtml5TreeBuilder::createElement(PRInt32 aNamespace, nsIAtom* aName, nsHtml5Htm
       }
     } else if (aNamespace == kNameSpaceID_XHTML && nsHtml5Atoms::html == aName) {
       nsString* url = aAttributes->getValue(nsHtml5AttributeName::ATTR_MANIFEST);
+      nsHtml5TreeOperation* treeOp = mOpQueue.AppendElement();
+      NS_ASSERTION(treeOp, "Tree op allocation failed.");
       if (url) {
-        nsHtml5TreeOperation* treeOp = mOpQueue.AppendElement();
-        NS_ASSERTION(treeOp, "Tree op allocation failed.");
         treeOp->Init(eTreeOpProcessOfflineManifest, *url);
+      } else {
+        treeOp->Init(eTreeOpProcessOfflineManifest, EmptyString());
       }
     }
   }
@@ -381,12 +392,12 @@ nsHtml5TreeBuilder::markMalformedIfScript(nsIContent** aElement)
 }
 
 void
-nsHtml5TreeBuilder::start(PRBool fragment)
+nsHtml5TreeBuilder::start(bool fragment)
 {
-  mCurrentHtmlScriptIsAsyncOrDefer = PR_FALSE;
+  mCurrentHtmlScriptIsAsyncOrDefer = false;
   deepTreeSurrogateParent = nsnull;
 #ifdef DEBUG
-  mActive = PR_TRUE;
+  mActive = true;
 #endif
 }
 
@@ -395,7 +406,7 @@ nsHtml5TreeBuilder::end()
 {
   mOpQueue.Clear();
 #ifdef DEBUG
-  mActive = PR_FALSE;
+  mActive = false;
 #endif
 }
 
@@ -478,7 +489,7 @@ nsHtml5TreeBuilder::elementPopped(PRInt32 aNamespace, nsIAtom* aName, nsIContent
       nsHtml5TreeOperation* treeOp = mOpQueue.AppendElement();
       NS_ASSERTION(treeOp, "Tree op allocation failed.");
       treeOp->Init(eTreeOpRunScriptAsyncDefer, aElement);      
-      mCurrentHtmlScriptIsAsyncOrDefer = PR_FALSE;
+      mCurrentHtmlScriptIsAsyncOrDefer = false;
       return;
     }
     requestSuspension();
@@ -500,13 +511,11 @@ nsHtml5TreeBuilder::elementPopped(PRInt32 aNamespace, nsIAtom* aName, nsIContent
     return;
   }
   if (aNamespace == kNameSpaceID_SVG) {
-#ifdef MOZ_SVG
     if (aName == nsHtml5Atoms::svg) {
       nsHtml5TreeOperation* treeOp = mOpQueue.AppendElement();
       NS_ASSERTION(treeOp, "Tree op allocation failed.");
       treeOp->Init(eTreeOpSvgLoad, aElement);
     }
-#endif
     return;
   }
   // we now have only HTML
@@ -536,7 +545,8 @@ nsHtml5TreeBuilder::elementPopped(PRInt32 aNamespace, nsIAtom* aName, nsIContent
     return;
   }
   if (aName == nsHtml5Atoms::input ||
-      aName == nsHtml5Atoms::button) {
+      aName == nsHtml5Atoms::button ||
+      aName == nsHtml5Atoms::menuitem) {
     if (!formPointer) {
       // If form inputs don't belong to a form, their state preservation
       // won't work right without an append notification flush at this 
@@ -587,23 +597,32 @@ nsHtml5TreeBuilder::AllocateContentHandle()
   return &mHandles[mHandlesUsed++];
 }
 
-PRBool
+bool
 nsHtml5TreeBuilder::HasScript()
 {
   PRUint32 len = mOpQueue.Length();
   if (!len) {
-    return PR_FALSE;
+    return false;
   }
   return mOpQueue.ElementAt(len - 1).IsRunScript();
 }
 
-PRBool
-nsHtml5TreeBuilder::Flush()
+bool
+nsHtml5TreeBuilder::Flush(bool aDiscretionary)
 {
-  flushCharacters();
+  if (!aDiscretionary ||
+      !(charBufferLen &&
+        currentPtr >= 0 &&
+        stack[currentPtr]->isFosterParenting())) {
+    // Don't flush text on discretionary flushes if the current element on
+    // the stack is a foster-parenting element and there's pending text,
+    // because flushing in that case would make the tree shape dependent on
+    // where the flush points fall.
+    flushCharacters();
+  }
   FlushLoads();
   if (mOpSink) {
-    PRBool hasOps = !mOpQueue.IsEmpty();
+    bool hasOps = !mOpQueue.IsEmpty();
     if (hasOps) {
       mOpSink->MoveOpsFrom(mOpQueue);
     }
@@ -611,7 +630,7 @@ nsHtml5TreeBuilder::Flush()
   }
   // no op sink: throw away ops
   mOpQueue.Clear();
-  return PR_FALSE;
+  return false;
 }
 
 void
@@ -626,9 +645,13 @@ void
 nsHtml5TreeBuilder::SetDocumentCharset(nsACString& aCharset, 
                                        PRInt32 aCharsetSource)
 {
-  nsHtml5TreeOperation* treeOp = mOpQueue.AppendElement();
-  NS_ASSERTION(treeOp, "Tree op allocation failed.");
-  treeOp->Init(eTreeOpSetDocumentCharset, aCharset, aCharsetSource);  
+  if (mSpeculativeLoadStage) {
+    mSpeculativeLoadQueue.AppendElement()->InitSetDocumentCharset(
+      aCharset, aCharsetSource);
+  } else {
+    mOpQueue.AppendElement()->Init(
+      eTreeOpSetDocumentCharset, aCharset, aCharsetSource);
+  }
 }
 
 void
@@ -663,19 +686,27 @@ nsHtml5TreeBuilder::AddSnapshotToScript(nsAHtml5TreeBuilderState* aSnapshot, PRI
   mOpQueue.ElementAt(mOpQueue.Length() - 1).SetSnapshot(aSnapshot, aLine);
 }
 
-PRBool 
-nsHtml5TreeBuilder::IsDiscretionaryFlushSafe()
-{
-  return !(charBufferLen && 
-           currentPtr >= 0 && 
-           stack[currentPtr]->isFosterParenting());
-}
-
 void
 nsHtml5TreeBuilder::DropHandles()
 {
   mOldHandles.Clear();
   mHandlesUsed = 0;
+}
+
+void
+nsHtml5TreeBuilder::MarkAsBroken()
+{
+  mOpQueue.Clear(); // Previous ops don't matter anymore
+  mOpQueue.AppendElement()->Init(eTreeOpMarkAsBroken);
+}
+
+void
+nsHtml5TreeBuilder::StartPlainText()
+{
+  startTag(nsHtml5ElementName::ELT_PRE,
+           nsHtml5HtmlAttributes::EMPTY_ATTRIBUTES,
+           false);
+  needToDropLF = false;
 }
 
 // DocumentModeHandler
@@ -685,4 +716,397 @@ nsHtml5TreeBuilder::documentMode(nsHtml5DocumentMode m)
   nsHtml5TreeOperation* treeOp = mOpQueue.AppendElement();
   NS_ASSERTION(treeOp, "Tree op allocation failed.");
   treeOp->Init(m);
+}
+
+// Error reporting
+
+void
+nsHtml5TreeBuilder::EnableViewSource(nsHtml5Highlighter* aHighlighter)
+{
+  mViewSource = aHighlighter;
+}
+
+void
+nsHtml5TreeBuilder::errStrayStartTag(nsIAtom* aName)
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errStrayStartTag2", aName);
+  }
+}
+
+void
+nsHtml5TreeBuilder::errStrayEndTag(nsIAtom* aName)
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errStrayEndTag", aName);
+  }
+}
+
+void
+nsHtml5TreeBuilder::errUnclosedElements(PRInt32 aIndex, nsIAtom* aName)
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errUnclosedElements", aName);
+  }
+}
+
+void
+nsHtml5TreeBuilder::errUnclosedElementsImplied(PRInt32 aIndex, nsIAtom* aName)
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errUnclosedElementsImplied",
+        aName);
+  }
+}
+
+void
+nsHtml5TreeBuilder::errUnclosedElementsCell(PRInt32 aIndex)
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errUnclosedElementsCell");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errStrayDoctype()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errStrayDoctype");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errAlmostStandardsDoctype()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errAlmostStandardsDoctype");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errQuirkyDoctype()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errQuirkyDoctype");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errNonSpaceInTrailer()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errNonSpaceInTrailer");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errNonSpaceAfterFrameset()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errNonSpaceAfterFrameset");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errNonSpaceInFrameset()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errNonSpaceInFrameset");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errNonSpaceAfterBody()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errNonSpaceAfterBody");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errNonSpaceInColgroupInFragment()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errNonSpaceInColgroupInFragment");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errNonSpaceInNoscriptInHead()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errNonSpaceInNoscriptInHead");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errFooBetweenHeadAndBody(nsIAtom* aName)
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errFooBetweenHeadAndBody", aName);
+  }
+}
+
+void
+nsHtml5TreeBuilder::errStartTagWithoutDoctype()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errStartTagWithoutDoctype");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errNoSelectInTableScope()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errNoSelectInTableScope");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errStartSelectWhereEndSelectExpected()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun(
+        "errStartSelectWhereEndSelectExpected");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errStartTagWithSelectOpen(nsIAtom* aName)
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errStartTagWithSelectOpen", aName);
+  }
+}
+
+void
+nsHtml5TreeBuilder::errBadStartTagInHead(nsIAtom* aName)
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errBadStartTagInHead", aName);
+  }
+}
+
+void
+nsHtml5TreeBuilder::errImage()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errImage");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errIsindex()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errIsindex");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errFooSeenWhenFooOpen(nsIAtom* aName)
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errFooSeenWhenFooOpen", aName);
+  }
+}
+
+void
+nsHtml5TreeBuilder::errHeadingWhenHeadingOpen()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errHeadingWhenHeadingOpen");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errFramesetStart()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errFramesetStart");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errNoCellToClose()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errNoCellToClose");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errStartTagInTable(nsIAtom* aName)
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errStartTagInTable", aName);
+  }
+}
+
+void
+nsHtml5TreeBuilder::errFormWhenFormOpen()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errFormWhenFormOpen");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errTableSeenWhileTableOpen()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errTableSeenWhileTableOpen");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errStartTagInTableBody(nsIAtom* aName)
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errStartTagInTableBody", aName);
+  }
+}
+
+void
+nsHtml5TreeBuilder::errEndTagSeenWithoutDoctype()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errEndTagSeenWithoutDoctype");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errEndTagAfterBody()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errEndTagAfterBody");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errEndTagSeenWithSelectOpen(nsIAtom* aName)
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errEndTagSeenWithSelectOpen",
+        aName);
+  }
+}
+
+void
+nsHtml5TreeBuilder::errGarbageInColgroup()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errGarbageInColgroup");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errEndTagBr()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errEndTagBr");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errNoElementToCloseButEndTagSeen(nsIAtom* aName)
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun(
+        "errNoElementToCloseButEndTagSeen", aName);
+  }
+}
+
+void
+nsHtml5TreeBuilder::errHtmlStartTagInForeignContext(nsIAtom* aName)
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errHtmlStartTagInForeignContext",
+        aName);
+  }
+}
+
+void
+nsHtml5TreeBuilder::errTableClosedWhileCaptionOpen()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errTableClosedWhileCaptionOpen");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errNoTableRowToClose()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errNoTableRowToClose");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errNonSpaceInTable()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errNonSpaceInTable");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errUnclosedChildrenInRuby()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errUnclosedChildrenInRuby");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errStartTagSeenWithoutRuby(nsIAtom* aName)
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errStartTagSeenWithoutRuby",
+        aName);
+  }
+}
+
+void
+nsHtml5TreeBuilder::errSelfClosing()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentSlash("errSelfClosing");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errNoCheckUnclosedElementsOnStack()
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun(
+        "errNoCheckUnclosedElementsOnStack");
+  }
+}
+
+void
+nsHtml5TreeBuilder::errEndTagDidNotMatchCurrentOpenElement(nsIAtom* aName,
+                                                           nsIAtom* aOther)
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun(
+        "errEndTagDidNotMatchCurrentOpenElement", aName, aOther);
+  }
+}
+
+void
+nsHtml5TreeBuilder::errEndTagViolatesNestingRules(nsIAtom* aName)
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errEndTagViolatesNestingRules", aName);
+  }
+}
+
+void
+nsHtml5TreeBuilder::errEndWithUnclosedElements(nsIAtom* aName)
+{
+  if (NS_UNLIKELY(mViewSource)) {
+    mViewSource->AddErrorToCurrentRun("errEndWithUnclosedElements", aName);
+  }
 }

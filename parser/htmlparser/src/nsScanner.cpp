@@ -90,7 +90,6 @@ const int   kBufsize=64;
  */
 nsScanner::nsScanner(const nsAString& anHTMLString, const nsACString& aCharset,
                      PRInt32 aSource)
-  : mParser(nsnull)
 {
   MOZ_COUNT_CTOR(nsScanner);
 
@@ -105,10 +104,10 @@ nsScanner::nsScanner(const nsAString& anHTMLString, const nsACString& aCharset,
     mEndPosition = mCurrentPosition;
   }
   mMarkPosition = mCurrentPosition;
-  mIncremental = PR_FALSE;
+  mIncremental = false;
   mUnicodeDecoder = 0;
   mCharsetSource = kCharsetUninitialized;
-  mHasInvalidCharacter = PR_FALSE;
+  mHasInvalidCharacter = false;
   mReplacementCharacter = PRUnichar(0x0);
 }
 
@@ -121,9 +120,9 @@ nsScanner::nsScanner(const nsAString& anHTMLString, const nsACString& aCharset,
  *  @param   aFilename --
  *  @return  
  */
-nsScanner::nsScanner(nsString& aFilename,PRBool aCreateStream,
+nsScanner::nsScanner(nsString& aFilename,bool aCreateStream,
                      const nsACString& aCharset, PRInt32 aSource)
-  : mFilename(aFilename), mParser(nsnull)
+  : mFilename(aFilename)
 {
   MOZ_COUNT_CTOR(nsScanner);
   NS_ASSERTION(!aCreateStream, "This is always true.");
@@ -139,13 +138,13 @@ nsScanner::nsScanner(nsString& aFilename,PRBool aCreateStream,
   mMarkPosition = mCurrentPosition;
   mEndPosition = mCurrentPosition;
 
-  mIncremental = PR_TRUE;
+  mIncremental = true;
   mFirstNonWhitespacePosition = -1;
   mCountRemaining = 0;
 
   mUnicodeDecoder = 0;
   mCharsetSource = kCharsetUninitialized;
-  mHasInvalidCharacter = PR_FALSE;
+  mHasInvalidCharacter = false;
   mReplacementCharacter = PRUnichar(0x0);
   SetDocumentCharset(aCharset, aSource);
 }
@@ -161,7 +160,7 @@ nsresult nsScanner::SetDocumentCharset(const nsACString& aCharset , PRInt32 aSou
   nsresult res = NS_OK;
   if (!mCharset.IsEmpty())
   {
-    PRBool same;
+    bool same;
     res = calias->Equals(aCharset, mCharset, &same);
     if(NS_SUCCEEDED(res) && same)
     {
@@ -210,9 +209,7 @@ nsresult nsScanner::SetDocumentCharset(const nsACString& aCharset , PRInt32 aSou
  */
 nsScanner::~nsScanner() {
 
-  if (mSlidingBuffer) {
-    delete mSlidingBuffer;
-  }
+  delete mSlidingBuffer;
 
   MOZ_COUNT_DTOR(nsScanner);
 }
@@ -267,9 +264,9 @@ PRInt32 nsScanner::Mark() {
  * @update  harishd 01/12/99
  * @return  error code 
  */
-PRBool nsScanner::UngetReadable(const nsAString& aBuffer) {
+bool nsScanner::UngetReadable(const nsAString& aBuffer) {
   if (!mSlidingBuffer) {
-    return PR_FALSE;
+    return false;
   }
 
   mSlidingBuffer->UngetReadable(aBuffer,mCurrentPosition);
@@ -278,7 +275,7 @@ PRBool nsScanner::UngetReadable(const nsAString& aBuffer) {
  
   PRUint32 length = aBuffer.Length();
   mCountRemaining += length; // Ref. bug 117441
-  return PR_TRUE;
+  return true;
 }
 
 /** 
@@ -304,14 +301,13 @@ nsresult nsScanner::Append(const nsAString& aBuffer) {
 nsresult nsScanner::Append(const char* aBuffer, PRUint32 aLen,
                            nsIRequest *aRequest)
 {
-  nsresult res=NS_OK;
-  PRUnichar *unichars, *start;
+  nsresult res = NS_OK;
   if (mUnicodeDecoder) {
     PRInt32 unicharBufLen = 0;
     mUnicodeDecoder->GetMaxLength(aBuffer, aLen, &unicharBufLen);
     nsScannerString::Buffer* buffer = nsScannerString::AllocBuffer(unicharBufLen + 1);
     NS_ENSURE_TRUE(buffer,NS_ERROR_OUT_OF_MEMORY);
-    start = unichars = buffer->DataStart();
+    PRUnichar *unichars = buffer->DataStart();
 
     PRInt32 totalChars = 0;
     PRInt32 unicharLength = unicharBufLen;
@@ -478,8 +474,8 @@ nsresult nsScanner::SkipWhitespace(PRInt32& aNewlinesSkipped) {
   }
   
   nsScannerIterator current = mCurrentPosition;
-  PRBool    done = PR_FALSE;
-  PRBool    skipped = PR_FALSE;
+  bool      done = false;
+  bool      skipped = false;
   
   while (!done && current != mEndPosition) {
     switch(theChar) {
@@ -488,7 +484,7 @@ nsresult nsScanner::SkipWhitespace(PRInt32& aNewlinesSkipped) {
       case ' ' :
       case '\t':
         {
-          skipped = PR_TRUE;
+          skipped = true;
           PRUnichar thePrevChar = theChar;
           theChar = (++current != mEndPosition) ? *current : '\0';
           if ((thePrevChar == '\r' && theChar == '\n') ||
@@ -498,7 +494,7 @@ nsresult nsScanner::SkipWhitespace(PRInt32& aNewlinesSkipped) {
         }
         break;
       default:
-        done = PR_TRUE;
+        done = true;
         break;
     }
   }
@@ -576,7 +572,7 @@ nsresult nsScanner::ReadTagIdentifier(nsScannerSharedSubstring& aString) {
   PRUnichar         theChar=0;
   nsresult          result=Peek(theChar);
   nsScannerIterator current, end;
-  PRBool            found=PR_FALSE;  
+  bool              found=false;  
   
   current = mCurrentPosition;
   end = mEndPosition;
@@ -596,7 +592,7 @@ nsresult nsScanner::ReadTagIdentifier(nsScannerSharedSubstring& aString) {
       case '<':
       case '>':
       case '/':
-        found = PR_TRUE;
+        found = true;
         break;
 
       case '\0':
@@ -643,7 +639,7 @@ nsresult nsScanner::ReadEntityIdentifier(nsString& aString) {
   PRUnichar         theChar=0;
   nsresult          result=Peek(theChar);
   nsScannerIterator origin, current, end;
-  PRBool            found=PR_FALSE;  
+  bool              found=false;  
 
   origin = mCurrentPosition;
   current = mCurrentPosition;
@@ -653,13 +649,13 @@ nsresult nsScanner::ReadEntityIdentifier(nsString& aString) {
  
     theChar=*current;
     if(theChar) {
-      found=PR_FALSE;
+      found=false;
       switch(theChar) {
         case '_':
         case '-':
         case '.':
           // Don't allow ':' in entity names.  See bug 23791
-          found = PR_TRUE;
+          found = true;
           break;
         default:
           found = ('a'<=theChar && theChar<='z') ||
@@ -709,14 +705,14 @@ nsresult nsScanner::ReadNumber(nsString& aString,PRInt32 aBase) {
   current = origin;
   end = mEndPosition;
 
-  PRBool done = PR_FALSE;
+  bool done = false;
   while(current != end) {
     theChar=*current;
     if(theChar) {
       done = (theChar < '0' || theChar > '9') && 
              ((aBase == 16)? (theChar < 'A' || theChar > 'F') &&
                              (theChar < 'a' || theChar > 'f')
-                             :PR_TRUE);
+                             :true);
       if(done) {
         AppendUnicodeTo(origin, current, aString);
         break;
@@ -746,9 +742,9 @@ nsresult nsScanner::ReadNumber(nsString& aString,PRInt32 aBase) {
  */
 nsresult nsScanner::ReadWhitespace(nsScannerSharedSubstring& aString,
                                    PRInt32& aNewlinesSkipped,
-                                   PRBool& aHaveCR) {
+                                   bool& aHaveCR) {
 
-  aHaveCR = PR_FALSE;
+  aHaveCR = false;
 
   if (!mSlidingBuffer) {
     return kEOF;
@@ -762,13 +758,13 @@ nsresult nsScanner::ReadWhitespace(nsScannerSharedSubstring& aString,
   }
   
   nsScannerIterator origin, current, end;
-  PRBool done = PR_FALSE;  
+  bool done = false;  
 
   origin = mCurrentPosition;
   current = origin;
   end = mEndPosition;
 
-  PRBool haveCR = PR_FALSE;
+  bool haveCR = false;
 
   while(!done && current != end) {
     switch(theChar) {
@@ -781,13 +777,13 @@ nsresult nsScanner::ReadWhitespace(nsScannerSharedSubstring& aString,
           if ((thePrevChar == '\r' && theChar == '\n') ||
               (thePrevChar == '\n' && theChar == '\r')) {
             theChar = (++current != end) ? *current : '\0'; // CRLF == LFCR => LF
-            haveCR = PR_TRUE;
+            haveCR = true;
           } else if (thePrevChar == '\r') {
             // Lone CR becomes CRLF; callers should know to remove extra CRs
             AppendUnicodeTo(origin, current, aString);
             aString.writable().Append(PRUnichar('\n'));
             origin = current;
-            haveCR = PR_TRUE;
+            haveCR = true;
           }
         }
         break;
@@ -796,7 +792,7 @@ nsresult nsScanner::ReadWhitespace(nsScannerSharedSubstring& aString,
         theChar = (++current != end) ? *current : '\0';
         break;
       default:
-        done = PR_TRUE;
+        done = true;
         AppendUnicodeTo(origin, current, aString);
         break;
     }
@@ -830,7 +826,7 @@ nsresult nsScanner::ReadWhitespace(nsScannerIterator& aStart,
   }
   
   nsScannerIterator origin, current, end;
-  PRBool done = PR_FALSE;  
+  bool done = false;  
 
   origin = mCurrentPosition;
   current = origin;
@@ -852,7 +848,7 @@ nsresult nsScanner::ReadWhitespace(nsScannerIterator& aStart,
         }
         break;
       default:
-        done = PR_TRUE;
+        done = true;
         aStart = origin;
         aEnd = current;
         break;
@@ -881,7 +877,7 @@ nsresult nsScanner::ReadWhitespace(nsScannerIterator& aStart,
  */
 nsresult nsScanner::ReadUntil(nsAString& aString,
                               const nsReadEndCondition& aEndCondition,
-                              PRBool addTerminal)
+                              bool addTerminal)
 {  
   if (!mSlidingBuffer) {
     return kEOF;
@@ -941,7 +937,7 @@ nsresult nsScanner::ReadUntil(nsAString& aString,
 
 nsresult nsScanner::ReadUntil(nsScannerSharedSubstring& aString,
                               const nsReadEndCondition& aEndCondition,
-                              PRBool addTerminal)
+                              bool addTerminal)
 {  
   if (!mSlidingBuffer) {
     return kEOF;
@@ -1002,7 +998,7 @@ nsresult nsScanner::ReadUntil(nsScannerSharedSubstring& aString,
 nsresult nsScanner::ReadUntil(nsScannerIterator& aStart, 
                               nsScannerIterator& aEnd,
                               const nsReadEndCondition &aEndCondition,
-                              PRBool addTerminal)
+                              bool addTerminal)
 {
   if (!mSlidingBuffer) {
     return kEOF;
@@ -1069,7 +1065,7 @@ nsresult nsScanner::ReadUntil(nsScannerIterator& aStart,
  */
 nsresult nsScanner::ReadUntil(nsAString& aString,
                               PRUnichar aTerminalChar,
-                              PRBool addTerminal)
+                              bool addTerminal)
 {
   if (!mSlidingBuffer) {
     return kEOF;
@@ -1127,7 +1123,7 @@ void nsScanner::EndReading(nsScannerIterator& aPosition)
   aPosition = mEndPosition;
 }
  
-void nsScanner::SetPosition(nsScannerIterator& aPosition, PRBool aTerminate, PRBool aReverse)
+void nsScanner::SetPosition(nsScannerIterator& aPosition, bool aTerminate, bool aReverse)
 {
   if (mSlidingBuffer) {
 #ifdef DEBUG
@@ -1162,23 +1158,15 @@ void nsScanner::ReplaceCharacter(nsScannerIterator& aPosition,
   }
 }
 
-PRBool nsScanner::AppendToBuffer(nsScannerString::Buffer* aBuf,
+bool nsScanner::AppendToBuffer(nsScannerString::Buffer* aBuf,
                                  nsIRequest *aRequest,
                                  PRInt32 aErrorPos)
 {
-  if (nsParser::sParserDataListeners && mParser &&
-      NS_FAILED(mParser->DataAdded(Substring(aBuf->DataStart(),
-                                             aBuf->DataEnd()), aRequest))) {
-    // Don't actually append on failure.
-
-    return mSlidingBuffer != nsnull;
-  }
-
   PRUint32 countRemaining = mCountRemaining;
   if (!mSlidingBuffer) {
     mSlidingBuffer = new nsScannerString(aBuf);
     if (!mSlidingBuffer)
-      return PR_FALSE;
+      return false;
     mSlidingBuffer->BeginReading(mCurrentPosition);
     mMarkPosition = mCurrentPosition;
     mSlidingBuffer->EndReading(mEndPosition);
@@ -1194,7 +1182,7 @@ PRBool nsScanner::AppendToBuffer(nsScannerString::Buffer* aBuf,
   }
 
   if (aErrorPos != -1 && !mHasInvalidCharacter) {
-    mHasInvalidCharacter = PR_TRUE;
+    mHasInvalidCharacter = true;
     mFirstInvalidPosition = mCurrentPosition;
     mFirstInvalidPosition.advance(countRemaining + aErrorPos);
   }
@@ -1213,7 +1201,7 @@ PRBool nsScanner::AppendToBuffer(nsScannerString::Buffer* aBuf,
       ++iter;
     }
   }
-  return PR_TRUE;
+  return true;
 }
 
 /**

@@ -2,7 +2,6 @@
 <head>
 <title>bug 624047</title>
 
-<script type="text/javascript" src="/MochiKit/packed.js"></script>
 <script type="text/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
 <script type="text/javascript" src="interOriginTest.js"></script>
 <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css" />
@@ -25,7 +24,7 @@ function flushTables()
   netscape.security.PrivilegeManager.enablePrivilege("UniversalXPConnect");
   var storageManager = Components.classes["@mozilla.org/dom/storagemanager;1"]
     .getService(Components.interfaces.nsIObserver);
-  storageManager.observe(null, "profile-before-change", null);
+  storageManager.observe(null, "domstorage-flush-force", null);
 }
 
 function startTest()

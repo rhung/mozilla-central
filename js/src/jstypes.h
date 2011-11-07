@@ -88,13 +88,6 @@
 # define JS_EXTERN_DATA(__type) extern __declspec(dllexport) __type
 # define JS_EXPORT_DATA(__type) __declspec(dllexport) __type
 
-#elif defined(__SYMBIAN32__)
-
-# define JS_EXTERN_API(__type) extern EXPORT_C __type
-# define JS_EXPORT_API(__type) EXPORT_C __type
-# define JS_EXTERN_DATA(__type) extern EXPORT_C __type
-# define JS_EXPORT_DATA(__type) EXPORT_C __type
-
 #else /* Unix */
 
 # ifdef HAVE_VISIBILITY_ATTRIBUTE
@@ -131,8 +124,6 @@
 # endif
 #elif defined(XP_OS2)
 # define JS_IMPORT_API(__x)     __declspec(dllimport) __x
-#elif defined(__SYMBIAN32__)
-# define JS_IMPORT_API(__x)     IMPORT_C __x
 #else
 # define JS_IMPORT_API(__x)     JS_EXPORT_API (__x)
 #endif
@@ -141,12 +132,6 @@
 # define JS_IMPORT_DATA(__x)      __declspec(dllimport) __x
 #elif defined(XP_OS2)
 # define JS_IMPORT_DATA(__x)      __declspec(dllimport) __x
-#elif defined(__SYMBIAN32__)
-# if defined(__CW32__)
-#   define JS_IMPORT_DATA(__x)    __declspec(dllimport) __x
-# else
-#   define JS_IMPORT_DATA(__x)    IMPORT_C __x
-# endif
 #else
 # define JS_IMPORT_DATA(__x)     JS_EXPORT_DATA (__x)
 #endif
@@ -305,14 +290,7 @@
 #define JS_MIN(x,y)     ((x)<(y)?(x):(y))
 #define JS_MAX(x,y)     ((x)>(y)?(x):(y))
 
-#ifdef _MSC_VER
-# include "jscpucfg.h"  /* We can't auto-detect MSVC configuration */
-# if _MSC_VER < 1400
-#  define NJ_NO_VARIADIC_MACROS
-# endif
-#else
-# include "jsautocfg.h" /* Use auto-detected configuration */
-#endif
+#include "jscpucfg.h"
 
 /*
  * Define JS_64BIT iff we are building in an environment with 64-bit
@@ -361,13 +339,6 @@ JS_BEGIN_EXTERN_C
 
 typedef int JSIntn;
 typedef unsigned int JSUintn;
-
-/************************************************************************
-** TYPES:       JSFloat64
-** DESCRIPTION:
-**  NSPR's floating point type is always 64 bits.
-************************************************************************/
-typedef double          JSFloat64;
 
 /************************************************************************
 ** TYPES:       JSSize

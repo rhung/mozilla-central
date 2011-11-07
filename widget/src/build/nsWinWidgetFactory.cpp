@@ -52,24 +52,20 @@
 #include "nsNativeThemeWin.h"
 #include "nsScreenManagerWin.h"
 #include "nsSound.h"
-#include "nsToolkit.h"
 #include "nsWindow.h"
 #include "WinTaskbar.h"
 #include "JumpListBuilder.h"
 #include "JumpListItem.h"
 #include "GfxInfo.h"
+#include "nsToolkit.h"
 
 // Drag & Drop, Clipboard
 
 #include "nsClipboardHelper.h"
 
-#ifdef WINCE
-#include "nsClipboardCE.h"
-#else
 #include "nsClipboard.h"
 #include "nsBidiKeyboard.h"
 #include "nsDragService.h"
-#endif
 #include "nsTransferable.h"
 #include "nsHTMLFormatConverter.h"
 
@@ -84,8 +80,6 @@ using namespace mozilla::widget;
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsWindow)
 NS_GENERIC_FACTORY_CONSTRUCTOR(ChildWindow)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsFilePicker)
-NS_GENERIC_FACTORY_CONSTRUCTOR(nsLookAndFeel)
-NS_GENERIC_FACTORY_CONSTRUCTOR(nsToolkit)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsScreenManagerWin)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsIdleServiceWin)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsClipboard)
@@ -110,10 +104,8 @@ NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(GfxInfo, Init);
 
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsTransferable)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsHTMLFormatConverter)
-#ifndef WINCE
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsDragService)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsBidiKeyboard)
-#endif
 
 #ifdef NS_PRINTING
 NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsPrintOptionsWin, Init)
@@ -126,10 +118,8 @@ NS_DEFINE_NAMED_CID(NS_WINDOW_CID);
 NS_DEFINE_NAMED_CID(NS_CHILD_CID);
 NS_DEFINE_NAMED_CID(NS_FILEPICKER_CID);
 NS_DEFINE_NAMED_CID(NS_APPSHELL_CID);
-NS_DEFINE_NAMED_CID(NS_TOOLKIT_CID);
 NS_DEFINE_NAMED_CID(NS_SCREENMANAGER_CID);
 NS_DEFINE_NAMED_CID(NS_GFXINFO_CID);
-NS_DEFINE_NAMED_CID(NS_LOOKANDFEEL_CID);
 NS_DEFINE_NAMED_CID(NS_THEMERENDERER_CID);
 NS_DEFINE_NAMED_CID(NS_IDLE_SERVICE_CID);
 NS_DEFINE_NAMED_CID(NS_CLIPBOARD_CID);
@@ -137,7 +127,7 @@ NS_DEFINE_NAMED_CID(NS_CLIPBOARDHELPER_CID);
 NS_DEFINE_NAMED_CID(NS_SOUND_CID);
 NS_DEFINE_NAMED_CID(NS_TRANSFERABLE_CID);
 NS_DEFINE_NAMED_CID(NS_HTMLFORMATCONVERTER_CID);
-#ifndef WINCE
+
 #if MOZ_WINSDK_TARGETVER >= MOZ_NTDDI_WIN7
 NS_DEFINE_NAMED_CID(NS_WIN_TASKBAR_CID);
 NS_DEFINE_NAMED_CID(NS_WIN_JUMPLISTBUILDER_CID);
@@ -146,9 +136,10 @@ NS_DEFINE_NAMED_CID(NS_WIN_JUMPLISTSEPARATOR_CID);
 NS_DEFINE_NAMED_CID(NS_WIN_JUMPLISTLINK_CID);
 NS_DEFINE_NAMED_CID(NS_WIN_JUMPLISTSHORTCUT_CID);
 #endif
+
 NS_DEFINE_NAMED_CID(NS_DRAGSERVICE_CID);
 NS_DEFINE_NAMED_CID(NS_BIDIKEYBOARD_CID);
-#endif
+
 #ifdef NS_PRINTING
 NS_DEFINE_NAMED_CID(NS_PRINTSETTINGSSERVICE_CID);
 NS_DEFINE_NAMED_CID(NS_PRINTER_ENUMERATOR_CID);
@@ -162,10 +153,8 @@ static const mozilla::Module::CIDEntry kWidgetCIDs[] = {
   { &kNS_CHILD_CID, false, NULL, ChildWindowConstructor },
   { &kNS_FILEPICKER_CID, false, NULL, nsFilePickerConstructor },
   { &kNS_APPSHELL_CID, false, NULL, nsAppShellConstructor },
-  { &kNS_TOOLKIT_CID, false, NULL, nsToolkitConstructor },
   { &kNS_SCREENMANAGER_CID, false, NULL, nsScreenManagerWinConstructor },
   { &kNS_GFXINFO_CID, false, NULL, GfxInfoConstructor },
-  { &kNS_LOOKANDFEEL_CID, false, NULL, nsLookAndFeelConstructor },
   { &kNS_THEMERENDERER_CID, false, NULL, NS_NewNativeTheme },
   { &kNS_IDLE_SERVICE_CID, false, NULL, nsIdleServiceWinConstructor },
   { &kNS_CLIPBOARD_CID, false, NULL, nsClipboardConstructor },
@@ -173,7 +162,6 @@ static const mozilla::Module::CIDEntry kWidgetCIDs[] = {
   { &kNS_SOUND_CID, false, NULL, nsSoundConstructor },
   { &kNS_TRANSFERABLE_CID, false, NULL, nsTransferableConstructor },
   { &kNS_HTMLFORMATCONVERTER_CID, false, NULL, nsHTMLFormatConverterConstructor },
-#ifndef WINCE
 #if MOZ_WINSDK_TARGETVER >= MOZ_NTDDI_WIN7
   { &kNS_WIN_TASKBAR_CID, false, NULL, WinTaskbarConstructor },
   { &kNS_WIN_JUMPLISTBUILDER_CID, false, NULL, JumpListBuilderConstructor },
@@ -184,7 +172,6 @@ static const mozilla::Module::CIDEntry kWidgetCIDs[] = {
 #endif
   { &kNS_DRAGSERVICE_CID, false, NULL, nsDragServiceConstructor },
   { &kNS_BIDIKEYBOARD_CID, false, NULL, nsBidiKeyboardConstructor },
-#endif
 #ifdef NS_PRINTING
   { &kNS_PRINTSETTINGSSERVICE_CID, false, NULL, nsPrintOptionsWinConstructor },
   { &kNS_PRINTER_ENUMERATOR_CID, false, NULL, nsPrinterEnumeratorWinConstructor },
@@ -199,10 +186,8 @@ static const mozilla::Module::ContractIDEntry kWidgetContracts[] = {
   { "@mozilla.org/widgets/child_window/win;1", &kNS_CHILD_CID },
   { "@mozilla.org/filepicker;1", &kNS_FILEPICKER_CID },
   { "@mozilla.org/widget/appshell/win;1", &kNS_APPSHELL_CID },
-  { "@mozilla.org/widget/toolkit/win;1", &kNS_TOOLKIT_CID },
   { "@mozilla.org/gfx/screenmanager;1", &kNS_SCREENMANAGER_CID },
   { "@mozilla.org/gfx/info;1", &kNS_GFXINFO_CID },
-  { "@mozilla.org/widget/lookandfeel;1", &kNS_LOOKANDFEEL_CID },
   { "@mozilla.org/chrome/chrome-native-theme;1", &kNS_THEMERENDERER_CID },
   { "@mozilla.org/widget/idleservice;1", &kNS_IDLE_SERVICE_CID },
   { "@mozilla.org/widget/clipboard;1", &kNS_CLIPBOARD_CID },
@@ -210,7 +195,6 @@ static const mozilla::Module::ContractIDEntry kWidgetContracts[] = {
   { "@mozilla.org/sound;1", &kNS_SOUND_CID },
   { "@mozilla.org/widget/transferable;1", &kNS_TRANSFERABLE_CID },
   { "@mozilla.org/widget/htmlformatconverter;1", &kNS_HTMLFORMATCONVERTER_CID },
-#ifndef WINCE
 #if MOZ_WINSDK_TARGETVER >= MOZ_NTDDI_WIN7
   { "@mozilla.org/windows-taskbar;1", &kNS_WIN_TASKBAR_CID },
   { "@mozilla.org/windows-jumplistbuilder;1", &kNS_WIN_JUMPLISTBUILDER_CID },
@@ -221,7 +205,6 @@ static const mozilla::Module::ContractIDEntry kWidgetContracts[] = {
 #endif
   { "@mozilla.org/widget/dragservice;1", &kNS_DRAGSERVICE_CID },
   { "@mozilla.org/widget/bidikeyboard;1", &kNS_BIDIKEYBOARD_CID },
-#endif
 #ifdef NS_PRINTING
   { "@mozilla.org/gfx/printsettings-service;1", &kNS_PRINTSETTINGSSERVICE_CID },
   { "@mozilla.org/gfx/printerenumerator;1", &kNS_PRINTER_ENUMERATOR_CID },
@@ -231,6 +214,14 @@ static const mozilla::Module::ContractIDEntry kWidgetContracts[] = {
   { NULL }
 };
 
+static void
+nsWidgetWindowsModuleDtor()
+{
+  nsLookAndFeel::Shutdown();
+  nsToolkit::Shutdown();
+  nsAppShellShutdown();
+}
+
 static const mozilla::Module kWidgetModule = {
   mozilla::Module::kVersion,
   kWidgetCIDs,
@@ -238,7 +229,7 @@ static const mozilla::Module kWidgetModule = {
   NULL,
   NULL,
   nsAppShellInit,
-  nsAppShellShutdown
+  nsWidgetWindowsModuleDtor
 };
 
 NSMODULE_DEFN(nsWidgetModule) = &kWidgetModule;

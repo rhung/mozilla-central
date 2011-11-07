@@ -53,11 +53,7 @@
 #include "nsDirectoryServiceDefs.h"
 #include "nsILocalFile.h"
 
-#ifdef XP_MAC
-extern "C" void GC_gcollect(void);
-#else
 static void GC_gcollect() {}
-#endif
 
 NS_IMPL_ISUPPORTS1(nsAboutBloat, nsIAboutModule)
 
@@ -71,8 +67,8 @@ nsAboutBloat::NewChannel(nsIURI *aURI, nsIChannel **result)
     if (NS_FAILED(rv)) return rv;
 
     nsTraceRefcntImpl::StatisticsType statType = nsTraceRefcntImpl::ALL_STATS;
-    PRBool clear = PR_FALSE;
-    PRBool leaks = PR_FALSE;
+    bool clear = false;
+    bool leaks = false;
 
     PRInt32 pos = path.Find("?");
     if (pos > 0) {
@@ -81,9 +77,9 @@ nsAboutBloat::NewChannel(nsIURI *aURI, nsIChannel **result)
         if (param.EqualsLiteral("new"))
             statType = nsTraceRefcntImpl::NEW_STATS;
         else if (param.EqualsLiteral("clear"))
-            clear = PR_TRUE;
+            clear = true;
         else if (param.EqualsLiteral("leaks"))
-            leaks = PR_TRUE;
+            leaks = true;
     }
 
     nsCOMPtr<nsIInputStream> inStr;
@@ -111,7 +107,7 @@ nsAboutBloat::NewChannel(nsIURI *aURI, nsIChannel **result)
         rv = file->AppendNative(NS_LITERAL_CSTRING("bloatlogs"));
         if (NS_FAILED(rv)) return rv;
 
-        PRBool exists;
+        bool exists;
         rv = file->Exists(&exists);
         if (NS_FAILED(rv)) return rv;
 

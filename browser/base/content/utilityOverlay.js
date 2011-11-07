@@ -23,6 +23,7 @@
 #   Alec Flett <alecf@netscape.com>
 #   Ehsan Akhgari <ehsan.akhgari@gmail.com>
 #   Gavin Sharp <gavin@gavinsharp.com>
+#   Dão Gottwald <dao@design-noir.de>
 #
 # Alternatively, the contents of this file may be used under the terms of
 # either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -196,6 +197,10 @@ function openLinkIn(url, where, params) {
   var aCharset              = params.charset;
   var aReferrerURI          = params.referrerURI;
   var aRelatedToCurrent     = params.relatedToCurrent;
+  var aInBackground         = params.inBackground;
+  var aDisallowInheritPrincipal = params.disallowInheritPrincipal;
+  // Currently, this parameter works only for where=="tab" or "current"
+  var aIsUTF8               = params.isUTF8;
 
   if (where == "save") {
     saveURL(url, null, null, true, null, aReferrerURI);
@@ -241,9 +246,12 @@ function openLinkIn(url, where, params) {
     return;
   }
 
-  var loadInBackground = aFromChrome ?
+  let loadInBackground = aInBackground;
+  if (loadInBackground == null) {
+    loadInBackground = aFromChrome ?
                          getBoolPref("browser.tabs.loadBookmarksInBackground") :
                          getBoolPref("browser.tabs.loadInBackground");
+  }
 
   if (where == "current" && w.gBrowser.selectedTab.pinned) {
     try {
@@ -261,7 +269,14 @@ function openLinkIn(url, where, params) {
 
   switch (where) {
   case "current":
-    w.loadURI(url, aReferrerURI, aPostData, aAllowThirdPartyFixup);
+    let flags = Ci.nsIWebNavigation.LOAD_FLAGS_NONE;
+    if (aAllowThirdPartyFixup)
+      flags |= Ci.nsIWebNavigation.LOAD_FLAGS_ALLOW_THIRD_PARTY_FIXUP;
+    if (aDisallowInheritPrincipal)
+      flags |= Ci.nsIWebNavigation.LOAD_FLAGS_DISALLOW_INHERIT_OWNER;
+    if (aIsUTF8)
+      flags |= Ci.nsIWebNavigation.LOAD_FLAGS_URI_IS_UTF8;
+    w.gBrowser.loadURIWithFlags(url, flags, aReferrerURI, null, aPostData);
     break;
   case "tabshifted":
     loadInBackground = !loadInBackground;
@@ -274,7 +289,8 @@ function openLinkIn(url, where, params) {
                        postData: aPostData,
                        inBackground: loadInBackground,
                        allowThirdPartyFixup: aAllowThirdPartyFixup,
-                       relatedToCurrent: aRelatedToCurrent});
+                       relatedToCurrent: aRelatedToCurrent,
+                       isUTF8: aIsUTF8});
     break;
   }
 
@@ -418,10 +434,12 @@ function openAboutDialog() {
     return;
   }
 
-#ifdef XP_MACOSX
+#ifdef XP_WIN
+  var features = "chrome,centerscreen,dependent";
+#elifdef XP_MACOSX
   var features = "chrome,resizable=no,minimizable=no";
 #else
-  var features = "chrome,centerscreen,dependent";
+  var features = "chrome,centerscreen,dependent,dialog=no";
 #endif
   window.openDialog("chrome://browser/content/aboutDialog.xul", "", features);
 }
@@ -614,4 +632,11 @@ function openPrefsHelp() {
 
   var helpTopic = document.getElementsByTagName("prefwindow")[0].currentPane.helpTopic;
   openHelpLink(helpTopic, !instantApply);
+}
+
+function trimURL(aURL) {
+  return aURL /* remove single trailing slash for http/https/ftp URLs */
+             .replace(/^((?:http|https|ftp):\/\/[^/]+)\/$/, "$1")
+              /* remove http:// unless the host starts with "ftp." or contains "@" */
+             .replace(/^http:\/\/((?!ftp\.)[^\/@]+(?:\/|$))/, "$1");
 }
