@@ -3,3 +3,5 @@
 *.pyc
 configure
 js/src/configure
+ff-dbg/
+obj-i686-pc-mingw32/
