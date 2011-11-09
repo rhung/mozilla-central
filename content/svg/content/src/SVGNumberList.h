@@ -68,7 +68,7 @@ public:
   /// This may return an incomplete string on OOM, but that's acceptable.
   void GetValueAsString(nsAString& aValue) const;
 
-  PRBool IsEmpty() const {
+  bool IsEmpty() const {
     return mNumbers.IsEmpty();
   }
 
@@ -80,11 +80,11 @@ public:
     return mNumbers[aIndex];
   }
 
-  PRBool operator==(const SVGNumberList& rhs) const {
+  bool operator==(const SVGNumberList& rhs) const {
     return mNumbers == rhs.mNumbers;
   }
 
-  PRBool SetCapacity(PRUint32 size) {
+  bool SetCapacity(PRUint32 size) {
     return mNumbers.SetCapacity(size);
   }
 
@@ -112,10 +112,10 @@ protected:
   }
 
   /**
-   * This may fail (return PR_FALSE) on OOM if the internal capacity is being
+   * This may fail (return false) on OOM if the internal capacity is being
    * increased, in which case the list will be left unmodified.
    */
-  PRBool SetLength(PRUint32 aNumberOfItems) {
+  bool SetLength(PRUint32 aNumberOfItems) {
     return mNumbers.SetLength(aNumberOfItems);
   }
 
@@ -131,7 +131,7 @@ private:
     mNumbers.Clear();
   }
 
-  PRBool InsertItem(PRUint32 aIndex, const float &aNumber) {
+  bool InsertItem(PRUint32 aIndex, const float &aNumber) {
     if (aIndex >= mNumbers.Length()) {
       aIndex = mNumbers.Length();
     }
@@ -150,7 +150,7 @@ private:
     mNumbers.RemoveElementAt(aIndex);
   }
 
-  PRBool AppendItem(float aNumber) {
+  bool AppendItem(float aNumber) {
     return !!mNumbers.AppendElement(aNumber);
   }
 
@@ -179,15 +179,16 @@ public:
   {}
 
   SVGNumberListAndInfo(nsSVGElement *aElement)
-    : mElement(aElement)
+    : mElement(do_GetWeakReference(static_cast<nsINode*>(aElement)))
   {}
 
   void SetInfo(nsSVGElement *aElement) {
-    mElement = aElement;
+    mElement = do_GetWeakReference(static_cast<nsINode*>(aElement));
   }
 
   nsSVGElement* Element() const {
-    return mElement; // .get();
+    nsCOMPtr<nsIContent> e = do_QueryReferent(mElement);
+    return static_cast<nsSVGElement*>(e.get());
   }
 
   nsresult CopyFrom(const SVGNumberListAndInfo& rhs) {
@@ -213,15 +214,16 @@ public:
   float& operator[](PRUint32 aIndex) {
     return SVGNumberList::operator[](aIndex);
   }
-  PRBool SetLength(PRUint32 aNumberOfItems) {
+  bool SetLength(PRUint32 aNumberOfItems) {
     return SVGNumberList::SetLength(aNumberOfItems);
   }
 
 private:
-  // We must keep a strong reference to our element because we may belong to a
+  // We must keep a weak reference to our element because we may belong to a
   // cached baseVal nsSMILValue. See the comments starting at:
   // https://bugzilla.mozilla.org/show_bug.cgi?id=515116#c15
-  nsRefPtr<nsSVGElement> mElement;
+  // See also https://bugzilla.mozilla.org/show_bug.cgi?id=653497
+  nsWeakPtr mElement;
 };
 
 } // namespace mozilla

@@ -47,31 +47,26 @@
 #include "nsPIPlacesHistoryListenersNotifier.h"
 #include "nsIBrowserHistory.h"
 #include "nsIGlobalHistory.h"
-#include "nsIGlobalHistory3.h"
 #include "nsIDownloadHistory.h"
+#include "nsINavBookmarksService.h"
+#include "nsIPrivateBrowsingService.h"
+#include "nsIFaviconService.h"
 
-#include "nsIPrefService.h"
-#include "nsIPrefBranch2.h"
 #include "nsIObserverService.h"
 #include "nsICollation.h"
 #include "nsIStringBundle.h"
 #include "nsITimer.h"
 #include "nsMaybeWeakPtr.h"
 #include "nsCategoryCache.h"
-#include "nsICharsetResolver.h"
 #include "nsNetCID.h"
 #include "nsToolkitCompsCID.h"
 #include "nsThreadUtils.h"
 #include "nsURIHashKey.h"
 #include "nsTHashtable.h"
 
-#include "nsINavBookmarksService.h"
-#include "nsIPrivateBrowsingService.h"
-#include "nsIFaviconService.h"
 #include "nsNavHistoryResult.h"
 #include "nsNavHistoryQuery.h"
-
-#include "mozilla/storage.h"
+#include "Database.h"
 
 #define QUERYUPDATE_TIME 0
 #define QUERYUPDATE_SIMPLE 1
@@ -81,7 +76,7 @@
 
 // This magic number specified an uninitialized value for the
 // mInPrivateBrowsing member
-#define PRIVATEBROWSING_NOTINITED (PRBool(0xffffffff))
+#define PRIVATEBROWSING_NOTINITED (bool(0xffffffff))
 
 // Clamp title and URL to generously large, but not too large, length.
 // See bug 319004 for details.
@@ -100,66 +95,8 @@
 // Fired after frecency has been updated.
 #define TOPIC_FRECENCY_UPDATED "places-frecency-updated"
 
-// Fired after frecency has been updated.
-#define TOPIC_FRECENCY_UPDATED "places-frecency-updated"
-
-// Fired when Places is shutting down.  Any code should stop accessing Places
-// APIs after this notification.  If you need to listen for Places shutdown
-// you should only use this notification, next ones are intended only for
-// internal Places use.
-#define TOPIC_PLACES_SHUTDOWN "places-shutdown"
-// For Internal use only.  Fired when connection is about to be closed, only
-// cleanup tasks should run at this stage, nothing should be added to the
-// database, nor APIs should be called.
-#define TOPIC_PLACES_WILL_CLOSE_CONNECTION "places-will-close-connection"
-// For Internal use only. Fired as the last notification before the connection
-// is gone.
-#define TOPIC_PLACES_CONNECTION_CLOSING "places-connection-closing"
-// Fired when the connection has gone, nothing will work from now on.
-#define TOPIC_PLACES_CONNECTION_CLOSED "places-connection-closed"
-
-// Fired when Places found a locked database while initing.
-#define TOPIC_DATABASE_LOCKED "places-database-locked"
-// Fired after Places inited.
-#define TOPIC_PLACES_INIT_COMPLETE "places-init-complete"
-
-namespace mozilla {
-namespace places {
-
-  enum HistoryStatementId {
-    DB_GET_PAGE_INFO_BY_URL = 0
-  , DB_GET_TAGS
-  , DB_IS_PAGE_VISITED
-  , DB_INSERT_VISIT
-  , DB_RECENT_VISIT_OF_URL
-  , DB_GET_PAGE_VISIT_STATS
-  , DB_UPDATE_PAGE_VISIT_STATS
-  , DB_ADD_NEW_PAGE
-  , DB_GET_URL_PAGE_INFO
-  , DB_SET_PLACE_TITLE
-  , DB_PAGE_INFO_FOR_FRECENCY
-  , DB_VISITS_FOR_FRECENCY
-  };
-
-  enum JournalMode {
-    // Default SQLite journal mode.
-    JOURNAL_DELETE = 0
-    // Can reduce fsyncs on Linux when journal is deleted (See bug 460315).
-    // We fallback to this mode when WAL is unavailable.
-  , JOURNAL_TRUNCATE
-    // Unsafe in case of crashes on database swap or low memory.
-  , JOURNAL_MEMORY
-    // Can reduce number of fsyncs.  We try to use this mode by default.
-  , JOURNAL_WAL
-  };
-
-} // namespace places
-} // namespace mozilla
-
-
 class mozIAnnotationService;
 class nsNavHistory;
-class nsNavBookmarks;
 class QueryKeyValuePair;
 class nsIEffectiveTLDService;
 class nsIIDNService;
@@ -172,9 +109,7 @@ class nsNavHistory : public nsSupportsWeakReference
                    , public nsINavHistoryService
                    , public nsIObserver
                    , public nsIBrowserHistory
-                   , public nsIGlobalHistory3
                    , public nsIDownloadHistory
-                   , public nsICharsetResolver
                    , public nsPIPlacesDatabase
                    , public nsPIPlacesHistoryListenersNotifier
                    , public mozIStorageVacuumParticipant
@@ -185,10 +120,8 @@ public:
   nsNavHistory();
 
   NS_DECL_ISUPPORTS
-
   NS_DECL_NSINAVHISTORYSERVICE
   NS_DECL_NSIGLOBALHISTORY2
-  NS_DECL_NSIGLOBALHISTORY3
   NS_DECL_NSIDOWNLOADHISTORY
   NS_DECL_NSIBROWSERHISTORY
   NS_DECL_NSIOBSERVER
@@ -196,11 +129,10 @@ public:
   NS_DECL_NSPIPLACESHISTORYLISTENERSNOTIFIER
   NS_DECL_MOZISTORAGEVACUUMPARTICIPANT
 
-
   /**
    * Obtains the nsNavHistory object.
    */
-  static nsNavHistory *GetSingleton();
+  static nsNavHistory* GetSingleton();
 
   /**
    * Initializes the nsNavHistory object.  This should only be called once.
@@ -212,7 +144,7 @@ public:
    * service to get a reference to this history object. Returns a pointer to
    * the service if it exists. Otherwise creates one. Returns NULL on error.
    */
-  static nsNavHistory *GetHistoryService()
+  static nsNavHistory* GetHistoryService()
   {
     if (!gHistoryService) {
       nsCOMPtr<nsINavHistoryService> serv =
@@ -237,38 +169,64 @@ public:
   }
 
   /**
-   * Returns the database ID for the given URI, or 0 if not found and autoCreate
-   * is false.
+   * Fetches the database id and the GUID associated to the given URI.
+   *
+   * @param aURI
+   *        The page to look for.
+   * @param _pageId
+   *        Will be set to the database id associated with the page.
+   *        If the page doesn't exist, this will be zero.
+   * @param _GUID
+   *        Will be set to the unique id associated with the page.
+   *        If the page doesn't exist, this will be empty.
+   * @note This DOES NOT check for bad URLs other than that they're nonempty.
    */
-  nsresult GetUrlIdFor(nsIURI* aURI, PRInt64* aEntryID,
-                       PRBool aAutoCreate);
+  nsresult GetIdForPage(nsIURI* aURI,
+                        PRInt64* _pageId, nsCString& _GUID);
 
+  /**
+   * Fetches the database id and the GUID associated to the given URI, creating
+   * a new database entry if one doesn't exist yet.
+   *
+   * @param aURI
+   *        The page to look for or create.
+   * @param _pageId
+   *        Will be set to the database id associated with the page.
+   * @param _GUID
+   *        Will be set to the unique id associated with the page.
+   * @note This DOES NOT check for bad URLs other than that they're nonempty.
+   */
+  nsresult GetOrCreateIdForPage(nsIURI* aURI,
+                                PRInt64* _pageId, nsCString& _GUID);
+
+  /**
+   * Asynchronously recalculates frecency for a given page.
+   *
+   * @param aPlaceId
+   *        Place id to recalculate the frecency for.
+   * @note If the new frecency is a non-zero value it will also unhide the page,
+   *       otherwise will reuse the old hidden value.
+   */
   nsresult UpdateFrecency(PRInt64 aPlaceId);
 
   /**
-   * Calculate frecencies for places that don't have a valid value yet
+   * Recalculates frecency for all pages requesting that (frecency < 0). Those
+   * may be generated:
+   *  * After a "clear private data"
+   *  * After removing visits
+   *  * After migrating from older versions
    */
   nsresult FixInvalidFrecencies();
 
   /**
-   * Set the frecencies of excluded places so they don't show up in queries
-   */
-  nsresult FixInvalidFrecenciesForExcludedPlaces();
-
-  /**
-   * Returns a pointer to the storage connection used by history. This
-   * connection object is also used by the annotation service and bookmarks, so
-   * that things can be grouped into transactions across these components.
+   * Invalidate the frecencies of a list of places, so they will be recalculated
+   * at the first idle-daily notification.
    *
-   * NOT ADDREFed.
-   *
-   * This connection can only be used in the thread that created it the
-   * history service!
+   * @param aPlacesIdsQueryString
+   *        Query string containing list of places to be invalidated.  If it's
+   *        an empty string all places will be invalidated.
    */
-  mozIStorageConnection* GetStorageConnection()
-  {
-    return mDBConn;
-  }
+  nsresult invalidateFrecencies(const nsCString& aPlaceIdsQueryString);
 
   /**
    * These functions return non-owning references to the locale-specific
@@ -281,9 +239,10 @@ public:
   void GetAgeInDaysString(PRInt32 aInt, const PRUnichar *aName,
                           nsACString& aResult);
   void GetMonthName(PRInt32 aIndex, nsACString& aResult);
+  void GetMonthYear(PRInt32 aMonth, PRInt32 aYear, nsACString& aResult);
 
   // Returns whether history is enabled or not.
-  PRBool IsHistoryDisabled() {
+  bool IsHistoryDisabled() {
     return !mHistoryEnabled || InPrivateBrowsingMode();
   }
 
@@ -293,21 +252,17 @@ public:
   static const PRInt32 kGetInfoIndex_Title;
   static const PRInt32 kGetInfoIndex_RevHost;
   static const PRInt32 kGetInfoIndex_VisitCount;
+  static const PRInt32 kGetInfoIndex_VisitDate;
+  static const PRInt32 kGetInfoIndex_FaviconURL;
+  static const PRInt32 kGetInfoIndex_SessionId;
   static const PRInt32 kGetInfoIndex_ItemId;
   static const PRInt32 kGetInfoIndex_ItemDateAdded;
   static const PRInt32 kGetInfoIndex_ItemLastModified;
-  static const PRInt32 kGetInfoIndex_ItemTags;
   static const PRInt32 kGetInfoIndex_ItemParentId;
+  static const PRInt32 kGetInfoIndex_ItemTags;
+  static const PRInt32 kGetInfoIndex_Frecency;
 
   PRInt64 GetTagsFolder();
-
-  // Constants for the columns returned by the above statement
-  // (in addition to the ones above).
-  static const PRInt32 kGetInfoIndex_VisitDate;
-  static const PRInt32 kGetInfoIndex_FaviconURL;
-
-  // used in execute queries to get session ID info (only for visits)
-  static const PRInt32 kGetInfoIndex_SessionId;
 
   // this actually executes a query and gives you results, it is used by
   // nsNavHistoryQueryResultNode
@@ -334,11 +289,15 @@ public:
   nsresult BookmarkIdToResultNode(PRInt64 aBookmarkId,
                                   nsNavHistoryQueryOptions* aOptions,
                                   nsNavHistoryResultNode** aResult);
+  nsresult URIToResultNode(nsIURI* aURI,
+                           nsNavHistoryQueryOptions* aOptions,
+                           nsNavHistoryResultNode** aResult);
 
   // used by other places components to send history notifications (for example,
   // when the favicon has changed)
-  void SendPageChangedNotification(nsIURI* aURI, PRUint32 aWhat,
-                                   const nsAString& aValue);
+  void SendPageChangedNotification(nsIURI* aURI, PRUint32 aChangedAttribute,
+                                   const nsAString& aValue,
+                                   const nsACString& aGUID);
 
   /**
    * Returns current number of days stored in history.
@@ -348,8 +307,8 @@ public:
   // used by query result nodes to update: see comment on body of CanLiveUpdateQuery
   static PRUint32 GetUpdateRequirements(const nsCOMArray<nsNavHistoryQuery>& aQueries,
                                         nsNavHistoryQueryOptions* aOptions,
-                                        PRBool* aHasSearchTerms);
-  PRBool EvaluateQueryForNode(const nsCOMArray<nsNavHistoryQuery>& aQueries,
+                                        bool* aHasSearchTerms);
+  bool EvaluateQueryForNode(const nsCOMArray<nsNavHistoryQuery>& aQueries,
                               nsNavHistoryQueryOptions* aOptions,
                               nsNavHistoryResultNode* aNode);
 
@@ -374,27 +333,11 @@ public:
                                    nsCOMArray<nsNavHistoryQuery>* aQueries,
                                    nsNavHistoryQueryOptions** aOptions);
 
-  // Import-friendly version of AddVisit.
-  // This method adds a page to history along with a single last visit.
-  // aLastVisitDate can be -1 if there is no last visit date to record.
-  //
-  // This is only for use by the import of history.dat on first-run of Places,
-  // which currently occurs if no places.sqlite file previously exists.
-  nsresult AddPageWithVisits(nsIURI *aURI,
-                             const nsString &aTitle,
-                             PRInt32 aVisitCount,
-                             PRInt32 aTransitionType,
-                             PRTime aFirstVisitDate,
-                             PRTime aLastVisitDate);
-
-  // sets the schema version in the database to match SCHEMA_VERSION
-  nsresult UpdateSchemaVersion();
-
   // Returns true if we are currently in private browsing mode
-  PRBool InPrivateBrowsingMode()
+  bool InPrivateBrowsingMode()
   {
     if (mInPrivateBrowsing == PRIVATEBROWSING_NOTINITED) {
-      mInPrivateBrowsing = PR_FALSE;
+      mInPrivateBrowsing = false;
       nsCOMPtr<nsIPrivateBrowsingService> pbs =
         do_GetService(NS_PRIVATE_BROWSING_SERVICE_CONTRACTID);
       if (pbs) {
@@ -406,19 +349,6 @@ public:
   }
 
   typedef nsDataHashtable<nsCStringHashKey, nsCString> StringHash;
-
-  /**
-   * Helper method to finalize a statement
-   */
-  static nsresult
-  FinalizeStatement(mozIStorageStatement *aStatement) {
-    nsresult rv;
-    if (aStatement) {
-      rv = aStatement->Finalize();
-      NS_ENSURE_SUCCESS(rv, rv);
-    }
-    return NS_OK;
-  }
 
   /**
    * Indicates if it is OK to notify history observers or not.
@@ -463,62 +393,6 @@ public:
    * Clears all registered embed visits.
    */
   void clearEmbedVisits();
-
-  mozIStorageStatement* GetStatementById(
-    enum mozilla::places::HistoryStatementId aStatementId
-  )
-  {
-    using namespace mozilla::places;
-
-    NS_ASSERTION(NS_IsMainThread(), "Can only get statement on main thread");
-
-    switch(aStatementId) {
-      case DB_GET_PAGE_INFO_BY_URL:
-        return GetStatement(mDBGetURLPageInfo);
-      case DB_GET_TAGS:
-        return GetStatement(mDBGetTags);
-      case DB_IS_PAGE_VISITED:
-        return GetStatement(mDBIsPageVisited);
-      case DB_INSERT_VISIT:
-        return GetStatement(mDBInsertVisit);
-      case DB_RECENT_VISIT_OF_URL:
-        return GetStatement(mDBRecentVisitOfURL);
-      case DB_GET_PAGE_VISIT_STATS:
-        return GetStatement(mDBGetPageVisitStats);
-      case DB_UPDATE_PAGE_VISIT_STATS:
-        return GetStatement(mDBUpdatePageVisitStats);
-      case DB_ADD_NEW_PAGE:
-        return GetStatement(mDBAddNewPage);
-      case DB_GET_URL_PAGE_INFO:
-        return GetStatement(mDBGetURLPageInfo);
-      case DB_SET_PLACE_TITLE:
-        return GetStatement(mDBSetPlaceTitle);
-      case DB_PAGE_INFO_FOR_FRECENCY:
-        return GetStatement(mDBPageInfoForFrecency);
-      case DB_VISITS_FOR_FRECENCY:
-        return GetStatement(mDBVisitsForFrecency);
-    }
-    return nsnull;
-  }
-
-  mozIStorageStatement* GetStatementByStoragePool(
-    enum mozilla::places::HistoryStatementId aStatementId
-  ) const
-  {
-    using namespace mozilla::places;
-
-    switch(aStatementId) {
-      case DB_PAGE_INFO_FOR_FRECENCY:
-        return NS_IsMainThread() ? mDBPageInfoForFrecency
-                                 : mDBAsyncThreadPageInfoForFrecency;
-      case DB_VISITS_FOR_FRECENCY:
-        return NS_IsMainThread() ? mDBVisitsForFrecency
-                                 : mDBAsyncThreadVisitsForFrecency;
-      default:
-        NS_NOTREACHED("Trying to handle an unknown statement");
-    }
-    return nsnull;
-  }
 
   PRInt32 GetFrecencyAgedWeight(PRInt32 aAgeInDays) const
   {
@@ -580,6 +454,11 @@ public:
     }
   }
 
+  PRInt32 GetNumVisitsForFrecency() const
+  {
+    return mNumVisitsForFrecency;
+  }
+
   PRInt64 GetNewSessionID();
 
   /**
@@ -590,12 +469,15 @@ public:
                      PRTime aTime,
                      PRInt64 aSessionID,
                      PRInt64 referringVisitID,
-                     PRInt32 aTransitionType);
+                     PRInt32 aTransitionType,
+                     const nsACString& aGUID);
 
   /**
    * Fires onTitleChanged event to nsINavHistoryService observers
    */
-  void NotifyTitleChange(nsIURI* aURI, const nsString& title);
+  void NotifyTitleChange(nsIURI* aURI,
+                         const nsString& title,
+                         const nsACString& aGUID);
 
   bool isBatching() {
     return mBatchLevel > 0;
@@ -609,140 +491,39 @@ private:
 
 protected:
 
-  nsCOMPtr<nsIPrefBranch2> mPrefBranch; // MAY BE NULL when we are shutting down
-
-  nsDataHashtable<nsStringHashKey, int> gExpandedItems;
-
-  //
-  // Database stuff
-  //
-  nsCOMPtr<mozIStorageService> mDBService;
-  nsCOMPtr<mozIStorageConnection> mDBConn;
-  nsCOMPtr<nsIFile> mDBFile;
-  PRInt32 mDBPageSize;
-
-
-  /**
-   * Always use this getter and never use directly the statement nsCOMPtr.
-   */
-  mozIStorageStatement* GetStatement(const nsCOMPtr<mozIStorageStatement>& aStmt);
-
-  // These are mutable because GetStatementById needs to be const, but these are
-  // lazy inited.
-  nsCOMPtr<mozIStorageStatement> mDBGetURLPageInfo;   // kGetInfoIndex_* results
-  nsCOMPtr<mozIStorageStatement> mDBGetIdPageInfo;     // kGetInfoIndex_* results
-  nsCOMPtr<mozIStorageStatement> mDBRecentVisitOfURL; // converts URL into most recent visit ID/session ID
-  nsCOMPtr<mozIStorageStatement> mDBRecentVisitOfPlace; // converts placeID into most recent visit ID/session ID
-  nsCOMPtr<mozIStorageStatement> mDBInsertVisit; // used by AddVisit
-  nsCOMPtr<mozIStorageStatement> mDBGetPageVisitStats; // used by AddVisit
-  nsCOMPtr<mozIStorageStatement> mDBIsPageVisited; // used by IsURIStringVisited
-  nsCOMPtr<mozIStorageStatement> mDBUpdatePageVisitStats; // used by AddVisit
-  nsCOMPtr<mozIStorageStatement> mDBAddNewPage; // used by InternalAddNewPage
-  nsCOMPtr<mozIStorageStatement> mDBGetTags; // used by GetTags
-  nsCOMPtr<mozIStorageStatement> mDBGetItemsWithAnno; // used by AutoComplete::StartSearch and FilterResultSet
-  nsCOMPtr<mozIStorageStatement> mDBSetPlaceTitle; // used by SetPageTitleInternal
-  nsCOMPtr<mozIStorageStatement> mDBVisitToURLResult; // kGetInfoIndex_* results
-  nsCOMPtr<mozIStorageStatement> mDBVisitToVisitResult; // kGetInfoIndex_* results
-  nsCOMPtr<mozIStorageStatement> mDBBookmarkToUrlResult; // kGetInfoIndex_* results
-  nsCOMPtr<mozIStorageStatement> mDBUpdateFrecency;
-  nsCOMPtr<mozIStorageStatement> mDBUpdateHiddenOnFrecency;
-  nsCOMPtr<mozIStorageStatement> mDBGetPlaceVisitStats;
-  // Cached statements used in frecency calculation.  Since it could happen on
-  // both main thread or storage async thread, we keep two versions of them
-  // for thread-safety.
-  mutable nsCOMPtr<mozIStorageStatement> mDBVisitsForFrecency;
-  mutable nsCOMPtr<mozIStorageStatement> mDBPageInfoForFrecency;
-  mutable nsCOMPtr<mozIStorageStatement> mDBAsyncThreadVisitsForFrecency;
-  mutable nsCOMPtr<mozIStorageStatement> mDBAsyncThreadPageInfoForFrecency;
-#ifdef MOZ_XUL
-  // AutoComplete stuff
-  nsCOMPtr<mozIStorageStatement> mDBFeedbackIncrease;
-#endif
-
-  /**
-   * Finalize all internal statements.
-   */
-  nsresult FinalizeStatements();
+  // Database handle.
+  nsRefPtr<mozilla::places::Database> mDB;
 
   /**
    * Decays frecency and inputhistory values.  Runs on idle-daily.
    */
   nsresult DecayFrecency();
 
-  /**
-   * Finalizes all Places internal statements, allowing to safely close the
-   * database connection.
-   */
-  nsresult FinalizeInternalStatements();
-
-  // nsICharsetResolver
-  NS_DECL_NSICHARSETRESOLVER
-
   nsresult CalculateFrecency(PRInt64 aPageID, PRInt32 aTyped, PRInt32 aVisitCount, nsCAutoString &aURL, PRInt32 *aFrecency);
-  nsresult CalculateFrecencyInternal(PRInt64 aPageID, PRInt32 aTyped, PRInt32 aVisitCount, PRBool aIsBookmarked, PRInt32 *aFrecency);
-
-  /**
-   * Initializes the database file.  If the database does not exist, was
-   * corrupted, or aForceInit is true, we recreate the database.  We also backup
-   * the database if it was corrupted or aForceInit is true.
-   *
-   * @param aForceInit
-   *        Indicates if we should close an open database connection or not.
-   *        Note: A valid database connection must be opened if this is true.
-   */
-  nsresult InitDBFile(PRBool aForceInit);
-
-  /**
-   * Set journal mode on the database.
-   */
-  nsresult SetJournalMode(enum mozilla::places::JournalMode aJournalMode);
-  enum mozilla::places::JournalMode mCurrentJournalMode;
-
-  /**
-   * Initializes the database.  This performs any necessary migrations for the
-   * database.  All migration is done inside a transaction that is rolled back
-   * if any error occurs.  Upon initialization, history is imported, and some
-   * preferences that are used are set.
-   */
-  nsresult InitDB();
-
-  /**
-   * Initializes additional database items like functions, triggers, and
-   * statements.
-   */
-  nsresult InitAdditionalDBItems();
-  nsresult InitFunctions();
-  nsresult InitTriggers();
-  nsresult CheckAndUpdateGUIDs();
-  nsresult MigrateV7Up(mozIStorageConnection *aDBConn);
-  nsresult MigrateV8Up(mozIStorageConnection *aDBConn);
-  nsresult MigrateV9Up(mozIStorageConnection *aDBConn);
-  nsresult MigrateV10Up(mozIStorageConnection *aDBConn);
-  nsresult MigrateV11Up(mozIStorageConnection *aDBConn);
+  nsresult CalculateFrecencyInternal(PRInt64 aPageID, PRInt32 aTyped, PRInt32 aVisitCount, bool aIsBookmarked, PRInt32 *aFrecency);
 
   nsresult RemovePagesInternal(const nsCString& aPlaceIdsQueryString);
-  nsresult PreparePlacesForVisitsDelete(const nsCString& aPlaceIdsQueryString);
   nsresult CleanupPlacesOnVisitsDelete(const nsCString& aPlaceIdsQueryString);
 
-  nsresult AddURIInternal(nsIURI* aURI, PRTime aTime, PRBool aRedirect,
-                          PRBool aToplevel, nsIURI* aReferrer);
+  nsresult AddURIInternal(nsIURI* aURI, PRTime aTime, bool aRedirect,
+                          bool aToplevel, nsIURI* aReferrer);
 
   nsresult AddVisitChain(nsIURI* aURI, PRTime aTime,
-                         PRBool aToplevel, PRBool aRedirect,
+                         bool aToplevel, bool aRedirect,
                          nsIURI* aReferrer, PRInt64* aVisitID,
                          PRInt64* aSessionID);
   nsresult InternalAddNewPage(nsIURI* aURI, const nsAString& aTitle,
-                              PRBool aHidden, PRBool aTyped,
-                              PRInt32 aVisitCount, PRBool aCalculateFrecency,
-                              PRInt64* aPageID);
+                              bool aHidden, bool aTyped,
+                              PRInt32 aVisitCount, bool aCalculateFrecency,
+                              PRInt64* aPageID, nsACString& guid);
   nsresult InternalAddVisit(PRInt64 aPageID, PRInt64 aReferringVisit,
                             PRInt64 aSessionID, PRTime aTime,
                             PRInt32 aTransitionType, PRInt64* aVisitID);
-  PRBool FindLastVisit(nsIURI* aURI,
+  bool FindLastVisit(nsIURI* aURI,
                        PRInt64* aVisitID,
                        PRTime* aTime,
                        PRInt64* aSessionID);
-  PRBool IsURIStringVisited(const nsACString& url);
+  bool IsURIStringVisited(const nsACString& url);
 
   /**
    * Loads all of the preferences that we use into member variables.
@@ -768,14 +549,14 @@ protected:
   nsresult ConstructQueryString(const nsCOMArray<nsNavHistoryQuery>& aQueries, 
                                 nsNavHistoryQueryOptions* aOptions,
                                 nsCString& queryString,
-                                PRBool& aParamsPresent,
+                                bool& aParamsPresent,
                                 StringHash& aAddParams);
 
   nsresult QueryToSelectClause(nsNavHistoryQuery* aQuery,
                                nsNavHistoryQueryOptions* aOptions,
                                PRInt32 aQueryIndex,
                                nsCString* aClause);
-  nsresult BindQueryClauseParameters(mozIStorageStatement* statement,
+  nsresult BindQueryClauseParameters(mozIStorageBaseStatement* statement,
                                      PRInt32 aQueryIndex,
                                      nsNavHistoryQuery* aQuery,
                                      nsNavHistoryQueryOptions* aOptions);
@@ -806,9 +587,6 @@ protected:
   nsCOMPtr<nsIStringBundle> mDateFormatBundle;
   nsCOMPtr<nsICollation> mCollation;
 
-  // annotation service : MAY BE NULL!
-  //nsCOMPtr<mozIAnnotationService> mAnnotationService;
-
   // recent events
   typedef nsDataHashtable<nsCStringHashKey, PRInt64> RecentEventHash;
   RecentEventHash mRecentTyped;
@@ -833,22 +611,9 @@ protected:
 
   nsTHashtable<VisitHashKey> mEmbedVisits;
 
-  PRBool CheckIsRecentEvent(RecentEventHash* hashTable,
+  bool CheckIsRecentEvent(RecentEventHash* hashTable,
                             const nsACString& url);
   void ExpireNonrecentEvents(RecentEventHash* hashTable);
-
-  // redirect tracking. See GetRedirectFor for a description of how this works.
-  struct RedirectInfo {
-    nsCString mSourceURI;
-    PRTime mTimeCreated;
-    PRUint32 mType; // one of TRANSITION_REDIRECT_[TEMPORARY,PERMANENT]
-  };
-  typedef nsDataHashtable<nsCStringHashKey, RedirectInfo> RedirectHash;
-  RedirectHash mRecentRedirects;
-  static PLDHashOperator ExpireNonrecentRedirects(
-      nsCStringHashKey::KeyType aKey, RedirectInfo& aData, void* aUserArg);
-  PRBool GetRedirectFor(const nsACString& aDestination, nsACString& aSource,
-                        PRTime* aTime, PRUint32* aRedirectType);
 
   // Sessions tracking.
   PRInt64 mLastSessionID;
@@ -860,7 +625,7 @@ protected:
 
   // Whether history is enabled or not.
   // Will mimic value of the places.history.enabled preference.
-  PRBool mHistoryEnabled;
+  bool mHistoryEnabled;
 
   // Frecency preferences.
   PRInt32 mNumVisitsForFrecency;
@@ -892,9 +657,7 @@ protected:
 
   PRInt64 mTagsFolder;
 
-  PRBool mInPrivateBrowsing;
-
-  PRUint16 mDatabaseStatus;
+  bool mInPrivateBrowsing;
 
   PRInt8 mHasHistoryEntries;
 
@@ -907,7 +670,7 @@ protected:
 #define PLACES_URI_PREFIX "place:"
 
 /* Returns true if the given URI represents a history query. */
-inline PRBool IsQueryURI(const nsCString &uri)
+inline bool IsQueryURI(const nsCString &uri)
 {
   return StringBeginsWith(uri, NS_LITERAL_CSTRING(PLACES_URI_PREFIX));
 }

@@ -62,8 +62,6 @@
 #include "prlog.h"
 #include "nsIAsyncVerifyRedirectCallback.h"
 
-static nsOfflineCacheUpdateService *gOfflineCacheUpdateService = nsnull;
-
 #if defined(PR_LOGGING)
 //
 // To enable logging (see prlog.h for full details):
@@ -110,8 +108,8 @@ OfflineCacheUpdateChild::RefcountHitZero()
 
 OfflineCacheUpdateChild::OfflineCacheUpdateChild(nsIDOMWindow* aWindow)
     : mState(STATE_UNINITIALIZED)
-    , mIsUpgrade(PR_FALSE)
-    , mIPCActivated(PR_FALSE)
+    , mIsUpgrade(false)
+    , mIPCActivated(false)
     , mWindow(aWindow)
 {
 }
@@ -162,7 +160,7 @@ OfflineCacheUpdateChild::SetDocument(nsIDOMDocument *aDocument)
     if (!appCacheChannel)
         return;
 
-    PRBool loadedFromAppCache;
+    bool loadedFromAppCache;
     appCacheChannel->GetLoadedFromApplicationCache(&loadedFromAppCache);
     if (loadedFromAppCache)
         return;
@@ -225,7 +223,7 @@ OfflineCacheUpdateChild::Init(nsIURI *aManifestURI,
     LOG(("OfflineCacheUpdateChild::Init [%p]", this));
 
     // Only http and https applications are supported.
-    PRBool match;
+    bool match;
     rv = aManifestURI->SchemeIs("http", &match);
     NS_ENSURE_SUCCESS(rv, rv);
 
@@ -290,9 +288,9 @@ OfflineCacheUpdateChild::GetStatus(PRUint16 *aStatus)
 }
 
 NS_IMETHODIMP
-OfflineCacheUpdateChild::GetPartial(PRBool *aPartial)
+OfflineCacheUpdateChild::GetPartial(bool *aPartial)
 {
-    *aPartial = PR_FALSE;
+    *aPartial = false;
     return NS_OK;
 }
 
@@ -306,7 +304,7 @@ OfflineCacheUpdateChild::GetManifestURI(nsIURI **aManifestURI)
 }
 
 NS_IMETHODIMP
-OfflineCacheUpdateChild::GetSucceeded(PRBool *aSucceeded)
+OfflineCacheUpdateChild::GetSucceeded(bool *aSucceeded)
 {
     NS_ENSURE_TRUE(mState == STATE_FINISHED, NS_ERROR_NOT_AVAILABLE);
 
@@ -316,7 +314,7 @@ OfflineCacheUpdateChild::GetSucceeded(PRBool *aSucceeded)
 }
 
 NS_IMETHODIMP
-OfflineCacheUpdateChild::GetIsUpgrade(PRBool *aIsUpgrade)
+OfflineCacheUpdateChild::GetIsUpgrade(bool *aIsUpgrade)
 {
     NS_ENSURE_TRUE(mState >= STATE_INITIALIZED, NS_ERROR_NOT_INITIALIZED);
 
@@ -333,7 +331,7 @@ OfflineCacheUpdateChild::AddDynamicURI(nsIURI *aURI)
 
 NS_IMETHODIMP
 OfflineCacheUpdateChild::AddObserver(nsIOfflineCacheUpdateObserver *aObserver,
-                                  PRBool aHoldWeak)
+                                  bool aHoldWeak)
 {
     LOG(("OfflineCacheUpdateChild::AddObserver [%p]", this));
 
@@ -434,7 +432,7 @@ OfflineCacheUpdateChild::Schedule()
                                               mClientID,
                                               stickDocument);
 
-    mIPCActivated = PR_TRUE;
+    mIPCActivated = true;
     this->AddRef();
 
     return NS_OK;

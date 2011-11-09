@@ -39,19 +39,13 @@
 #ifndef AsyncFaviconHelpers_h_
 #define AsyncFaviconHelpers_h_
 
-#include "nsCOMPtr.h"
-#include "nsCOMArray.h"
-#include "nsIURI.h"
-#include "nsThreadUtils.h"
-
-#include "nsFaviconService.h"
-#include "Helpers.h"
-
-#include "mozilla/storage.h"
-
+#include "nsIFaviconService.h"
 #include "nsIChannelEventSink.h"
 #include "nsIInterfaceRequestor.h"
 #include "nsIStreamListener.h"
+
+#include "Database.h"
+#include "mozilla/storage.h"
 
 #define ICON_STATUS_UNKNOWN 0
 #define ICON_STATUS_CHANGED 1 << 0
@@ -102,6 +96,7 @@ struct PageData
   , canAddToHistory(true)
   , iconId(0)
   {
+    guid.SetIsVoid(true);
   }
 
   PRInt64 id;
@@ -110,13 +105,30 @@ struct PageData
   nsString revHost;
   bool canAddToHistory; // False for disabled history and unsupported schemas.
   PRInt64 iconId;
+  nsCString guid;
+};
+
+/**
+ * Base class for events declared in this file.  This class's main purpose is
+ * to declare a destructor which releases mCallback on the main thread.
+ */
+class AsyncFaviconHelperBase : public nsRunnable
+{
+protected:
+  AsyncFaviconHelperBase(nsCOMPtr<nsIFaviconDataCallback>& aCallback);
+
+  virtual ~AsyncFaviconHelperBase();
+
+  nsRefPtr<Database> mDB;
+  // Strong reference since we are responsible for its existence.
+  nsCOMPtr<nsIFaviconDataCallback> mCallback;
 };
 
 /**
  * Async fetches icon from database or network, associates it with the required
  * page and finally notifies the change.
  */
-class AsyncFetchAndSetIconForPage : public nsRunnable
+class AsyncFetchAndSetIconForPage : public AsyncFaviconHelperBase
 {
 public:
   NS_DECL_NSIRUNNABLE
@@ -131,15 +143,12 @@ public:
    * @param aFetchMode
    *        Specifies whether a icon should be fetched from network if not found
    *        in the database.
-   * @param aDBConn
-   *        Database connection to use.
    * @param aCallback
-   *        Function to be called when the fetch and associate process finishes.
+   *        Function to be called when the fetch-and-associate process finishes.
    */
   static nsresult start(nsIURI* aFaviconURI,
                         nsIURI* aPageURI,
                         enum AsyncFaviconFetchMode aFetchMode,
-                        nsCOMPtr<mozIStorageConnection>& aDBConn,
                         nsIFaviconDataCallback* aCallback);
 
   /**
@@ -149,15 +158,11 @@ public:
    *        Icon to be fetched and associated.
    * @param aPage
    *        Page to which associate the icon.
-   * @param aDBConn
-   *        Database connection to use.
    * @param aCallback
-   *        Function to be called when the fetch and associate process finishes.
+   *        Function to be called when the fetch-and-associate process finishes.
    */
   AsyncFetchAndSetIconForPage(IconData& aIcon,
                               PageData& aPage,
-                              nsCOMPtr<mozIStorageConnection>& aDBConn,
-                              nsRefPtr<nsFaviconService>& aFaviconSvc,
                               nsCOMPtr<nsIFaviconDataCallback>& aCallback);
 
   virtual ~AsyncFetchAndSetIconForPage();
@@ -165,12 +170,6 @@ public:
 protected:
   IconData mIcon;
   PageData mPage;
-  nsCOMPtr<mozIStorageConnection>& mDBConn;
-  // Strong reference since we don't want it to disappear out from under us.
-  nsRefPtr<nsFaviconService> mFaviconSvc;
-  // Strong reference since we are responsible for its existence.
-  nsCOMPtr<nsIFaviconDataCallback> mCallback;
-
 };
 
 /**
@@ -178,7 +177,7 @@ protected:
  * finally dispatch an event to the async thread to associate the icon with
  * the required page.
  */
-class AsyncFetchAndSetIconFromNetwork : public nsRunnable
+class AsyncFetchAndSetIconFromNetwork : public AsyncFaviconHelperBase
                                       , public nsIStreamListener
                                       , public nsIInterfaceRequestor
                                       , public nsIChannelEventSink
@@ -198,15 +197,11 @@ public:
    *        Icon to be fetched and associated.
    * @param aPage
    *        Page to which associate the icon.
-   * @param aDBConn
-   *        Database connection to use.
    * @param aCallback
-   *        Function to be called when the fetch and associate process finishes.
+   *        Function to be called when the fetch-and-associate process finishes.
    */
   AsyncFetchAndSetIconFromNetwork(IconData& aIcon,
                                   PageData& aPage,
-                                  nsCOMPtr<mozIStorageConnection>& aDBConn,
-                                  nsRefPtr<nsFaviconService>& aFaviconSvc,
                                   nsCOMPtr<nsIFaviconDataCallback>& aCallback);
 
   virtual ~AsyncFetchAndSetIconFromNetwork();
@@ -214,11 +209,6 @@ public:
 protected:
   IconData mIcon;
   PageData mPage;
-  nsCOMPtr<mozIStorageConnection>& mDBConn;
-  // Strong reference since we don't want it to disappear out from under us.
-  nsRefPtr<nsFaviconService> mFaviconSvc;
-  // Strong reference since we are responsible for its existence.
-  nsCOMPtr<nsIFaviconDataCallback> mCallback;
   nsCOMPtr<nsIChannel> mChannel;
 };
 
@@ -226,7 +216,7 @@ protected:
  * Associates the icon to the required page, finally dispatches an event to the
  * main thread to notify the change to observers.
  */
-class AsyncAssociateIconToPage : public nsRunnable
+class AsyncAssociateIconToPage : public AsyncFaviconHelperBase
 {
 public:
   NS_DECL_NSIRUNNABLE
@@ -238,15 +228,11 @@ public:
    *        Icon to be associated.
    * @param aPage
    *        Page to which associate the icon.
-   * @param aDBConn
-   *        Database connection to use.
    * @param aCallback
-   *        Function to be called when the fetch and associate process finishes.
+   *        Function to be called when the associate process finishes.
    */
   AsyncAssociateIconToPage(IconData& aIcon,
                            PageData& aPage,
-                           nsCOMPtr<mozIStorageConnection>& aDBConn,
-                           nsRefPtr<nsFaviconService>& aFaviconSvc,
                            nsCOMPtr<nsIFaviconDataCallback>& aCallback);
 
   virtual ~AsyncAssociateIconToPage();
@@ -254,36 +240,99 @@ public:
 protected:
   IconData mIcon;
   PageData mPage;
-  nsCOMPtr<mozIStorageConnection>& mDBConn;
-  // Strong reference since we don't want it to disappear out from under us.
-  nsRefPtr<nsFaviconService> mFaviconSvc;
-  // Strong reference since we are responsible for its existence.
-  nsCOMPtr<nsIFaviconDataCallback> mCallback;
+};
+
+/**
+ * Asynchronously tries to get the URL of a page's favicon.  If this succeeds,
+ * notifies the given observer.
+ */
+class AsyncGetFaviconURLForPage : public AsyncFaviconHelperBase
+{
+public:
+  NS_DECL_NSIRUNNABLE
+
+  /**
+   * Creates the event and dispatches it to the I/O thread.
+   *
+   * @param aPageURI
+   *        URL of the page whose favicon's URL we're fetching
+   * @param aCallback
+   *        function to be called once the URL is retrieved from the database
+   */
+  static nsresult start(nsIURI* aPageURI,
+                        nsIFaviconDataCallback* aCallback);
+
+  /**
+   * Constructor.
+   *
+   * @param aPageSpec
+   *        URL of the page whose favicon's URL we're fetching
+   * @param aCallback
+   *        function to be called once the URL is retrieved from the database
+   */
+  AsyncGetFaviconURLForPage(const nsACString& aPageSpec,
+                            nsCOMPtr<nsIFaviconDataCallback>& aCallback);
+
+  virtual ~AsyncGetFaviconURLForPage();
+
+private:
+  nsCString mPageSpec;
+};
+
+
+/**
+ * Asynchronously tries to get the URL and data of a page's favicon.  
+ * If this succeeds, notifies the given observer.
+ */
+class AsyncGetFaviconDataForPage : public AsyncFaviconHelperBase
+{
+public:
+  NS_DECL_NSIRUNNABLE
+
+  /**
+   * Creates the event and dispatches it to the I/O thread.
+   *
+   * @param aPageURI
+   *        URL of the page whose favicon URL and data we're fetching
+   * @param aCallback
+   *        function to be called once the URL and data is retrieved from the database
+   */
+  static nsresult start(nsIURI* aPageURI,
+                        nsIFaviconDataCallback* aCallback);
+
+  /**
+   * Constructor.
+   *
+   * @param aPageSpec
+   *        URL of the page whose favicon URL and data we're fetching
+   * @param aCallback
+   *        function to be called once the URL is retrieved from the database
+   */
+  AsyncGetFaviconDataForPage(const nsACString& aPageSpec,
+                             nsCOMPtr<nsIFaviconDataCallback>& aCallback);
+
+  virtual ~AsyncGetFaviconDataForPage();
+
+private:
+  nsCString mPageSpec;
 };
 
 /**
  * Notifies the icon change to favicon observers.
  */
-class NotifyIconObservers : public nsRunnable
+class NotifyIconObservers : public AsyncFaviconHelperBase
 {
 public:
   NS_DECL_NSIRUNNABLE
 
   NotifyIconObservers(IconData& aIcon,
                       PageData& aPage,
-                      nsCOMPtr<mozIStorageConnection>& aDBConn,
-                      nsRefPtr<nsFaviconService>& aFaviconSvc,
                       nsCOMPtr<nsIFaviconDataCallback>& aCallback);
   virtual ~NotifyIconObservers();
 
 protected:
   IconData mIcon;
   PageData mPage;
-  nsCOMPtr<mozIStorageConnection>& mDBConn;
-  // Strong reference since we don't want it to disappear out from under us.
-  nsRefPtr<nsFaviconService> mFaviconSvc;
-  // Strong reference since we are responsible for its existence.
-  nsCOMPtr<nsIFaviconDataCallback> mCallback;
 };
 
 } // namespace places

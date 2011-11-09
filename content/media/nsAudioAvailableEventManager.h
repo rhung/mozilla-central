@@ -63,7 +63,7 @@ public:
 
   // Queues audio sample data and re-packages it into equal sized
   // framebuffers.  Called from the audio thread.
-  void QueueWrittenAudioData(SoundDataValue* aAudioData,
+  void QueueWrittenAudioData(AudioDataValue* aAudioData,
                              PRUint32 aAudioDataLength,
                              PRUint64 aEndTimeSampleOffset);
 
@@ -105,8 +105,9 @@ private:
   // between the state machine and audio threads.
   nsTArray< nsCOMPtr<nsIRunnable> > mPendingEvents;
 
-  // Monitor for shared access to mPendingEvents queue or buffer length.
-  Monitor mMonitor;
+  // ReentrantMonitor for shared access to mPendingEvents queue or
+  // buffer length.
+  ReentrantMonitor mReentrantMonitor;
 };
 
 #endif

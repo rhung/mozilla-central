@@ -36,23 +36,27 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+#include "nsBarProps.h"
+
 #include "nsCOMPtr.h"
 #include "nscore.h"
-#include "nsBarProps.h"
 #include "nsGlobalWindow.h"
 #include "nsStyleConsts.h"
 #include "nsIDocShell.h"
 #include "nsIScriptSecurityManager.h"
 #include "nsIScrollable.h"
 #include "nsIWebBrowserChrome.h"
-#include "nsIDOMWindowInternal.h"
-#include "nsDOMClassInfo.h"
+#include "nsIDOMWindow.h"
+#include "nsDOMClassInfoID.h"
 
 //
 //  Basic (virtual) BarProp class implementation
 //
-nsBarProp::nsBarProp() : mBrowserChrome(nsnull)
+nsBarProp::nsBarProp(nsGlobalWindow *aWindow)
 {
+  mDOMWindow = aWindow;
+  nsISupports *supwin = static_cast<nsIScriptGlobalObject *>(aWindow);
+  mDOMWindowWeakref = do_GetWeakReference(supwin);
 }
 
 nsBarProp::~nsBarProp()
@@ -73,36 +77,31 @@ NS_INTERFACE_MAP_END
 NS_IMPL_ADDREF(nsBarProp)
 NS_IMPL_RELEASE(nsBarProp)
 
-
 NS_IMETHODIMP
-nsBarProp::SetWebBrowserChrome(nsIWebBrowserChrome* aBrowserChrome)
+nsBarProp::GetVisibleByFlag(bool *aVisible, PRUint32 aChromeFlag)
 {
-  mBrowserChrome = aBrowserChrome;
-  return NS_OK;
-}
+  *aVisible = false;
 
-NS_IMETHODIMP
-nsBarProp::GetVisibleByFlag(PRBool *aVisible, PRUint32 aChromeFlag)
-{
-  *aVisible = PR_FALSE;
-  NS_ENSURE_TRUE(mBrowserChrome, NS_OK);
+  nsCOMPtr<nsIWebBrowserChrome> browserChrome = GetBrowserChrome();
+  NS_ENSURE_TRUE(browserChrome, NS_OK);
 
   PRUint32 chromeFlags;
 
-  NS_ENSURE_SUCCESS(mBrowserChrome->GetChromeFlags(&chromeFlags),
+  NS_ENSURE_SUCCESS(browserChrome->GetChromeFlags(&chromeFlags),
                     NS_ERROR_FAILURE);
-  if(chromeFlags & aChromeFlag)
-    *aVisible = PR_TRUE;
+  if (chromeFlags & aChromeFlag)
+    *aVisible = true;
 
   return NS_OK;
 }
 
 NS_IMETHODIMP
-nsBarProp::SetVisibleByFlag(PRBool aVisible, PRUint32 aChromeFlag)
+nsBarProp::SetVisibleByFlag(bool aVisible, PRUint32 aChromeFlag)
 {
-  NS_ENSURE_TRUE(mBrowserChrome, NS_OK);
+  nsCOMPtr<nsIWebBrowserChrome> browserChrome = GetBrowserChrome();
+  NS_ENSURE_TRUE(browserChrome, NS_OK);
 
-  PRBool   enabled = PR_FALSE;
+  bool enabled = false;
 
   nsCOMPtr<nsIScriptSecurityManager>
            securityManager(do_GetService(NS_SCRIPTSECURITYMANAGER_CONTRACTID));
@@ -113,23 +112,37 @@ nsBarProp::SetVisibleByFlag(PRBool aVisible, PRUint32 aChromeFlag)
 
   PRUint32 chromeFlags;
 
-  NS_ENSURE_SUCCESS(mBrowserChrome->GetChromeFlags(&chromeFlags),
+  NS_ENSURE_SUCCESS(browserChrome->GetChromeFlags(&chromeFlags),
                     NS_ERROR_FAILURE);
-  if(aVisible)
+  if (aVisible)
     chromeFlags |= aChromeFlag;
   else
     chromeFlags &= ~aChromeFlag;
-  NS_ENSURE_SUCCESS(mBrowserChrome->SetChromeFlags(chromeFlags),
+  NS_ENSURE_SUCCESS(browserChrome->SetChromeFlags(chromeFlags),
                     NS_ERROR_FAILURE);
 
   return NS_OK;
+}
+
+already_AddRefed<nsIWebBrowserChrome>
+nsBarProp::GetBrowserChrome()
+{
+  // Check that the window is still alive.
+  nsCOMPtr<nsIDOMWindow> domwin(do_QueryReferent(mDOMWindowWeakref));
+  if (!domwin)
+    return nsnull;
+
+  nsIWebBrowserChrome *browserChrome = nsnull;
+  mDOMWindow->GetWebBrowserChrome(&browserChrome);
+  return browserChrome;
 }
 
 //
 // MenubarProp class implementation
 //
 
-nsMenubarProp::nsMenubarProp()
+nsMenubarProp::nsMenubarProp(nsGlobalWindow *aWindow) 
+  : nsBarProp(aWindow)
 {
 }
 
@@ -138,14 +151,14 @@ nsMenubarProp::~nsMenubarProp()
 }
 
 NS_IMETHODIMP
-nsMenubarProp::GetVisible(PRBool *aVisible)
+nsMenubarProp::GetVisible(bool *aVisible)
 {
   return nsBarProp::GetVisibleByFlag(aVisible,
                                      nsIWebBrowserChrome::CHROME_MENUBAR);
 }
 
 NS_IMETHODIMP
-nsMenubarProp::SetVisible(PRBool aVisible)
+nsMenubarProp::SetVisible(bool aVisible)
 {
   return nsBarProp::SetVisibleByFlag(aVisible,
                                      nsIWebBrowserChrome::CHROME_MENUBAR);
@@ -155,7 +168,8 @@ nsMenubarProp::SetVisible(PRBool aVisible)
 // ToolbarProp class implementation
 //
 
-nsToolbarProp::nsToolbarProp()
+nsToolbarProp::nsToolbarProp(nsGlobalWindow *aWindow)
+  : nsBarProp(aWindow)
 {
 }
 
@@ -164,14 +178,14 @@ nsToolbarProp::~nsToolbarProp()
 }
 
 NS_IMETHODIMP
-nsToolbarProp::GetVisible(PRBool *aVisible)
+nsToolbarProp::GetVisible(bool *aVisible)
 {
   return nsBarProp::GetVisibleByFlag(aVisible,
                                      nsIWebBrowserChrome::CHROME_TOOLBAR);
 }
 
 NS_IMETHODIMP
-nsToolbarProp::SetVisible(PRBool aVisible)
+nsToolbarProp::SetVisible(bool aVisible)
 {
   return nsBarProp::SetVisibleByFlag(aVisible,
                                      nsIWebBrowserChrome::CHROME_TOOLBAR);
@@ -181,7 +195,8 @@ nsToolbarProp::SetVisible(PRBool aVisible)
 // LocationbarProp class implementation
 //
 
-nsLocationbarProp::nsLocationbarProp()
+nsLocationbarProp::nsLocationbarProp(nsGlobalWindow *aWindow)
+  : nsBarProp(aWindow)
 {
 }
 
@@ -190,7 +205,7 @@ nsLocationbarProp::~nsLocationbarProp()
 }
 
 NS_IMETHODIMP
-nsLocationbarProp::GetVisible(PRBool *aVisible)
+nsLocationbarProp::GetVisible(bool *aVisible)
 {
   return
     nsBarProp::GetVisibleByFlag(aVisible,
@@ -198,7 +213,7 @@ nsLocationbarProp::GetVisible(PRBool *aVisible)
 }
 
 NS_IMETHODIMP
-nsLocationbarProp::SetVisible(PRBool aVisible)
+nsLocationbarProp::SetVisible(bool aVisible)
 {
   return
     nsBarProp::SetVisibleByFlag(aVisible,
@@ -209,7 +224,8 @@ nsLocationbarProp::SetVisible(PRBool aVisible)
 // PersonalbarProp class implementation
 //
 
-nsPersonalbarProp::nsPersonalbarProp()
+nsPersonalbarProp::nsPersonalbarProp(nsGlobalWindow *aWindow)
+  : nsBarProp(aWindow)
 {
 }
 
@@ -218,7 +234,7 @@ nsPersonalbarProp::~nsPersonalbarProp()
 }
 
 NS_IMETHODIMP
-nsPersonalbarProp::GetVisible(PRBool *aVisible)
+nsPersonalbarProp::GetVisible(bool *aVisible)
 {
   return
     nsBarProp::GetVisibleByFlag(aVisible,
@@ -226,7 +242,7 @@ nsPersonalbarProp::GetVisible(PRBool *aVisible)
 }
 
 NS_IMETHODIMP
-nsPersonalbarProp::SetVisible(PRBool aVisible)
+nsPersonalbarProp::SetVisible(bool aVisible)
 {
   return
     nsBarProp::SetVisibleByFlag(aVisible,
@@ -237,7 +253,8 @@ nsPersonalbarProp::SetVisible(PRBool aVisible)
 // StatusbarProp class implementation
 //
 
-nsStatusbarProp::nsStatusbarProp()
+nsStatusbarProp::nsStatusbarProp(nsGlobalWindow *aWindow)
+  : nsBarProp(aWindow)
 {
 }
 
@@ -246,14 +263,14 @@ nsStatusbarProp::~nsStatusbarProp()
 }
 
 NS_IMETHODIMP
-nsStatusbarProp::GetVisible(PRBool *aVisible)
+nsStatusbarProp::GetVisible(bool *aVisible)
 {
   return nsBarProp::GetVisibleByFlag(aVisible,
                                      nsIWebBrowserChrome::CHROME_STATUSBAR);
 }
 
 NS_IMETHODIMP
-nsStatusbarProp::SetVisible(PRBool aVisible)
+nsStatusbarProp::SetVisible(bool aVisible)
 {
   return nsBarProp::SetVisibleByFlag(aVisible,
                                      nsIWebBrowserChrome::CHROME_STATUSBAR);
@@ -264,10 +281,8 @@ nsStatusbarProp::SetVisible(PRBool aVisible)
 //
 
 nsScrollbarsProp::nsScrollbarsProp(nsGlobalWindow *aWindow)
+: nsBarProp(aWindow)
 {
-  mDOMWindow = aWindow;
-  nsISupports *supwin = static_cast<nsIScriptGlobalObject *>(aWindow);
-  mDOMWindowWeakref = do_GetWeakReference(supwin);
 }
 
 nsScrollbarsProp::~nsScrollbarsProp()
@@ -275,9 +290,9 @@ nsScrollbarsProp::~nsScrollbarsProp()
 }
 
 NS_IMETHODIMP
-nsScrollbarsProp::GetVisible(PRBool *aVisible)
+nsScrollbarsProp::GetVisible(bool *aVisible)
 {
-  *aVisible = PR_TRUE; // one assumes
+  *aVisible = true; // one assumes
 
   nsCOMPtr<nsIDOMWindow> domwin(do_QueryReferent(mDOMWindowWeakref));
   if (domwin) { // dom window not deleted
@@ -293,7 +308,7 @@ nsScrollbarsProp::GetVisible(PRBool *aVisible)
                     nsIScrollable::ScrollOrientation_X, &prefValue);
 
       if (prefValue == nsIScrollable::Scrollbar_Never)
-        *aVisible = PR_FALSE;
+        *aVisible = false;
     }
   }
 
@@ -301,9 +316,9 @@ nsScrollbarsProp::GetVisible(PRBool *aVisible)
 }
 
 NS_IMETHODIMP
-nsScrollbarsProp::SetVisible(PRBool aVisible)
+nsScrollbarsProp::SetVisible(bool aVisible)
 {
-  PRBool   enabled = PR_FALSE;
+  bool     enabled = false;
 
   nsCOMPtr<nsIScriptSecurityManager>
            securityManager(do_GetService(NS_SCRIPTSECURITYMANAGER_CONTRACTID));
@@ -341,7 +356,7 @@ nsScrollbarsProp::SetVisible(PRBool aVisible)
   }
 
   /* Notably absent is the part where we notify the chrome window using
-     mBrowserChrome->SetChromeFlags(). Given the possibility of multiple
+     GetBrowserChrome()->SetChromeFlags(). Given the possibility of multiple
      DOM windows (multiple top-level windows, even) within a single
      chrome window, the historical concept of a single "has scrollbars"
      flag in the chrome is inapplicable, and we can't tell at this level

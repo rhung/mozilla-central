@@ -48,12 +48,12 @@ class nsCSSParser;
 class nsIURI;
 class nsIPrincipal;
 class nsIDocument;
-class nsICSSRule;
 
 namespace mozilla {
 namespace css {
 class Declaration;
 class Loader;
+class Rule;
 }
 }
 
@@ -93,33 +93,40 @@ protected:
   // This method can return null regardless of the value of aAllocate;
   // however, a null return should only be considered a failure
   // if aAllocate is true.
-  virtual mozilla::css::Declaration* GetCSSDeclaration(PRBool aAllocate) = 0;
+  virtual mozilla::css::Declaration* GetCSSDeclaration(bool aAllocate) = 0;
   virtual nsresult SetCSSDeclaration(mozilla::css::Declaration* aDecl) = 0;
   // Document that we must call BeginUpdate/EndUpdate on around the
   // calls to SetCSSDeclaration and the style rule mutation that leads
   // to it.
   virtual nsIDocument* DocToUpdate() = 0;
 
-  // This will only fail if it can't get a parser or a principal.
-  // This means it can return NS_OK without aURI or aCSSLoader being
-  // initialized.
-  virtual nsresult GetCSSParsingEnvironment(nsIURI** aSheetURI,
-                                            nsIURI** aBaseURI,
-                                            nsIPrincipal** aSheetPrincipal,
-                                            mozilla::css::Loader** aCSSLoader) = 0;
+  // Information neded to parse a declaration.  We need the mSheetURI
+  // for error reporting, mBaseURI to resolve relative URIs,
+  // mPrincipal for subresource loads, and mCSSLoader for determining
+  // whether we're in quirks mode.  mBaseURI needs to be a strong
+  // pointer because of xml:base possibly creating base URIs on the
+  // fly.  This is why we don't use CSSParsingEnvironment as a return
+  // value, to avoid multiple-refcounting of mBaseURI.
+  struct CSSParsingEnvironment {
+    nsIURI* mSheetURI;
+    nsCOMPtr<nsIURI> mBaseURI;
+    nsIPrincipal* mPrincipal;
+    mozilla::css::Loader* mCSSLoader;
+  };
+  
+  // On failure, mPrincipal should be set to null in aCSSParseEnv.
+  // If mPrincipal is null, the other members may not be set to
+  // anything meaningful.
+  virtual void GetCSSParsingEnvironment(CSSParsingEnvironment& aCSSParseEnv) = 0;
 
   // An implementation for GetCSSParsingEnvironment for callers wrapping
-  // an nsICSSRule.
-  static nsresult
-  GetCSSParsingEnvironmentForRule(nsICSSRule* aRule,
-                                  nsIURI** aSheetURI,
-                                  nsIURI** aBaseURI,
-                                  nsIPrincipal** aSheetPrincipal,
-                                  mozilla::css::Loader** aCSSLoader);
+  // an css::Rule.
+  static void GetCSSParsingEnvironmentForRule(mozilla::css::Rule* aRule,
+                                              CSSParsingEnvironment& aCSSParseEnv);
 
   nsresult ParsePropertyValue(const nsCSSProperty aPropID,
                               const nsAString& aPropValue,
-                              PRBool aIsImportant);
+                              bool aIsImportant);
 
   // Prop-id based version of RemoveProperty.  Note that this does not
   // return the old value; it just does a straight removal.

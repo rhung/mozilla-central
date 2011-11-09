@@ -43,15 +43,12 @@
 #ifndef nsCSSRules_h_
 #define nsCSSRules_h_
 
-#include "Rule.h"
 #include "mozilla/css/GroupRule.h"
 #include "nsIDOMCSSMediaRule.h"
 #include "nsIDOMCSSMozDocumentRule.h"
 #include "nsIDOMCSSFontFaceRule.h"
-#ifdef MOZ_CSS_ANIMATIONS
 #include "nsIDOMMozCSSKeyframeRule.h"
 #include "nsIDOMMozCSSKeyframesRule.h"
-#endif
 #include "nsIDOMCSSStyleDeclaration.h"
 #include "nsICSSRuleList.h"
 #include "nsAutoPtr.h"
@@ -90,13 +87,12 @@ public:
   virtual void List(FILE* out = stdout, PRInt32 aIndent = 0) const;
 #endif
 
-  // nsICSSRule methods
+  // Rule methods
   virtual void SetStyleSheet(nsCSSStyleSheet* aSheet); //override GroupRule
   virtual PRInt32 GetType() const;
-  virtual already_AddRefed<nsICSSRule> Clone() const;
-  virtual nsIDOMCSSRule* GetDOMRuleWeak(nsresult *aResult)
+  virtual already_AddRefed<Rule> Clone() const;
+  virtual nsIDOMCSSRule* GetDOMRule()
   {
-    *aResult = NS_OK;
     return this;
   }
 
@@ -107,7 +103,7 @@ public:
   NS_DECL_NSIDOMCSSMEDIARULE
 
   // rest of GroupRule
-  virtual PRBool UseForPresentation(nsPresContext* aPresContext,
+  virtual bool UseForPresentation(nsPresContext* aPresContext,
                                     nsMediaQueryResultCacheKey& aKey);
 
   // @media rule methods
@@ -134,12 +130,11 @@ public:
   virtual void List(FILE* out = stdout, PRInt32 aIndent = 0) const;
 #endif
 
-  // nsICSSRule methods
+  // Rule methods
   virtual PRInt32 GetType() const;
-  virtual already_AddRefed<nsICSSRule> Clone() const;
-  virtual nsIDOMCSSRule* GetDOMRuleWeak(nsresult *aResult)
+  virtual already_AddRefed<Rule> Clone() const;
+  virtual nsIDOMCSSRule* GetDOMRule()
   {
-    *aResult = NS_OK;
     return this;
   }
 
@@ -150,13 +145,14 @@ public:
   NS_DECL_NSIDOMCSSMOZDOCUMENTRULE
 
   // rest of GroupRule
-  virtual PRBool UseForPresentation(nsPresContext* aPresContext,
+  virtual bool UseForPresentation(nsPresContext* aPresContext,
                                     nsMediaQueryResultCacheKey& aKey);
 
   enum Function {
     eURL,
     eURLPrefix,
-    eDomain
+    eDomain,
+    eRegExp
   };
 
   struct URL {
@@ -233,11 +229,11 @@ public:
   virtual void List(FILE* out = stdout, PRInt32 aIndent = 0) const;
 #endif
 
-  // nsICSSRule methods
+  // Rule methods
   DECL_STYLE_RULE_INHERIT
 
   virtual PRInt32 GetType() const;
-  virtual already_AddRefed<nsICSSRule> Clone() const;
+  virtual already_AddRefed<mozilla::css::Rule> Clone() const;
 
   // nsIDOMCSSRule interface
   NS_DECL_NSIDOMCSSRULE
@@ -297,9 +293,9 @@ public:
   virtual void List(FILE* out = stdout, PRInt32 aIndent = 0) const;
 #endif
 
-  // nsICSSRule methods
+  // Rule methods
   virtual PRInt32 GetType() const;
-  virtual already_AddRefed<nsICSSRule> Clone() const;
+  virtual already_AddRefed<Rule> Clone() const;
 
   // nsIDOMCSSRule interface
   NS_DECL_NSIDOMCSSRULE
@@ -315,7 +311,6 @@ private:
 } // namespace css
 } // namespace mozilla
 
-#ifdef MOZ_CSS_ANIMATIONS
 class nsCSSKeyframeRule;
 
 class NS_FINAL_CLASS nsCSSKeyframeStyleDeclaration
@@ -327,12 +322,9 @@ public:
 
   NS_IMETHOD GetParentRule(nsIDOMCSSRule **aParent);
   void DropReference() { mRule = nsnull; }
-  virtual mozilla::css::Declaration* GetCSSDeclaration(PRBool aAllocate);
+  virtual mozilla::css::Declaration* GetCSSDeclaration(bool aAllocate);
   virtual nsresult SetCSSDeclaration(mozilla::css::Declaration* aDecl);
-  virtual nsresult GetCSSParsingEnvironment(nsIURI** aSheetURI,
-                                            nsIURI** aBaseURI,
-                                            nsIPrincipal** aSheetPrincipal,
-                                            mozilla::css::Loader** aCSSLoader);
+  virtual void GetCSSParsingEnvironment(CSSParsingEnvironment& aCSSParseEnv);
   virtual nsIDocument* DocToUpdate();
 
   NS_IMETHOD_(nsrefcnt) AddRef();
@@ -363,21 +355,21 @@ public:
   {
     mKeys.SwapElements(aKeys);
   }
-
+private:
   nsCSSKeyframeRule(const nsCSSKeyframeRule& aCopy);
   ~nsCSSKeyframeRule();
-
-  NS_DECL_ISUPPORTS
+public:
+  NS_DECL_ISUPPORTS_INHERITED
 
   // nsIStyleRule methods
 #ifdef DEBUG
   virtual void List(FILE* out = stdout, PRInt32 aIndent = 0) const;
 #endif
 
-  // nsICSSRule methods
+  // Rule methods
   DECL_STYLE_RULE_INHERIT
   virtual PRInt32 GetType() const;
-  virtual already_AddRefed<nsICSSRule> Clone() const;
+  virtual already_AddRefed<mozilla::css::Rule> Clone() const;
 
   // nsIDOMCSSRule interface
   NS_DECL_NSIDOMCSSRULE
@@ -405,9 +397,10 @@ public:
     : mName(aName)
   {
   }
+private:
   nsCSSKeyframesRule(const nsCSSKeyframesRule& aCopy);
   ~nsCSSKeyframesRule();
-
+public:
   NS_DECL_ISUPPORTS_INHERITED
 
   // nsIStyleRule methods
@@ -415,12 +408,11 @@ public:
   virtual void List(FILE* out = stdout, PRInt32 aIndent = 0) const;
 #endif
 
-  // nsICSSRule methods
+  // Rule methods
   virtual PRInt32 GetType() const;
-  virtual already_AddRefed<nsICSSRule> Clone() const;
-  virtual nsIDOMCSSRule* GetDOMRuleWeak(nsresult *aResult)
+  virtual already_AddRefed<mozilla::css::Rule> Clone() const;
+  virtual nsIDOMCSSRule* GetDOMRule()
   {
-    *aResult = NS_OK;
     return this;
   }
 
@@ -431,7 +423,7 @@ public:
   NS_DECL_NSIDOMMOZCSSKEYFRAMESRULE
 
   // rest of GroupRule
-  virtual PRBool UseForPresentation(nsPresContext* aPresContext,
+  virtual bool UseForPresentation(nsPresContext* aPresContext,
                                     nsMediaQueryResultCacheKey& aKey);
 
   const nsString& GetName() { return mName; }
@@ -441,6 +433,5 @@ private:
 
   nsString                                   mName;
 };
-#endif
 
 #endif /* !defined(nsCSSRules_h_) */

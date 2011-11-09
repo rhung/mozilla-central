@@ -30,10 +30,13 @@
 
       <handler event="popupshowing">
         <![CDATA[
-          if (event.target.parentNode == this && this.selectedItem)
-            // Not ready for auto-setting the active child in hierarchies yet.
-            // For now, only do this when the outermost menupopup opens.
-            this.menuBoxObject.activeChild = this.mSelectedInternal;
+          if (event.target.parentNode == this) {
+            this.menuBoxObject.activeChild = null;
+            if (this.selectedItem)
+              // Not ready for auto-setting the active child in hierarchies yet.
+              // For now, only do this when the outermost menupopup opens.
+              this.menuBoxObject.activeChild = this.mSelectedInternal;
+          }
         ]]>
       </handler>
 
@@ -411,7 +414,7 @@
   <binding id="menulist-editable" extends="chrome://global/content/bindings/menulist.xml#menulist">
     <content sizetopopup="pref">
       <xul:hbox class="menulist-editable-box textbox-input-box" xbl:inherits="context,disabled,readonly,focused" flex="1">
-        <html:input class="menulist-editable-input" flex="1" anonid="input" allowevents="true"
+        <html:input class="menulist-editable-input" anonid="input" allowevents="true"
                     xbl:inherits="value=label,value,disabled,tabindex,readonly,placeholder"/>
       </xul:hbox>
       <xul:dropmarker class="menulist-dropmarker" type="menu"
@@ -579,6 +582,7 @@
             if (document.commandDispatcher.focusedElement != this.inputField)
               this.inputField.focus();
 
+            this.menuBoxObject.activeChild = null;
             if (this.selectedItem)
               // Not ready for auto-setting the active child in hierarchies yet.
               // For now, only do this when the outermost menupopup opens.

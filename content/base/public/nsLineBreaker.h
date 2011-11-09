@@ -43,6 +43,7 @@
 #include "nsILineBreaker.h"
 
 class nsIAtom;
+class nsHyphenator;
 
 /**
  * A receiver of line break data.
@@ -55,14 +56,18 @@ public:
    * will cover the entire text chunk. Substrings may overlap (i.e., we may
    * set the break-before state of a character more than once).
    * @param aBreakBefore the break-before states for the characters in the substring.
+   * These are enum values from gfxTextRun::CompressedGlyph:
+   *    FLAG_BREAK_TYPE_NONE     - no linebreak is allowed here
+   *    FLAG_BREAK_TYPE_NORMAL   - a normal (whitespace) linebreak
+   *    FLAG_BREAK_TYPE_HYPHEN   - a hyphenation point
    */
-  virtual void SetBreaks(PRUint32 aStart, PRUint32 aLength, PRPackedBool* aBreakBefore) = 0;
+  virtual void SetBreaks(PRUint32 aStart, PRUint32 aLength, PRUint8* aBreakBefore) = 0;
   
   /**
    * Indicates which characters should be capitalized. Only called if
    * BREAK_NEED_CAPITALIZATION was requested.
    */
-  virtual void SetCapitalization(PRUint32 aStart, PRUint32 aLength, PRPackedBool* aCapitalize) = 0;
+  virtual void SetCapitalization(PRUint32 aStart, PRUint32 aLength, bool* aCapitalize) = 0;
 };
 
 /**
@@ -92,9 +97,9 @@ public:
   nsLineBreaker();
   ~nsLineBreaker();
   
-  static inline PRBool IsSpace(PRUnichar u) { return NS_IsSpace(u); }
+  static inline bool IsSpace(PRUnichar u) { return NS_IsSpace(u); }
 
-  static inline PRBool IsComplexASCIIChar(PRUnichar u)
+  static inline bool IsComplexASCIIChar(PRUnichar u)
   {
     return !((0x0030 <= u && u <= 0x0039) ||
              (0x0041 <= u && u <= 0x005A) ||
@@ -102,7 +107,7 @@ public:
              (0x000a == u));
   }
 
-  static inline PRBool IsComplexChar(PRUnichar u)
+  static inline bool IsComplexChar(PRUnichar u)
   {
     return IsComplexASCIIChar(u) ||
            NS_NeedsPlatformNativeHandling(u) ||
@@ -153,7 +158,12 @@ public:
      * We need to be notified of characters that should be capitalized
      * (as in text-transform:capitalize) in this chunk of text.
      */
-    BREAK_NEED_CAPITALIZATION = 0x08
+    BREAK_NEED_CAPITALIZATION = 0x08,
+    /**
+     * Auto-hyphenation is enabled, so we need to get a hyphenator
+     * (if available) and use it to find breakpoints.
+     */
+    BREAK_USE_AUTO_HYPHENATION = 0x10
   };
 
   /**
@@ -189,7 +199,7 @@ public:
    * at the end of the text. This will normally only be declared true when there
    * is breakable whitespace at the end.
    */
-  nsresult Reset(PRBool* aTrailingBreak);
+  nsresult Reset(bool* aTrailingBreak);
 
 private:
   // This is a list of text sources that make up the "current word" (i.e.,
@@ -214,16 +224,25 @@ private:
   // appropriate sink(s). Then we clear the current word state.
   nsresult FlushCurrentWord();
 
+  void UpdateCurrentWordLangGroup(nsIAtom *aLangGroup);
+
+  void FindHyphenationPoints(nsHyphenator *aHyphenator,
+                             const PRUnichar *aTextStart,
+                             const PRUnichar *aTextLimit,
+                             PRUint8 *aBreakState);
+
   nsAutoTArray<PRUnichar,100> mCurrentWord;
   // All the items that contribute to mCurrentWord
   nsAutoTArray<TextItem,2>    mTextItems;
-  PRPackedBool                mCurrentWordContainsComplexChar;
+  nsIAtom*                    mCurrentWordLangGroup;
+  bool                        mCurrentWordContainsMixedLang;
+  bool                        mCurrentWordContainsComplexChar;
 
   // True if the previous character was breakable whitespace
-  PRPackedBool                mAfterBreakableSpace;
+  bool                        mAfterBreakableSpace;
   // True if a break must be allowed at the current position because
   // a run of breakable whitespace ends here
-  PRPackedBool                mBreakHere;
+  bool                        mBreakHere;
 };
 
 #endif /*NSLINEBREAKER_H_*/

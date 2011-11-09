@@ -154,7 +154,7 @@ const TEST_ADDONS = [ "appdisabled_1", "appdisabled_2",
                       "userdisabled_1", "userdisabled_2" ];
 
 
-const TEST_TIMEOUT = 20000; // 20 seconds
+const TEST_TIMEOUT = 25000; // 25 seconds
 var gTimeoutTimer;
 
 // The number of SimpleTest.executeSoon calls to perform when waiting on an
@@ -589,7 +589,7 @@ function waitForRemoteContentLoaded(aEvent) {
   // Return early until the remotecontent has loaded with the state that is
   // expected or isn't the event's originalTarget.
   if (gRemoteContentState != gTest.expectedRemoteContentState ||
-      !aEvent.originalTarget.isSameNode(gRemoteContent)) {
+      aEvent.originalTarget != gRemoteContent) {
     debugDump("returning early\n" +
               "gRemoteContentState: " + gRemoteContentState + "\n" +
               "expectedRemoteContentState: " +
@@ -816,6 +816,7 @@ function setupPrefs() {
 
   Services.prefs.setIntPref(PREF_APP_UPDATE_IDLETIME, 0);
   Services.prefs.setIntPref(PREF_APP_UPDATE_PROMPTWAITTIME, 0);
+  Services.prefs.setBoolPref(PREF_EXTENSIONS_STRICT_COMPAT, true);
 }
 
 /**
@@ -912,6 +913,10 @@ function resetPrefs() {
     Services.prefs.deleteBranch(PREF_APP_UPDATE_NEVER_BRANCH);
   }
   catch(e) {
+  }
+
+  if (Services.prefs.prefHasUserValue(PREF_EXTENSIONS_STRICT_COMPAT)) {
+		Services.prefs.clearUserPref(PREF_EXTENSIONS_STRICT_COMPAT);
   }
 }
 
@@ -1204,7 +1209,7 @@ function closeUpdateWindow() {
 /**
  * Gets the update window.
  *
- * @return The nsIDOMWindowInternal for the Update Window if it is open and null
+ * @return The nsIDOMWindow for the Update Window if it is open and null
  *         if it isn't.
  */
 function getUpdateWindow() {

@@ -39,19 +39,94 @@
 #include <OpenGL/OpenGL.h>
 #include <OpenGL/CGLRenderers.h>
 
+#include "mozilla/Util.h"
+
 #include "GfxInfo.h"
 #include "nsUnicharUtils.h"
 #include "mozilla/FunctionTimer.h"
 #include "nsToolkit.h"
+#include "mozilla/Preferences.h"
 
-#if defined(MOZ_CRASHREPORTER) && defined(MOZ_ENABLE_LIBXUL)
+#import <Foundation/Foundation.h>
+#import <IOKit/IOKitLib.h>
+#import <Cocoa/Cocoa.h>
+
+#if defined(MOZ_CRASHREPORTER)
 #include "nsExceptionHandler.h"
 #include "nsICrashReporter.h"
 #define NS_CRASHREPORTER_CONTRACTID "@mozilla.org/toolkit/crash-reporter;1"
-#include "nsIPrefService.h"
 #endif
 
+#define MAC_OS_X_VERSION_MASK       0x0000FFFF
+#define MAC_OS_X_VERSION_MAJOR_MASK 0x0000FFF0
+#define MAC_OS_X_VERSION_10_4_HEX   0x00001040 // Not supported
+#define MAC_OS_X_VERSION_10_5_HEX   0x00001050
+#define MAC_OS_X_VERSION_10_6_HEX   0x00001060
+#define MAC_OS_X_VERSION_10_7_HEX   0x00001070
+
+using namespace mozilla;
 using namespace mozilla::widget;
+
+GfxInfo::GfxInfo()
+  : mAdapterVendorID(0),
+    mAdapterDeviceID(0)
+{
+}
+
+// The following three functions are derived from Chromium code
+static CFTypeRef SearchPortForProperty(io_registry_entry_t dspPort,
+                                       CFStringRef propertyName)
+{
+  return IORegistryEntrySearchCFProperty(dspPort,
+                                         kIOServicePlane,
+                                         propertyName,
+                                         kCFAllocatorDefault,
+                                         kIORegistryIterateRecursively |
+                                         kIORegistryIterateParents);
+}
+
+static PRUint32 IntValueOfCFData(CFDataRef d)
+{
+  PRUint32 value = 0;
+
+  if (d) {
+    const PRUint32 *vp = reinterpret_cast<const PRUint32*>(CFDataGetBytePtr(d));
+    if (vp != NULL)
+      value = *vp;
+  }
+
+  return value;
+}
+
+void
+GfxInfo::GetDeviceInfo()
+{
+  io_registry_entry_t dsp_port = CGDisplayIOServicePort(kCGDirectMainDisplay);
+  CFTypeRef vendor_id_ref = SearchPortForProperty(dsp_port, CFSTR("vendor-id"));
+  if (vendor_id_ref) {
+    mAdapterVendorID = IntValueOfCFData((CFDataRef)vendor_id_ref);
+    CFRelease(vendor_id_ref);
+  }
+  CFTypeRef device_id_ref = SearchPortForProperty(dsp_port, CFSTR("device-id"));
+  if (device_id_ref) {
+    mAdapterDeviceID = IntValueOfCFData((CFDataRef)device_id_ref);
+    CFRelease(device_id_ref);
+  }
+}
+
+static bool
+IsATIRadeonX1000(PRUint32 aVendorID, PRUint32 aDeviceID)
+{
+  if (aVendorID == 0x1002) {
+    // this list is from the ATIRadeonX1000.kext Info.plist
+    PRUint32 devices[] = {0x7187, 0x7210, 0x71DE, 0x7146, 0x7142, 0x7109, 0x71C5, 0x71C0, 0x7240, 0x7249, 0x7291};
+    for (size_t i = 0; i < ArrayLength(devices); i++) {
+      if (aDeviceID == devices[i])
+        return true;
+    }
+  }
+  return false;
+}
 
 nsresult
 GfxInfo::Init()
@@ -60,6 +135,10 @@ GfxInfo::Init()
 
   nsresult rv = GfxInfoBase::Init();
 
+  // Calling CGLQueryRendererInfo causes us to switch to the discrete GPU
+  // even when we don't want to. We'll avoid doing so for now and just
+  // use the device ids.
+#if 0
   CGLRendererInfoObj renderer = 0;
   GLint rendererCount = 0;
 
@@ -68,7 +147,7 @@ GfxInfo::Init()
   if (CGLQueryRendererInfo(0xffffffff, &renderer, &rendererCount) != kCGLNoError)
     return rv;
 
-  rendererCount = (GLint) PR_MIN(rendererCount, (GLint) NS_ARRAY_LENGTH(mRendererIDs));
+  rendererCount = (GLint) NS_MIN(rendererCount, (GLint) ArrayLength(mRendererIDs));
   for (GLint i = 0; i < rendererCount; i++) {
     GLint prop = 0;
 
@@ -89,6 +168,9 @@ GfxInfo::Init()
   }
 
   CGLDestroyRendererInfo(renderer);
+#endif
+
+  GetDeviceInfo();
 
   AddCrashReportAnnotations();
 
@@ -96,13 +178,27 @@ GfxInfo::Init()
 }
 
 NS_IMETHODIMP
-GfxInfo::GetD2DEnabled(PRBool *aEnabled)
+GfxInfo::GetD2DEnabled(bool *aEnabled)
 {
   return NS_ERROR_FAILURE;
 }
 
 NS_IMETHODIMP
-GfxInfo::GetDWriteEnabled(PRBool *aEnabled)
+GfxInfo::GetAzureEnabled(bool *aEnabled)
+{
+  bool azure = false;
+  nsresult rv = mozilla::Preferences::GetBool("gfx.canvas.azure.enabled", &azure);
+  
+  if (NS_SUCCEEDED(rv) && azure) {
+    *aEnabled = true;
+  } else {
+    *aEnabled = false;
+  }
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+GfxInfo::GetDWriteEnabled(bool *aEnabled)
 {
   return NS_ERROR_FAILURE;
 }
@@ -110,6 +206,13 @@ GfxInfo::GetDWriteEnabled(PRBool *aEnabled)
 /* readonly attribute DOMString DWriteVersion; */
 NS_IMETHODIMP
 GfxInfo::GetDWriteVersion(nsAString & aDwriteVersion)
+{
+  return NS_ERROR_FAILURE;
+}
+
+/* readonly attribute DOMString cleartypeParameters; */
+NS_IMETHODIMP
+GfxInfo::GetCleartypeParameters(nsAString & aCleartypeParams)
 {
   return NS_ERROR_FAILURE;
 }
@@ -122,12 +225,26 @@ GfxInfo::GetAdapterDescription(nsAString & aAdapterDescription)
   return NS_OK;
 }
 
+/* readonly attribute DOMString adapterDescription2; */
+NS_IMETHODIMP
+GfxInfo::GetAdapterDescription2(nsAString & aAdapterDescription)
+{
+  return NS_ERROR_FAILURE;
+}
+
 /* readonly attribute DOMString adapterRAM; */
 NS_IMETHODIMP
 GfxInfo::GetAdapterRAM(nsAString & aAdapterRAM)
 {
   aAdapterRAM = mAdapterRAMString;
   return NS_OK;
+}
+
+/* readonly attribute DOMString adapterRAM2; */
+NS_IMETHODIMP
+GfxInfo::GetAdapterRAM2(nsAString & aAdapterRAM)
+{
+  return NS_ERROR_FAILURE;
 }
 
 /* readonly attribute DOMString adapterDriver; */
@@ -138,12 +255,26 @@ GfxInfo::GetAdapterDriver(nsAString & aAdapterDriver)
   return NS_OK;
 }
 
+/* readonly attribute DOMString adapterDriver2; */
+NS_IMETHODIMP
+GfxInfo::GetAdapterDriver2(nsAString & aAdapterDriver)
+{
+  return NS_ERROR_FAILURE;
+}
+
 /* readonly attribute DOMString adapterDriverVersion; */
 NS_IMETHODIMP
 GfxInfo::GetAdapterDriverVersion(nsAString & aAdapterDriverVersion)
 {
   aAdapterDriverVersion.AssignLiteral("");
   return NS_OK;
+}
+
+/* readonly attribute DOMString adapterDriverVersion2; */
+NS_IMETHODIMP
+GfxInfo::GetAdapterDriverVersion2(nsAString & aAdapterDriverVersion)
+{
+  return NS_ERROR_FAILURE;
 }
 
 /* readonly attribute DOMString adapterDriverDate; */
@@ -154,26 +285,54 @@ GfxInfo::GetAdapterDriverDate(nsAString & aAdapterDriverDate)
   return NS_OK;
 }
 
+/* readonly attribute DOMString adapterDriverDate2; */
+NS_IMETHODIMP
+GfxInfo::GetAdapterDriverDate2(nsAString & aAdapterDriverDate)
+{
+  return NS_ERROR_FAILURE;
+}
+
 /* readonly attribute unsigned long adapterVendorID; */
 NS_IMETHODIMP
 GfxInfo::GetAdapterVendorID(PRUint32 *aAdapterVendorID)
 {
-  *aAdapterVendorID = 0;
+  *aAdapterVendorID = mAdapterVendorID;
   return NS_OK;
+}
+
+/* readonly attribute unsigned long adapterVendorID2; */
+NS_IMETHODIMP
+GfxInfo::GetAdapterVendorID2(PRUint32 *aAdapterVendorID)
+{
+  return NS_ERROR_FAILURE;
 }
 
 /* readonly attribute unsigned long adapterDeviceID; */
 NS_IMETHODIMP
 GfxInfo::GetAdapterDeviceID(PRUint32 *aAdapterDeviceID)
 {
-  *aAdapterDeviceID = 0;
+  *aAdapterDeviceID = mAdapterDeviceID;
   return NS_OK;
+}
+
+/* readonly attribute unsigned long adapterDeviceID2; */
+NS_IMETHODIMP
+GfxInfo::GetAdapterDeviceID2(PRUint32 *aAdapterDeviceID)
+{
+  return NS_ERROR_FAILURE;
+}
+
+/* readonly attribute boolean isGPU2Active; */
+NS_IMETHODIMP
+GfxInfo::GetIsGPU2Active(bool* aIsGPU2Active)
+{
+  return NS_ERROR_FAILURE;
 }
 
 void
 GfxInfo::AddCrashReportAnnotations()
 {
-#if defined(MOZ_CRASHREPORTER) && defined(MOZ_ENABLE_LIBXUL)
+#if defined(MOZ_CRASHREPORTER)
   CrashReporter::AnnotateCrashReport(NS_LITERAL_CSTRING("AdapterRendererIDs"),
                                      NS_LossyConvertUTF16toASCII(mRendererIDsString));
 
@@ -188,22 +347,61 @@ GfxInfo::AddCrashReportAnnotations()
 #endif
 }
 
+static GfxDriverInfo gDriverInfo[] = {
+  // We don't support checking driver versions on Mac.
+  #define IMPLEMENT_MAC_DRIVER_BLOCKLIST(os, vendor, device, features, blockOn) \
+    GfxDriverInfo(os, vendor, device, features, blockOn,                        \
+                  DRIVER_UNKNOWN_COMPARISON, V(0,0,0,0), ""),
+
+  // Example use of macro.
+  //IMPLEMENT_MAC_DRIVER_BLOCKLIST(DRIVER_OS_OS_X_10_7,
+  //  GfxDriverInfo::vendorATI, GfxDriverInfo::allDevices,
+  //  GfxDriverInfo::allFeatures, nsIGfxInfo::FEATURE_BLOCKED_OS_VERSION)
+
+  // Block all ATI cards from using MSAA, except for two devices that have
+  // special exceptions in the GetFeatureStatusImpl() function.
+  IMPLEMENT_MAC_DRIVER_BLOCKLIST(DRIVER_OS_ALL,
+    GfxDriverInfo::vendorATI, GfxDriverInfo::allDevices,
+    nsIGfxInfo::FEATURE_WEBGL_MSAA, nsIGfxInfo::FEATURE_BLOCKED_OS_VERSION)
+
+  GfxDriverInfo()
+};
+
+const GfxDriverInfo*
+GfxInfo::GetGfxDriverInfo()
+{
+  return &gDriverInfo[0];
+}
+
+static OperatingSystem
+OSXVersionToOperatingSystem(PRUint32 aOSXVersion)
+{
+  switch (aOSXVersion & MAC_OS_X_VERSION_MAJOR_MASK) {
+    case MAC_OS_X_VERSION_10_5_HEX:
+      return DRIVER_OS_OS_X_10_5;
+    case MAC_OS_X_VERSION_10_6_HEX:
+      return DRIVER_OS_OS_X_10_6;
+    case MAC_OS_X_VERSION_10_7_HEX:
+      return DRIVER_OS_OS_X_10_7;
+  }
+
+  return DRIVER_OS_UNKNOWN;
+}
+
 nsresult
-GfxInfo::GetFeatureStatusImpl(PRInt32 aFeature, PRInt32* aStatus,
+GfxInfo::GetFeatureStatusImpl(PRInt32 aFeature, 
+                              PRInt32* aStatus,
                               nsAString& aSuggestedDriverVersion,
-                              GfxDriverInfo* aDriverInfo /* = nsnull */)
+                              GfxDriverInfo* aDriverInfo /* = nsnull */,
+                              OperatingSystem* aOS /* = nsnull */)
 {
   NS_ENSURE_ARG_POINTER(aStatus);
 
-  aSuggestedDriverVersion.SetIsVoid(PR_TRUE);
+  aSuggestedDriverVersion.SetIsVoid(true);
 
   PRInt32 status = nsIGfxInfo::FEATURE_NO_INFO;
 
-  // For now, we don't implement the downloaded blacklist.
-  if (aDriverInfo) {
-    *aStatus = status;
-    return NS_OK;
-  }
+  OperatingSystem os = OSXVersionToOperatingSystem(nsToolkit::OSXVersion());
 
   // Many WebGL issues on 10.5, especially:
   //   * bug 631258: WebGL shader paints using textures belonging to other processes on Mac OS 10.5
@@ -215,6 +413,13 @@ GfxInfo::GetFeatureStatusImpl(PRInt32 aFeature, PRInt32* aStatus,
   }
 
   if (aFeature == nsIGfxInfo::FEATURE_OPENGL_LAYERS) {
+    bool foundGoodDevice = false;
+
+    if (!IsATIRadeonX1000(mAdapterVendorID, mAdapterDeviceID)) {
+      foundGoodDevice = true;
+    }
+
+#if 0
     // CGL reports a list of renderers, some renderers are slow (e.g. software)
     // and AFAIK we can't decide which one will be used among them, so let's implement this by returning NO_INFO
     // if any not-known-to-be-bad renderer is found.
@@ -223,9 +428,8 @@ GfxInfo::GetFeatureStatusImpl(PRInt32 aFeature, PRInt32* aStatus,
     // used, which seems to be the case in bug 611292 where the user had a Intel GMA 945 card (non programmable hardware).
     // Therefore we need to explicitly blacklist non-OpenGL2 hardware, which could result in a software renderer
     // being used.
-    PRBool foundGoodDevice = PR_FALSE;
 
-    for (PRUint32 i = 0; i < NS_ARRAY_LENGTH(mRendererIDs); ++i) {
+    for (PRUint32 i = 0; i < ArrayLength(mRendererIDs); ++i) {
       switch (mRendererIDs[i]) {
         case kCGLRendererATIRage128ID: // non-programmable
         case kCGLRendererATIRadeonID: // non-programmable
@@ -247,12 +451,40 @@ GfxInfo::GetFeatureStatusImpl(PRInt32 aFeature, PRInt32* aStatus,
           break;
         default:
           if (mRendererIDs[i])
-            foundGoodDevice = PR_TRUE;
+            foundGoodDevice = true;
       }
     }
+#endif
     if (!foundGoodDevice)
       status = nsIGfxInfo::FEATURE_BLOCKED_DEVICE;
   }
+
+  if (aFeature == nsIGfxInfo::FEATURE_WEBGL_OPENGL) {
+    // same comment as above for FEATURE_OPENGL_LAYERS.
+    bool foundGoodDevice = true;
+
+    // Blacklist the Geforce 7300 GT because of bug 678053
+    if (mAdapterVendorID == 0x10de && mAdapterDeviceID == 0x0393) {
+      foundGoodDevice = false;
+    }
+
+    if (!foundGoodDevice)
+      status = nsIGfxInfo::FEATURE_BLOCKED_DEVICE;
+  }
+
+  if (aFeature == nsIGfxInfo::FEATURE_WEBGL_MSAA) {
+    // Blacklist all ATI cards on OSX, except for
+    // 0x6760 and 0x9488
+    if (mAdapterVendorID == GfxDriverInfo::vendorATI && 
+          (mAdapterDeviceID == 0x6760 || mAdapterDeviceID == 0x9488)) {
+      *aStatus = nsIGfxInfo::FEATURE_NO_INFO;
+      return NS_OK;
+    }
+  }
+
+  if (aOS)
+    *aOS = os;
   *aStatus = status;
-  return NS_OK;
+
+  return GfxInfoBase::GetFeatureStatusImpl(aFeature, aStatus, aSuggestedDriverVersion, aDriverInfo, &os);
 }

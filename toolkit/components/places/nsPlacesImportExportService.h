@@ -11,7 +11,6 @@
 #include "nsILivemarkService.h"
 #include "nsINavHistoryService.h"
 #include "nsINavBookmarksService.h"
-#include "nsIMicrosummaryService.h"
 #include "nsIChannel.h"
 
 class nsPlacesImportExportService : public nsIPlacesImportExportService,
@@ -43,15 +42,14 @@ class nsPlacesImportExportService : public nsIPlacesImportExportService,
     nsCOMPtr<nsINavBookmarksService> mBookmarksService;
     nsCOMPtr<nsINavHistoryService> mHistoryService;
     nsCOMPtr<nsILivemarkService> mLivemarkService;
-    nsCOMPtr<nsIMicrosummaryService> mMicrosummaryService;
 
     nsCOMPtr<nsIChannel> mImportChannel;
-    PRBool mIsImportDefaults;
+    bool mIsImportDefaults;
 
-    nsresult ImportHTMLFromFileInternal(nsILocalFile* aFile, PRBool aAllowRootChanges,
-                                       PRInt64 aFolder, PRBool aIsImportDefaults);
-    nsresult ImportHTMLFromURIInternal(nsIURI* aURI, PRBool aAllowRootChanges,
-                                       PRInt64 aFolder, PRBool aIsImportDefaults);
+    nsresult ImportHTMLFromFileInternal(nsILocalFile* aFile, bool aAllowRootChanges,
+                                       PRInt64 aFolder, bool aIsImportDefaults);
+    nsresult ImportHTMLFromURIInternal(nsIURI* aURI, bool aAllowRootChanges,
+                                       PRInt64 aFolder, bool aIsImportDefaults);
     nsresult WriteContainer(nsINavHistoryResultNode* aFolder, const nsACString& aIndent, nsIOutputStream* aOutput);
     nsresult WriteContainerHeader(nsINavHistoryResultNode* aFolder, const nsACString& aIndent, nsIOutputStream* aOutput);
     nsresult WriteTitle(nsINavHistoryResultNode* aItem, nsIOutputStream* aOutput);
@@ -67,7 +65,6 @@ class nsPlacesImportExportService : public nsIPlacesImportExportService,
       NS_ENSURE_STATE(mAnnotationService);
       NS_ENSURE_STATE(mBookmarksService);
       NS_ENSURE_STATE(mLivemarkService);
-      NS_ENSURE_STATE(mMicrosummaryService);
       return NS_OK;
     }
 };

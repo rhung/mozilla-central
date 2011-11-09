@@ -54,8 +54,7 @@
 #include "nsIXPConnect.h"
 #include "nsIObserverService.h"
 #include "mozilla/Services.h"
-#include "nsIPrefService.h"
-#include "nsIPrefBranch.h"
+#include "mozilla/Preferences.h"
 
 #include "sqlite3.h"
 #include "test_quota.c"
@@ -64,6 +63,7 @@
 #include "nsIMemoryReporter.h"
 
 #include "mozilla/FunctionTimer.h"
+#include "mozilla/Util.h"
 
 namespace {
 
@@ -133,34 +133,17 @@ namespace storage {
 //// Memory Reporting
 
 static PRInt64
-GetStorageSQLitePageCacheMemoryUsed(void *)
+GetStorageSQLiteMemoryUsed()
 {
-  int current, high;
-  int rc = ::sqlite3_status(SQLITE_STATUS_PAGECACHE_OVERFLOW, &current, &high,
-                            0);
-  return rc == SQLITE_OK ? current : 0;
+  return ::sqlite3_memory_used();
 }
 
-static PRInt64
-GetStorageSQLiteOtherMemoryUsed(void *)
-{
-  int pageCacheCurrent, pageCacheHigh;
-  int rc = ::sqlite3_status(SQLITE_STATUS_PAGECACHE_OVERFLOW, &pageCacheCurrent,
-                            &pageCacheHigh, 0);
-  return rc == SQLITE_OK ? ::sqlite3_memory_used() - pageCacheCurrent : 0;
-}
-
-NS_MEMORY_REPORTER_IMPLEMENT(StorageSQLitePageCacheMemoryUsed,
-                             "storage/sqlite/pagecache",
-                             "Memory in use by SQLite for the page cache",
-                             GetStorageSQLitePageCacheMemoryUsed,
-                             nsnull)
-
-NS_MEMORY_REPORTER_IMPLEMENT(StorageSQLiteOtherMemoryUsed,
-                             "storage/sqlite/other",
-                             "Memory in use by SQLite for other various reasons",
-                             GetStorageSQLiteOtherMemoryUsed,
-                             nsnull)
+NS_MEMORY_REPORTER_IMPLEMENT(StorageSQLiteMemoryUsed,
+    "explicit/storage/sqlite",
+    KIND_HEAP,
+    UNITS_BYTES,
+    GetStorageSQLiteMemoryUsed,
+    "Memory used by SQLite.")
 
 ////////////////////////////////////////////////////////////////////////////////
 //// Helpers
@@ -192,7 +175,7 @@ public:
     nsCOMPtr<nsIObserverService> os =
       mozilla::services::GetObserverService();
     NS_ENSURE_TRUE(os, NS_ERROR_FAILURE);
-    nsresult rv = os->AddObserver(mObserver, "xpcom-shutdown", PR_FALSE);
+    nsresult rv = os->AddObserver(mObserver, "xpcom-shutdown", false);
     NS_ENSURE_SUCCESS(rv, rv);
 
     // We cache XPConnect for our language helpers.  XPConnect can only be
@@ -202,16 +185,13 @@ public:
     // We need to obtain the toolkit.storage.synchronous preferences on the main
     // thread because the preference service can only be accessed there.  This
     // is cached in the service for all future Open[Unshared]Database calls.
-    nsCOMPtr<nsIPrefBranch> pref(do_GetService(NS_PREFSERVICE_CONTRACTID));
-    PRInt32 synchronous = PREF_TS_SYNCHRONOUS_DEFAULT;
-    if (pref)
-      (void)pref->GetIntPref(PREF_TS_SYNCHRONOUS, &synchronous);
+    PRInt32 synchronous =
+      Preferences::GetInt(PREF_TS_SYNCHRONOUS, PREF_TS_SYNCHRONOUS_DEFAULT);
     ::PR_ATOMIC_SET(mSynchronousPrefValPtr, synchronous);
 
-    // Register our SQLite memory reporters.  Registration can only happen on
+    // Register our SQLite memory reporter.  Registration can only happen on
     // the main thread (otherwise you'll get cryptic crashes).
-    NS_RegisterMemoryReporter(new NS_MEMORY_REPORTER_NAME(StorageSQLitePageCacheMemoryUsed));
-    NS_RegisterMemoryReporter(new NS_MEMORY_REPORTER_NAME(StorageSQLiteOtherMemoryUsed));
+    NS_RegisterMemoryReporter(new NS_MEMORY_REPORTER_NAME(StorageSQLiteMemoryUsed));
 
     return NS_OK;
   }
@@ -298,15 +278,20 @@ Service::getSynchronousPref()
 }
 
 Service::Service()
-: mMutex("Service::mMutex")
+: mMutex("Service::mMutex"),
+  mSqliteVFS(nsnull)
 {
 }
 
 Service::~Service()
 {
+  int rc = sqlite3_vfs_unregister(mSqliteVFS);
+  if (rc != SQLITE_OK)
+    NS_WARNING("Failed to unregister sqlite vfs wrapper.");
+
   // Shutdown the sqlite3 API.  Warn if shutdown did not turn out okay, but
   // there is nothing actionable we can do in that case.
-  int rc = ::sqlite3_quota_shutdown();
+  rc = ::sqlite3_quota_shutdown();
   if (rc != SQLITE_OK)
     NS_WARNING("sqlite3 did not shutdown cleanly.");
 
@@ -314,10 +299,12 @@ Service::~Service()
   if (rc != SQLITE_OK)
     NS_WARNING("sqlite3 did not shutdown cleanly.");
 
-  bool shutdownObserved = !sXPConnect;
+  DebugOnly<bool> shutdownObserved = !sXPConnect;
   NS_ASSERTION(shutdownObserved, "Shutdown was not observed!");
 
   gService = nsnull;
+  delete mSqliteVFS;
+  mSqliteVFS = nsnull;
 }
 
 void
@@ -326,12 +313,104 @@ Service::shutdown()
   NS_IF_RELEASE(sXPConnect);
 }
 
+sqlite3_vfs* ConstructTelemetryVFS();
+
+#ifdef MOZ_MEMORY
+
+#  if defined(XP_WIN) || defined(SOLARIS) || defined(ANDROID) || defined(XP_MACOSX)
+#    include "jemalloc.h"
+#  elif defined(XP_LINUX)
+// jemalloc is directly linked into firefox-bin; libxul doesn't link
+// with it.  So if we tried to use je_malloc_usable_size_in_advance directly
+// here, it wouldn't be defined.  Instead, we don't include the jemalloc header
+// and weakly link against je_malloc_usable_size_in_advance.
+extern "C" {
+extern size_t je_malloc_usable_size_in_advance(size_t size)
+  NS_VISIBILITY_DEFAULT __attribute__((weak));
+}
+#  endif  // XP_LINUX
+
+namespace {
+
+// By default, SQLite tracks the size of all its heap blocks by adding an extra
+// 8 bytes at the start of the block to hold the size.  Unfortunately, this
+// causes a lot of 2^N-sized allocations to be rounded up by jemalloc
+// allocator, wasting memory.  For example, a request for 1024 bytes has 8
+// bytes added, becoming a request for 1032 bytes, and jemalloc rounds this up
+// to 2048 bytes, wasting 1012 bytes.  (See bug 676189 for more details.)
+//
+// So we register jemalloc as the malloc implementation, which avoids this
+// 8-byte overhead, and thus a lot of waste.  This requires us to provide a
+// function, sqliteMemRoundup(), which computes the actual size that will be
+// allocated for a given request.  SQLite uses this function before all
+// allocations, and may be able to use any excess bytes caused by the rounding.
+//
+// Note: the wrappers for moz_malloc, moz_realloc and moz_malloc_usable_size
+// are necessary because the sqlite_mem_methods type signatures differ slightly
+// from the standard ones -- they use int instead of size_t.  But we don't need
+// a wrapper for moz_free.
+
+static void* sqliteMemMalloc(int n)
+{
+  return ::moz_malloc(n);
+}
+
+static void* sqliteMemRealloc(void* p, int n)
+{
+  return ::moz_realloc(p, n);
+}
+
+static int sqliteMemSize(void* p)
+{
+  return ::moz_malloc_usable_size(p);
+}
+
+static int sqliteMemRoundup(int n)
+{
+  n = je_malloc_usable_size_in_advance(n);
+
+  // jemalloc can return blocks of size 2 and 4, but SQLite requires that all
+  // allocations be 8-aligned.  So we round up sub-8 requests to 8.  This
+  // wastes a small amount of memory but is obviously safe.
+  return n <= 8 ? 8 : n;
+}
+
+static int sqliteMemInit(void* p)
+{
+  return 0;
+}
+
+static void sqliteMemShutdown(void* p)
+{
+}
+
+const sqlite3_mem_methods memMethods = {
+  &sqliteMemMalloc,
+  &moz_free,
+  &sqliteMemRealloc,
+  &sqliteMemSize,
+  &sqliteMemRoundup,
+  &sqliteMemInit,
+  &sqliteMemShutdown,
+  NULL
+}; 
+
+} // anonymous namespace
+
+#endif  // MOZ_MEMORY
+
 nsresult
 Service::initialize()
 {
   NS_TIME_FUNCTION;
 
   int rc;
+
+#ifdef MOZ_MEMORY
+  rc = ::sqlite3_config(SQLITE_CONFIG_MALLOC, &memMethods);
+  if (rc != SQLITE_OK)
+    return convertResultCode(rc);
+#endif
 
   // Explicitly initialize sqlite3.  Although this is implicitly called by
   // various sqlite3 functions (and the sqlite3_open calls in our case),
@@ -340,7 +419,15 @@ Service::initialize()
   if (rc != SQLITE_OK)
     return convertResultCode(rc);
 
-  rc = ::sqlite3_quota_initialize(NULL, 0);
+  mSqliteVFS = ConstructTelemetryVFS();
+  if (mSqliteVFS) {
+    rc = sqlite3_vfs_register(mSqliteVFS, 1);
+    if (rc != SQLITE_OK)
+      return convertResultCode(rc);
+  } else {
+    NS_WARNING("Failed to register telemetry VFS");
+  }
+  rc = ::sqlite3_quota_initialize("telemetry-vfs", 0);
   if (rc != SQLITE_OK)
     return convertResultCode(rc);
 
@@ -497,6 +584,8 @@ NS_IMETHODIMP
 Service::OpenUnsharedDatabase(nsIFile *aDatabaseFile,
                               mozIStorageConnection **_connection)
 {
+  NS_ENSURE_ARG(aDatabaseFile);
+
 #ifdef NS_FUNCTION_TIMER
   nsCString leafname;
   (void)aDatabaseFile->GetNativeLeafName(leafname);
@@ -547,7 +636,7 @@ Service::BackupDatabaseFile(nsIFile *aDBFile,
   rv = backupDB->GetLeafName(fileName);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  rv = backupDB->Remove(PR_FALSE);
+  rv = backupDB->Remove(false);
   NS_ENSURE_SUCCESS(rv, rv);
 
   backupDB.forget(backup);
@@ -617,6 +706,21 @@ Service::SetQuotaForFilenamePattern(const nsACString &aPattern,
   NS_ENSURE_TRUE(rc == SQLITE_OK, convertResultCode(rc));
 
   data.forget();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+Service::UpdateQutoaInformationForFile(nsIFile* aFile)
+{
+  NS_ENSURE_ARG_POINTER(aFile);
+
+  nsCString path;
+  nsresult rv = aFile->GetNativePath(path);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  int rc = ::sqlite3_quota_file(PromiseFlatCString(path).get());
+  NS_ENSURE_TRUE(rc == SQLITE_OK, convertResultCode(rc));
+
   return NS_OK;
 }
 

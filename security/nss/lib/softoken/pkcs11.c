@@ -296,6 +296,8 @@ static const struct mechanismList mechanisms[] = {
 				 CKF_GENERATE_KEY_PAIR},PR_TRUE},
      {CKM_RSA_PKCS,             {RSA_MIN_MODULUS_BITS,CK_MAX,
 				 CKF_DUZ_IT_ALL},       PR_TRUE},
+     {CKM_RSA_PKCS_PSS,         {RSA_MIN_MODULUS_BITS,CK_MAX,
+				 CKF_SN_VR},            PR_TRUE},
 #ifdef SFTK_RSA9796_SUPPORTED
      {CKM_RSA_9796,		{RSA_MIN_MODULUS_BITS,CK_MAX,
 				 CKF_DUZ_IT_ALL},       PR_TRUE},
@@ -308,6 +310,8 @@ static const struct mechanismList mechanisms[] = {
      {CKM_MD5_RSA_PKCS,		{RSA_MIN_MODULUS_BITS,CK_MAX,
 				 CKF_SN_VR}, 	PR_TRUE},
      {CKM_SHA1_RSA_PKCS,	{RSA_MIN_MODULUS_BITS,CK_MAX,
+				 CKF_SN_VR}, 	PR_TRUE},
+     {CKM_SHA224_RSA_PKCS,	{RSA_MIN_MODULUS_BITS,CK_MAX,
 				 CKF_SN_VR}, 	PR_TRUE},
      {CKM_SHA256_RSA_PKCS,	{RSA_MIN_MODULUS_BITS,CK_MAX,
 				 CKF_SN_VR}, 	PR_TRUE},
@@ -397,6 +401,9 @@ static const struct mechanismList mechanisms[] = {
      {CKM_SHA_1,		{0,   0, CKF_DIGEST},		PR_FALSE},
      {CKM_SHA_1_HMAC,		{1, 128, CKF_SN_VR},		PR_TRUE},
      {CKM_SHA_1_HMAC_GENERAL,	{1, 128, CKF_SN_VR},		PR_TRUE},
+     {CKM_SHA224,		{0,   0, CKF_DIGEST},		PR_FALSE},
+     {CKM_SHA224_HMAC,		{1, 128, CKF_SN_VR},		PR_TRUE},
+     {CKM_SHA224_HMAC_GENERAL,	{1, 128, CKF_SN_VR},		PR_TRUE},
      {CKM_SHA256,		{0,   0, CKF_DIGEST},		PR_FALSE},
      {CKM_SHA256_HMAC,		{1, 128, CKF_SN_VR},		PR_TRUE},
      {CKM_SHA256_HMAC_GENERAL,	{1, 128, CKF_SN_VR},		PR_TRUE},
@@ -2495,7 +2502,7 @@ CK_RV sftk_CloseAllSessions(SFTKSlot *slot, PRBool logout)
 		--slot->sessionCount;
 		SKIP_AFTER_FORK(PZ_Unlock(slot->slotLock));
 		if (session->info.flags & CKF_RW_SESSION) {
-		    PR_AtomicDecrement(&slot->rwSessionCount);
+		    PR_ATOMIC_DECREMENT(&slot->rwSessionCount);
 		}
 	    } else {
 		SKIP_AFTER_FORK(PZ_Unlock(lock));
@@ -3571,13 +3578,13 @@ CK_RV NSC_OpenSession(CK_SLOT_ID slotID, CK_FLAGS flags,
     ++slot->sessionCount;
     PZ_Unlock(slot->slotLock);
     if (session->info.flags & CKF_RW_SESSION) {
-	PR_AtomicIncrement(&slot->rwSessionCount);
+	PR_ATOMIC_INCREMENT(&slot->rwSessionCount);
     }
 
     do {
         PZLock *lock;
         do {
-            sessionID = (PR_AtomicIncrement(&slot->sessionIDCount) & 0xffffff)
+            sessionID = (PR_ATOMIC_INCREMENT(&slot->sessionIDCount) & 0xffffff)
                         | (slot->index << 24);
         } while (sessionID == CK_INVALID_HANDLE);
         lock = SFTK_SESSION_LOCK(slot,sessionID);
@@ -3639,7 +3646,7 @@ CK_RV NSC_CloseSession(CK_SESSION_HANDLE hSession)
 	    sftk_freeDB(handle);
 	}
 	if (session->info.flags & CKF_RW_SESSION) {
-	    PR_AtomicDecrement(&slot->rwSessionCount);
+	    PR_ATOMIC_DECREMENT(&slot->rwSessionCount);
 	}
     }
 
@@ -3653,7 +3660,7 @@ CK_RV NSC_CloseAllSessions (CK_SLOT_ID slotID)
 {
     SFTKSlot *slot;
 
-#ifndef NO_CHECK_FORK
+#ifndef NO_FORK_CHECK
     /* skip fork check if we are being called from C_Initialize or C_Finalize */
     if (!parentForkedAfterC_Initialize) {
         CHECK_FORK();
@@ -4315,7 +4322,7 @@ sftk_expandSearchList(SFTKSearchResults *search, int count)
 
 static CK_RV
 sftk_searchDatabase(SFTKDBHandle *handle, SFTKSearchResults *search,
-                        const CK_ATTRIBUTE *pTemplate, CK_LONG ulCount)
+                        const CK_ATTRIBUTE *pTemplate, CK_ULONG ulCount)
 {
     CK_RV crv;
     int objectListSize = search->array_size-search->size;
@@ -4349,7 +4356,7 @@ sftk_searchDatabase(SFTKDBHandle *handle, SFTKSearchResults *search,
  */
 CK_RV
 sftk_emailhack(SFTKSlot *slot, SFTKDBHandle *handle, 
-    SFTKSearchResults *search, CK_ATTRIBUTE *pTemplate, CK_LONG ulCount)
+    SFTKSearchResults *search, CK_ATTRIBUTE *pTemplate, CK_ULONG ulCount)
 {
     PRBool isCert = PR_FALSE;
     int emailIndex = -1;
@@ -4438,22 +4445,47 @@ loser:
     return crv;
 }
 	
+static void
+sftk_pruneSearch(CK_ATTRIBUTE *pTemplate, CK_ULONG ulCount,
+			PRBool *searchCertDB, PRBool *searchKeyDB) {
+    CK_ULONG i;
+
+    *searchCertDB = PR_TRUE;
+    *searchKeyDB = PR_TRUE;
+    for (i = 0; i < ulCount; i++) {
+	if (pTemplate[i].type == CKA_CLASS && pTemplate[i].pValue != NULL) {
+	    CK_OBJECT_CLASS class = *((CK_OBJECT_CLASS*)pTemplate[i].pValue);
+	    if (class == CKO_PRIVATE_KEY || class == CKO_SECRET_KEY) {
+		*searchCertDB = PR_FALSE;
+	    } else {
+		*searchKeyDB = PR_FALSE;
+	    }
+	    break;
+	}
+    }
+}
 
 static CK_RV
 sftk_searchTokenList(SFTKSlot *slot, SFTKSearchResults *search,
-                        CK_ATTRIBUTE *pTemplate, CK_LONG ulCount,
+                        CK_ATTRIBUTE *pTemplate, CK_ULONG ulCount,
                         PRBool *tokenOnly, PRBool isLoggedIn)
 {
-    CK_RV crv;
+    CK_RV crv = CKR_OK;
     CK_RV crv2;
-    SFTKDBHandle *certHandle = sftk_getCertDB(slot);
+    PRBool searchCertDB;
+    PRBool searchKeyDB;
+    
+    sftk_pruneSearch(pTemplate, ulCount, &searchCertDB, &searchKeyDB);
 
-    crv = sftk_searchDatabase(certHandle, search, pTemplate, ulCount);
-    crv2 = sftk_emailhack(slot, certHandle, search, pTemplate, ulCount);
-    if (crv == CKR_OK) crv2 = crv;
-    sftk_freeDB(certHandle);
+    if (searchCertDB) {
+	SFTKDBHandle *certHandle = sftk_getCertDB(slot);
+	crv = sftk_searchDatabase(certHandle, search, pTemplate, ulCount);
+	crv2 = sftk_emailhack(slot, certHandle, search, pTemplate, ulCount);
+	if (crv == CKR_OK) crv = crv2;
+	sftk_freeDB(certHandle);
+    }
 
-    if (crv == CKR_OK && isLoggedIn) {
+    if (crv == CKR_OK && isLoggedIn && searchKeyDB) {
 	SFTKDBHandle *keyHandle = sftk_getKeyDB(slot);
     	crv = sftk_searchDatabase(keyHandle, search, pTemplate, ulCount);
     	sftk_freeDB(keyHandle);

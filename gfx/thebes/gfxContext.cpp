@@ -63,6 +63,15 @@ gfxContext::gfxContext(gfxASurface *surface) :
 
     mCairo = cairo_create(surface->CairoSurface());
     mFlags = surface->GetDefaultContextFlags();
+    if (mSurface->GetRotateForLandscape()) {
+        // Rotate page 90 degrees to draw landscape page on portrait paper
+        gfxIntSize size = mSurface->GetSize();
+        Translate(gfxPoint(0, size.width));
+        gfxMatrix matrix(0, -1,
+                         1,  0,
+                         0,  0);
+        Multiply(matrix);
+    }
 }
 gfxContext::~gfxContext()
 {
@@ -230,12 +239,12 @@ gfxContext::Line(const gfxPoint& start, const gfxPoint& end)
 // For odd-width stroked rectangles, we need to offset x/y by
 // 0.5...
 void
-gfxContext::Rectangle(const gfxRect& rect, PRBool snapToPixels)
+gfxContext::Rectangle(const gfxRect& rect, bool snapToPixels)
 {
     if (snapToPixels) {
         gfxRect snappedRect(rect);
 
-        if (UserToDevicePixelSnapped(snappedRect, PR_TRUE))
+        if (UserToDevicePixelSnapped(snappedRect, true))
         {
             cairo_matrix_t mat;
             cairo_get_matrix(mCairo, &mat);
@@ -247,14 +256,14 @@ gfxContext::Rectangle(const gfxRect& rect, PRBool snapToPixels)
         }
     }
 
-    cairo_rectangle(mCairo, rect.pos.x, rect.pos.y, rect.size.width, rect.size.height);
+    cairo_rectangle(mCairo, rect.X(), rect.Y(), rect.Width(), rect.Height());
 }
 
 void
 gfxContext::Ellipse(const gfxPoint& center, const gfxSize& dimensions)
 {
     gfxSize halfDim = dimensions / 2.0;
-    gfxRect r(center - halfDim, dimensions);
+    gfxRect r(center - gfxPoint(halfDim.width, halfDim.height), dimensions);
     gfxCornerSizes c(halfDim, halfDim, halfDim, halfDim);
 
     RoundedRectangle (r, c);
@@ -280,7 +289,7 @@ gfxContext::DrawSurface(gfxASurface *surface, const gfxSize& size)
     cairo_new_path(mCairo);
 
     // pixel-snap this
-    Rectangle(gfxRect(gfxPoint(0.0, 0.0), size), PR_TRUE);
+    Rectangle(gfxRect(gfxPoint(0.0, 0.0), size), true);
 
     cairo_fill(mCairo);
     cairo_restore(mCairo);
@@ -362,8 +371,8 @@ gfxRect
 gfxContext::DeviceToUser(const gfxRect& rect) const
 {
     gfxRect ret = rect;
-    cairo_device_to_user(mCairo, &ret.pos.x, &ret.pos.y);
-    cairo_device_to_user_distance(mCairo, &ret.size.width, &ret.size.height);
+    cairo_device_to_user(mCairo, &ret.x, &ret.y);
+    cairo_device_to_user_distance(mCairo, &ret.width, &ret.height);
     return ret;
 }
 
@@ -386,11 +395,7 @@ gfxContext::UserToDevice(const gfxSize& size) const
 gfxRect
 gfxContext::UserToDevice(const gfxRect& rect) const
 {
-    double xmin, ymin, xmax, ymax;
-    xmin = rect.pos.x;
-    ymin = rect.pos.y;
-    xmax = rect.pos.x + rect.size.width;
-    ymax = rect.pos.y + rect.size.height;
+    double xmin = rect.X(), ymin = rect.Y(), xmax = rect.XMost(), ymax = rect.YMost();
 
     double x[3], y[3];
     x[0] = xmin;  y[0] = ymax;
@@ -402,20 +407,20 @@ gfxContext::UserToDevice(const gfxRect& rect) const
     ymax = ymin;
     for (int i = 0; i < 3; i++) {
         cairo_user_to_device(mCairo, &x[i], &y[i]);
-        xmin = PR_MIN(xmin, x[i]);
-        xmax = PR_MAX(xmax, x[i]);
-        ymin = PR_MIN(ymin, y[i]);
-        ymax = PR_MAX(ymax, y[i]);
+        xmin = NS_MIN(xmin, x[i]);
+        xmax = NS_MAX(xmax, x[i]);
+        ymin = NS_MIN(ymin, y[i]);
+        ymax = NS_MAX(ymax, y[i]);
     }
 
     return gfxRect(xmin, ymin, xmax - xmin, ymax - ymin);
 }
 
-PRBool
-gfxContext::UserToDevicePixelSnapped(gfxRect& rect, PRBool ignoreScale) const
+bool
+gfxContext::UserToDevicePixelSnapped(gfxRect& rect, bool ignoreScale) const
 {
     if (GetFlags() & FLAG_DISABLE_SNAPPING)
-        return PR_FALSE;
+        return false;
 
     // if we're not at 1.0 scale, don't snap, unless we're
     // ignoring the scale.  If we're not -just- a scale,
@@ -427,12 +432,12 @@ gfxContext::UserToDevicePixelSnapped(gfxRect& rect, PRBool ignoreScale) const
     if (!ignoreScale &&
         (!WITHIN_E(mat.xx,1.0) || !WITHIN_E(mat.yy,1.0) ||
          !WITHIN_E(mat.xy,0.0) || !WITHIN_E(mat.yx,0.0)))
-        return PR_FALSE;
+        return false;
 #undef WITHIN_E
 
-    gfxPoint p1 = UserToDevice(rect.pos);
-    gfxPoint p2 = UserToDevice(rect.pos + gfxSize(rect.size.width, 0.0));
-    gfxPoint p3 = UserToDevice(rect.pos + rect.size);
+    gfxPoint p1 = UserToDevice(rect.TopLeft());
+    gfxPoint p2 = UserToDevice(rect.TopRight());
+    gfxPoint p3 = UserToDevice(rect.BottomRight());
 
     // Check that the rectangle is axis-aligned. For an axis-aligned rectangle,
     // two opposite corners define the entire rectangle. So check if
@@ -444,20 +449,20 @@ gfxContext::UserToDevicePixelSnapped(gfxRect& rect, PRBool ignoreScale) const
         p1.Round();
         p3.Round();
 
-        rect.pos = gfxPoint(NS_MIN(p1.x, p3.x), NS_MIN(p1.y, p3.y));
-        rect.size = gfxSize(NS_MAX(p1.x, p3.x) - rect.pos.x,
-                            NS_MAX(p1.y, p3.y) - rect.pos.y);
-        return PR_TRUE;
+        rect.MoveTo(gfxPoint(NS_MIN(p1.x, p3.x), NS_MIN(p1.y, p3.y)));
+        rect.SizeTo(gfxSize(NS_MAX(p1.x, p3.x) - rect.X(),
+                            NS_MAX(p1.y, p3.y) - rect.Y()));
+        return true;
     }
 
-    return PR_FALSE;
+    return false;
 }
 
-PRBool
-gfxContext::UserToDevicePixelSnapped(gfxPoint& pt, PRBool ignoreScale) const
+bool
+gfxContext::UserToDevicePixelSnapped(gfxPoint& pt, bool ignoreScale) const
 {
     if (GetFlags() & FLAG_DISABLE_SNAPPING)
-        return PR_FALSE;
+        return false;
 
     // if we're not at 1.0 scale, don't snap, unless we're
     // ignoring the scale.  If we're not -just- a scale,
@@ -466,11 +471,11 @@ gfxContext::UserToDevicePixelSnapped(gfxPoint& pt, PRBool ignoreScale) const
     cairo_get_matrix(mCairo, &mat);
     if ((!ignoreScale && (mat.xx != 1.0 || mat.yy != 1.0)) ||
         (mat.xy != 0.0 || mat.yx != 0.0))
-        return PR_FALSE;
+        return false;
 
     pt = UserToDevice(pt);
     pt.Round();
-    return PR_TRUE;
+    return true;
 }
 
 void
@@ -497,8 +502,8 @@ gfxContext::PixelSnappedRectangleAndSetPattern(const gfxRect& rect,
         IdentityMatrix();
     }
 
-    Translate(r.pos);
-    r.pos.x = r.pos.y = 0;
+    Translate(r.TopLeft());
+    r.MoveTo(gfxPoint(0, 0));
     Rectangle(r);
     SetPattern(pattern);
 
@@ -549,7 +554,28 @@ gfxContext::SetDash(gfxFloat *dashes, int ndash, gfxFloat offset)
 {
     cairo_set_dash(mCairo, dashes, ndash, offset);
 }
-//void getDash() const;
+
+bool
+gfxContext::CurrentDash(FallibleTArray<gfxFloat>& dashes, gfxFloat* offset) const
+{
+    int count = cairo_get_dash_count(mCairo);
+    if (count <= 0 || !dashes.SetLength(count)) {
+        return false;
+    }
+    cairo_get_dash(mCairo, dashes.Elements(), offset);
+    return true;
+}
+
+gfxFloat
+gfxContext::CurrentDashOffset() const
+{
+    if (cairo_get_dash_count(mCairo) <= 0) {
+        return 0.0;
+    }
+    gfxFloat offset;
+    cairo_get_dash(mCairo, NULL, &offset);
+    return offset;
+}
 
 void
 gfxContext::SetLineWidth(gfxFloat width)
@@ -635,7 +661,7 @@ void
 gfxContext::Clip(const gfxRect& rect)
 {
     cairo_new_path(mCairo);
-    cairo_rectangle(mCairo, rect.pos.x, rect.pos.y, rect.size.width, rect.size.height);
+    cairo_rectangle(mCairo, rect.X(), rect.Y(), rect.Width(), rect.Height());
     cairo_clip(mCairo);
 }
 
@@ -670,6 +696,29 @@ gfxContext::GetClipExtents()
     return gfxRect(xmin, ymin, xmax - xmin, ymax - ymin);
 }
 
+bool
+gfxContext::ClipContainsRect(const gfxRect& aRect)
+{
+    cairo_rectangle_list_t *clip =
+        cairo_copy_clip_rectangle_list(mCairo);
+
+    bool result = false;
+
+    if (clip->status == CAIRO_STATUS_SUCCESS) {
+        for (int i = 0; i < clip->num_rectangles; i++) {
+            gfxRect rect(clip->rectangles[i].x, clip->rectangles[i].y,
+                         clip->rectangles[i].width, clip->rectangles[i].height);
+            if (rect.Contains(aRect)) {
+                result = true;
+                break;
+            }
+        }
+    }
+
+   cairo_rectangle_list_destroy(clip);
+   return result;
+}
+
 // rendering sources
 
 void
@@ -694,7 +743,7 @@ gfxContext::SetDeviceColor(const gfxRGBA& c)
     cairo_set_source_rgba(mCairo, c.r, c.g, c.b, c.a);
 }
 
-PRBool
+bool
 gfxContext::GetDeviceColor(gfxRGBA& c)
 {
     return cairo_pattern_get_rgba(cairo_get_source(mCairo),
@@ -834,13 +883,13 @@ gfxContext::PopGroupToSource()
     cairo_pop_group_to_source(mCairo);
 }
 
-PRBool
+bool
 gfxContext::PointInFill(const gfxPoint& pt)
 {
     return cairo_in_fill(mCairo, pt.x, pt.y);
 }
 
-PRBool
+bool
 gfxContext::PointInStroke(const gfxPoint& pt)
 {
     return cairo_in_stroke(mCairo, pt.x, pt.y);
@@ -879,7 +928,7 @@ gfxContext::GetFlattenedPath()
     return path;
 }
 
-PRBool
+bool
 gfxContext::HasError()
 {
      return cairo_status(mCairo) != CAIRO_STATUS_SUCCESS;
@@ -888,7 +937,7 @@ gfxContext::HasError()
 void
 gfxContext::RoundedRectangle(const gfxRect& rect,
                              const gfxCornerSizes& corners,
-                             PRBool draw_clockwise)
+                             bool draw_clockwise)
 {
     //
     // For CW drawing, this looks like:
@@ -977,9 +1026,9 @@ gfxContext::RoundedRectangle(const gfxRect& rect,
     gfxPoint pc, p0, p1, p2, p3;
 
     if (draw_clockwise)
-        cairo_move_to(mCairo, rect.pos.x + corners[NS_CORNER_TOP_LEFT].width, rect.pos.y);
+        cairo_move_to(mCairo, rect.X() + corners[NS_CORNER_TOP_LEFT].width, rect.Y());
     else
-        cairo_move_to(mCairo, rect.pos.x + rect.size.width - corners[NS_CORNER_TOP_RIGHT].width, rect.pos.y);
+        cairo_move_to(mCairo, rect.X() + rect.Width() - corners[NS_CORNER_TOP_RIGHT].width, rect.Y());
 
     NS_FOR_CSS_CORNERS(i) {
         // the corner index -- either 1 2 3 0 (cw) or 0 3 2 1 (ccw)
@@ -1018,3 +1067,38 @@ gfxContext::RoundedRectangle(const gfxRect& rect,
 
     cairo_close_path (mCairo);
 }
+
+#ifdef DEBUG
+void
+gfxContext::WriteAsPNG(const char* aFile)
+{ 
+  nsRefPtr<gfxASurface> surf = CurrentSurface();
+  if (surf) {
+    surf->WriteAsPNG(aFile);
+  } else {
+    NS_WARNING("No surface found!");
+  }
+}
+
+void 
+gfxContext::DumpAsDataURL()
+{ 
+  nsRefPtr<gfxASurface> surf = CurrentSurface();
+  if (surf) {
+    surf->DumpAsDataURL();
+  } else {
+    NS_WARNING("No surface found!");
+  }
+}
+
+void 
+gfxContext::CopyAsDataURL()
+{ 
+  nsRefPtr<gfxASurface> surf = CurrentSurface();
+  if (surf) {
+    surf->CopyAsDataURL();
+  } else {
+    NS_WARNING("No surface found!");
+  }
+}
+#endif

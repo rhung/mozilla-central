@@ -341,9 +341,9 @@ IsValidGUID(const nsCString& aGUID)
 
   for (nsCString::size_type i = 0; i < len; i++ ) {
     char c = aGUID[i];
-    if (c >= 'a' && c <= 'z' || // a-z
-        c >= 'A' && c <= 'Z' || // A-Z
-        c >= '0' && c <= '9' || // 0-9
+    if ((c >= 'a' && c <= 'z') || // a-z
+        (c >= 'A' && c <= 'Z') || // A-Z
+        (c >= '0' && c <= '9') || // 0-9
         c == '-' || c == '_') { // - or _
       continue;
     }
@@ -353,14 +353,27 @@ IsValidGUID(const nsCString& aGUID)
 }
 
 void
-ForceWALCheckpoint(mozIStorageConnection* aDBConn)
+TruncateTitle(const nsACString& aTitle, nsACString& aTrimmed)
 {
-  nsCOMPtr<mozIStorageAsyncStatement> stmt;
-  (void)aDBConn->CreateAsyncStatement(NS_LITERAL_CSTRING(
-    "pragma wal_checkpoint "
-  ), getter_AddRefs(stmt));
-  nsCOMPtr<mozIStoragePendingStatement> handle;
-  (void)stmt->ExecuteAsync(nsnull, getter_AddRefs(handle));
+  aTrimmed = aTitle;
+  if (aTitle.Length() > TITLE_LENGTH_MAX) {
+    aTrimmed = StringHead(aTitle, TITLE_LENGTH_MAX);
+  }
+}
+
+void
+ForceWALCheckpoint()
+{
+  nsRefPtr<Database> DB = Database::GetDatabase();
+  if (DB) {
+    nsCOMPtr<mozIStorageAsyncStatement> stmt = DB->GetAsyncStatement(
+      "pragma wal_checkpoint "
+    );
+    if (stmt) {
+      nsCOMPtr<mozIStoragePendingStatement> handle;
+      (void)stmt->ExecuteAsync(nsnull, getter_AddRefs(handle));
+    }
+  }
 }
 
 bool
@@ -377,14 +390,6 @@ GetHiddenState(bool aIsRedirect,
 
 PlacesEvent::PlacesEvent(const char* aTopic)
 : mTopic(aTopic)
-, mDoubleEnqueue(false)
-{
-}
-
-PlacesEvent::PlacesEvent(const char* aTopic,
-                         bool aDoubleEnqueue)
-: mTopic(aTopic)
-, mDoubleEnqueue(aDoubleEnqueue)
 {
 }
 
@@ -405,16 +410,10 @@ PlacesEvent::Complete()
 void
 PlacesEvent::Notify()
 {
-  if (mDoubleEnqueue) {
-    mDoubleEnqueue = false;
-    (void)NS_DispatchToMainThread(this);
-  }
-  else {
-    NS_ASSERTION(NS_IsMainThread(), "Must only be used on the main thread!");
-    nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
-    if (obs) {
-      (void)obs->NotifyObservers(nsnull, mTopic, nsnull);
-    }
+  NS_ASSERTION(NS_IsMainThread(), "Must only be used on the main thread!");
+  nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
+  if (obs) {
+    (void)obs->NotifyObservers(nsnull, mTopic, nsnull);
   }
 }
 

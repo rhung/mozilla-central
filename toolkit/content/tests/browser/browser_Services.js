@@ -71,4 +71,8 @@ function checkServices() {
   checkService("strings", Ci.nsIStringBundleService);
   checkService("urlFormatter", Ci.nsIURLFormatter);
   checkService("eTLD", Ci.nsIEffectiveTLDService);
+  checkService("cookies", Ci.nsICookieManager2);
+  checkService("logins", Ci.nsILoginManager);
+  checkService("telemetry", Ci.nsITelemetry);
+  checkService("sysinfo", Ci.nsIPropertyBag2);
 }

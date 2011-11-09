@@ -40,8 +40,6 @@
 
 #if defined(MOZ_PLATFORM_MAEMO)
 #include "nsAutodialMaemo.h"
-#elif defined(WINCE)
-#include "nsAutodialWinCE.h"
 #else
 #include "nsAutodialWin.h"
 #endif
@@ -52,26 +50,26 @@
 // API typically invoked on the socket transport thread
 //-----------------------------------------------------------------------------
 
-PRBool
+bool
 nsNativeConnectionHelper::OnConnectionFailed(const PRUnichar* hostName)
 {
   // On mobile platforms, instead of relying on the link service, we
   // should ask the dialer directly.  This allows the dialer to update
   // link status more forcefully rather than passively watching link
   // status changes.
-#if !defined(MOZ_PLATFORM_MAEMO) && !defined(WINCE_WINDOWS_MOBILE)
+#if !defined(MOZ_PLATFORM_MAEMO)
     if (gIOService->IsLinkUp())
-        return PR_FALSE;
+        return false;
 #endif
 
     nsAutodial autodial;
     if (autodial.ShouldDialOnNetworkError())
         return NS_SUCCEEDED(autodial.DialDefault(hostName));
 
-    return PR_FALSE;
+    return false;
 }
 
-PRBool
+bool
 nsNativeConnectionHelper::IsAutodialEnabled()
 {
     nsAutodial autodial;

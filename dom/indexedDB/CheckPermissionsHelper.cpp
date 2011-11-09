@@ -51,6 +51,7 @@
 #include "nsNetUtil.h"
 #include "nsThreadUtils.h"
 #include "mozilla/Services.h"
+#include "mozilla/Preferences.h"
 
 #include "IndexedDatabaseManager.h"
 
@@ -59,6 +60,7 @@
 #define TOPIC_PERMISSIONS_PROMPT "indexedDB-permissions-prompt"
 #define TOPIC_PERMISSIONS_RESPONSE "indexedDB-permissions-response"
 
+using namespace mozilla;
 USING_INDEXEDDB_NAMESPACE
 using namespace mozilla::services;
 
@@ -71,7 +73,7 @@ GetIndexedDBPermissions(const nsACString& aASCIIOrigin,
 {
   NS_ASSERTION(NS_IsMainThread(), "Wrong thread!");
 
-  if (!nsContentUtils::GetBoolPref(PREF_INDEXEDDB_ENABLED)) {
+  if (!Preferences::GetBool(PREF_INDEXEDDB_ENABLED)) {
     return nsIPermissionManager::DENY_ACTION;
   }
 
@@ -120,7 +122,12 @@ CheckPermissionsHelper::Run()
 
   nsresult rv;
   if (mHasPrompted) {
-    if (permission != nsIPermissionManager::UNKNOWN_ACTION) {
+    // Add permissions to the database, but only if we are in the parent
+    // process (if we are in the child process, we have already
+    // set the permission when the prompt was shown in the parent, as
+    // we cannot set the permission from the child).
+    if (permission != nsIPermissionManager::UNKNOWN_ACTION &&
+        XRE_GetProcessType() == GeckoProcessType_Default) {
       nsCOMPtr<nsIURI> uri;
       rv = NS_NewURI(getter_AddRefs(uri), mASCIIOrigin);
       NS_ENSURE_SUCCESS(rv, rv);
@@ -134,7 +141,8 @@ CheckPermissionsHelper::Run()
       NS_ENSURE_SUCCESS(rv, rv);
     }
   }
-  else if (permission == nsIPermissionManager::UNKNOWN_ACTION) {
+  else if (permission == nsIPermissionManager::UNKNOWN_ACTION &&
+           mPromptAllowed) {
     nsCOMPtr<nsIObserverService> obs = GetObserverService();
     rv = obs->NotifyObservers(static_cast<nsIRunnable*>(this),
                               TOPIC_PERMISSIONS_PROMPT, nsnull);
@@ -143,7 +151,7 @@ CheckPermissionsHelper::Run()
     return NS_OK;
   }
 
-  nsRefPtr<AsyncConnectionHelper> helper;
+  nsRefPtr<OpenDatabaseHelper> helper;
   helper.swap(mHelper);
 
   nsCOMPtr<nsIDOMWindow> window;
@@ -161,7 +169,8 @@ CheckPermissionsHelper::Run()
                "Unknown permission!");
 
   helper->SetError(NS_ERROR_DOM_INDEXEDDB_NOT_ALLOWED_ERR);
-  return helper->Run();
+
+  return helper->RunImmediately();
 }
 
 NS_IMETHODIMP
@@ -188,8 +197,9 @@ CheckPermissionsHelper::Observe(nsISupports* aSubject,
 {
   NS_ASSERTION(NS_IsMainThread(), "Wrong thread!");
   NS_ASSERTION(!strcmp(aTopic, TOPIC_PERMISSIONS_RESPONSE), "Bad topic!");
+  NS_ASSERTION(mPromptAllowed, "How did we get here?");
 
-  mHasPrompted = PR_TRUE;
+  mHasPrompted = true;
 
   nsresult rv;
   mPromptResult = nsDependentString(aData).ToInteger(&rv);
@@ -198,7 +208,7 @@ CheckPermissionsHelper::Observe(nsISupports* aSubject,
   IndexedDatabaseManager* mgr = IndexedDatabaseManager::Get();
   NS_ASSERTION(mgr, "This should never be null!");
 
-  rv = mgr->WaitForOpenAllowed(mName, mASCIIOrigin, this);
+  rv = NS_DispatchToCurrentThread(this);
   NS_ENSURE_SUCCESS(rv, rv);
 
   return NS_OK;

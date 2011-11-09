@@ -48,7 +48,6 @@ EXTRA_DEPS += $(topsrcdir)/ipc/chromium/chromium-config.mk
 
 DEFINES += \
   -DEXCLUDE_SKIA_DEPENDENCIES \
-  -DCHROMIUM_MOZILLA_BUILD \
   $(NULL)
 
 LOCAL_INCLUDES += \
@@ -82,13 +81,16 @@ DEFINES += \
   -D_SECURE_ATL \
   -DCHROMIUM_BUILD \
   -DU_STATIC_IMPLEMENTATION \
-  -DCOMPILER_MSVC \
   -DOS_WIN=1 \
   -DWIN32 \
   -D_WIN32 \
   -D_WINDOWS \
   -DWIN32_LEAN_AND_MEAN \
   $(NULL)
+
+ifdef _MSC_VER
+DEFINES += -DCOMPILER_MSVC
+endif
 
 else # } {
 

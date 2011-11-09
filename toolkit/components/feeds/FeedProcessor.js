@@ -46,7 +46,6 @@ const Ci = Components.interfaces;
 const Cc = Components.classes;
 const Cr = Components.results;
 Components.utils.import("resource://gre/modules/XPCOMUtils.jsm");
-Components.utils.import("resource://gre/modules/ISO8601DateUtils.jsm");
 
 const FP_CONTRACTID = "@mozilla.org/feed-processor;1";
 const FP_CLASSID = Components.ID("{26acb1f0-28fc-43bc-867a-a46aabc85dd4}");
@@ -198,11 +197,6 @@ function makePropGetter(key) {
     }
     return null;
   }
-}
-
-function W3CToIETFDate(dateString) {
-  var date = ISO8601DateUtils.parse(dateString);
-  return date.toUTCString();
 }
 
 const RDF_NS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
@@ -871,59 +865,20 @@ function rssArrayElement(s) {
   return str;
 }
 
-/***** Some feed utils from TBird *****/
-
 /**
- * Tests a RFC822 date against a regex.
- * @param aDateStr A string to test as an RFC822 date.
- *
- * @returns A boolean indicating whether the string is a valid RFC822 date.
- */
-function isValidRFC822Date(aDateStr) {
-  var regex = new RegExp(RFC822_RE);
-  return regex.test(aDateStr);
-}
-
-// Regular expression matching RFC822 dates 
-const RFC822_RE = "^((Mon|Tue|Wed|Thu|Fri|Sat|Sun)([a-z]+)?,? *)?\\d\\d?"
-+ " +(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)([a-z]+)?"
-+ " +\\d\\d(\\d\\d)? +\\d?\\d:\\d\\d(:\\d\\d)?"
-+ " +([+-]?\\d\\d\\d\\d|GMT|UT[C]?|(E|C|M|P)(ST|DT)|[A-IK-Z])$";
-
-/**
- * XXX -- need to decide what this should return. 
- * XXX -- Is there a Date class usable from C++?
- *
- * Tries tries parsing various date formats.
- * @param dateString
+ * Tries parsing a string through the JavaScript Date object.
+ * @param aDateString
  *        A string that is supposedly an RFC822 or RFC3339 date.
- * @returns A Date.toString XXX--fixme
+ * @return A Date.toUTCString, or null if the string can't be parsed.
  */
-function dateParse(dateString) {
-  var date = dateString.trim();
-
-  if (date.search(/^\d\d\d\d/) != -1) //Could be a ISO8601/W3C date
-    return W3CToIETFDate(dateString);
-
-  if (isValidRFC822Date(date))
-    return date; 
-  
-  if (!isNaN(parseInt(date, 10))) { 
-    //It's an integer, so maybe it's a timestamp
-    var d = new Date(parseInt(date, 10) * 1000);
-    var now = new Date();
-    var yeardiff = now.getFullYear() - d.getFullYear();
-    if ((yeardiff >= 0) && (yeardiff < 3)) {
-      // it's quite likely the correct date. 3 years is an arbitrary cutoff,
-      // but this is an invalid date format, and there's no way to verify
-      // its correctness.
-      return d.toString();
-    }
+function dateParse(aDateString) {
+  let dateString = aDateString.trim();
+  let date = new Date(dateString);
+  if (!isNaN(date)) {
+    return date.toUTCString();
   }
-  // Can't help.
   return null;
 } 
-
 
 const XHTML_NS = "http://www.w3.org/1999/xhtml";
 

@@ -65,8 +65,10 @@ interface nsIDOMEvent;
 interface nsITransferable;
 interface nsIQueryContentEventResult;
 interface nsIDOMWindow;
+interface nsIDOMFile;
+interface nsIFile;
 
-[scriptable, uuid(3828e648-af61-47e1-b9bc-89ca51bc19f2)]
+[scriptable, uuid(910484d7-219c-4c72-b999-7a7e9c954646)]
 interface nsIDOMWindowUtils : nsISupports {
 
   /**
@@ -364,6 +366,18 @@ interface nsIDOMWindowUtils : nsISupports {
   void garbageCollect([optional] in nsICycleCollectorListener aListener);
 
   /**
+   * Force a cycle collection without garbage collection.
+   *
+   * Will throw a DOM security error if called without UniversalXPConnect
+   * privileges in non-debug builds. Available to all callers in debug builds.
+   *
+   * @param aListener listener that receives information about the CC graph
+   *                  (see @mozilla.org/cycle-collector-logger;1 for a logger
+   *                   component)
+   */
+  void cycleCollect([optional] in nsICycleCollectorListener aListener);
+
+  /**
    * Force processing of any queued paints
    */
 
@@ -567,9 +581,16 @@ interface nsIDOMWindowUtils : nsISupports {
    * Will throw a DOM security error if called without UniversalXPConnect
    * privileges.
    *
-   * @param aType The event type: "compositionstart" or "compositionend".
+   * @param aType     The event type: "compositionstart", "compositionend" or
+   *                  "compositionupdate".
+   * @param aData     The data property value.  Note that this isn't applied
+   *                  for compositionstart event because its value is the
+   *                  selected text which is automatically computed.
+   * @param aLocale   The locale property value.
    */
-  void sendCompositionEvent(in AString aType);
+  void sendCompositionEvent(in AString aType,
+                            in AString aData,
+                            in AString aLocale);
 
   /**
    * Synthesize a text event to the window.
@@ -803,6 +824,13 @@ interface nsIDOMWindowUtils : nsISupports {
   void resumeTimeouts();
 
   /**
+   * Set the network status to online from the Offline mode error page.
+   *
+   * The caller of this method must be about:neterror.
+   */
+  void goOnline();
+
+  /**
    * What type of layer manager the widget associated with this window is
    * using. "Basic" is unaccelerated; other types are accelerated. Throws an
    * error if there is no widget associated with this window.
@@ -863,6 +891,11 @@ interface nsIDOMWindowUtils : nsISupports {
                                   in AString value2);
 
   /**
+   * Wrap an nsIFile in an nsIDOMFile
+   */
+  nsIDOMFile wrapDOMFile(in nsIFile aFile);
+
+  /**
    * Get the type of the currently focused html input, if any.
    */
   readonly attribute string focusedInputType;
@@ -881,4 +914,16 @@ interface nsIDOMWindowUtils : nsISupports {
    * the bounds of the window. Always returns true in non-DEBUG builds.
    */
   boolean leafLayersPartitionWindow();
+
+  /**
+   * true if the (current inner) window may have event listeners for touch events.
+   */
+  readonly attribute boolean mayHaveTouchEventListeners;
+ 
+  /**
+   * Check if any ThebesLayer painting has been done for this element,
+   * clears the painted flags if they have.
+   */
+  boolean checkAndClearPaintedState(in nsIDOMElement aElement);
+
 };

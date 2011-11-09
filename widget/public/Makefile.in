@@ -52,6 +52,18 @@ EXPORTS_IPC = \
 		nsGUIEventIPC.h \
 		$(NULL)
 
+EXPORTS_NAMESPACES += mozilla
+
+EXPORTS_mozilla = \
+		LookAndFeel.h \
+		$(NULL)
+
+ifdef MOZ_INSTRUMENT_EVENT_LOOP
+EXPORTS_mozilla += \
+		WidgetTraceEvent.h \
+		$(NULL)
+endif
+
 EXPORTS		= \
 		nsIWidget.h \
 		nsGUIEvent.h \
@@ -59,11 +71,9 @@ EXPORTS		= \
 		nsNativeWidget.h \
 		nsWidgetInitData.h \
 		nsWidgetsCID.h \
-		nsILookAndFeel.h \
 		nsIPluginWidget.h \
 		nsINativeKeyBindings.h \
 		nsIDeviceContextSpec.h \
-		nsIMenuRollup.h \
 		nsIRollupListener.h \
 		$(NULL)
 
@@ -94,7 +104,6 @@ endif
 XPIDLSRCS	= \
 		nsIAppShell.idl \
 		nsIFilePicker.idl \
-		nsIToolkit.idl \
 		nsISound.idl \
 		nsITransferable.idl \
 		nsIClipboardDragDropHooks.idl \
@@ -129,6 +138,7 @@ XPIDLSRCS	+= nsIPrintSettingsWin.idl \
 		nsITaskbarPreviewButton.idl \
 		nsITaskbarProgress.idl \
 		nsITaskbarPreviewButton.idl \
+		nsITaskbarOverlayIconController.idl \
 		nsIJumpListBuilder.idl \
 		nsIJumpListItem.idl \
 		$(NULL)

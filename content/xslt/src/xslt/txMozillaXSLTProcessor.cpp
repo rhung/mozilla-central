@@ -44,7 +44,7 @@
 #include "nsIDOMElement.h"
 #include "nsIDOMText.h"
 #include "nsIDocument.h"
-#include "nsIDOMClassInfo.h"
+#include "nsDOMClassInfoID.h"
 #include "nsIDOMDocument.h"
 #include "nsIDOMDocumentFragment.h"
 #include "nsIDOMNodeList.h"
@@ -81,10 +81,8 @@ class txToDocHandlerFactory : public txAOutputHandlerFactory
 public:
     txToDocHandlerFactory(txExecutionState* aEs,
                           nsIDOMDocument* aSourceDocument,
-                          nsIDOMDocument* aResultDocument,
                           nsITransformObserver* aObserver)
-        : mEs(aEs), mSourceDocument(aSourceDocument),
-          mResultDocument(aResultDocument), mObserver(aObserver)
+        : mEs(aEs), mSourceDocument(aSourceDocument), mObserver(aObserver)
     {
     }
 
@@ -93,7 +91,6 @@ public:
 private:
     txExecutionState* mEs;
     nsCOMPtr<nsIDOMDocument> mSourceDocument;
-    nsCOMPtr<nsIDOMDocument> mResultDocument;
     nsCOMPtr<nsITransformObserver> mObserver;
 };
 
@@ -131,8 +128,7 @@ txToDocHandlerFactory::createHandlerWith(txOutputFormat* aFormat,
 
             nsresult rv = handler->createResultDocument(EmptyString(),
                                                         kNameSpaceID_None,
-                                                        mSourceDocument,
-                                                        mResultDocument);
+                                                        mSourceDocument);
             if (NS_SUCCEEDED(rv)) {
                 *aHandler = handler.forget();
             }
@@ -145,8 +141,7 @@ txToDocHandlerFactory::createHandlerWith(txOutputFormat* aFormat,
             nsAutoPtr<txMozillaTextOutput> handler(
                 new txMozillaTextOutput(mObserver));
 
-            nsresult rv = handler->createResultDocument(mSourceDocument,
-                                                        mResultDocument);
+            nsresult rv = handler->createResultDocument(mSourceDocument);
             if (NS_SUCCEEDED(rv)) {
                 *aHandler = handler.forget();
             }
@@ -155,7 +150,9 @@ txToDocHandlerFactory::createHandlerWith(txOutputFormat* aFormat,
         }
     }
 
-    return NS_OK;
+    NS_RUNTIMEABORT("Unknown output method");
+
+    return NS_ERROR_FAILURE;
 }
 
 nsresult
@@ -179,8 +176,7 @@ txToDocHandlerFactory::createHandlerWith(txOutputFormat* aFormat,
                 new txMozillaXMLOutput(aFormat, mObserver));
 
             nsresult rv = handler->createResultDocument(aName, aNsID,
-                                                        mSourceDocument,
-                                                        mResultDocument);
+                                                        mSourceDocument);
             if (NS_SUCCEEDED(rv)) {
                 *aHandler = handler.forget();
             }
@@ -193,8 +189,7 @@ txToDocHandlerFactory::createHandlerWith(txOutputFormat* aFormat,
             nsAutoPtr<txMozillaTextOutput> handler(
                 new txMozillaTextOutput(mObserver));
 
-            nsresult rv = handler->createResultDocument(mSourceDocument,
-                                                        mResultDocument);
+            nsresult rv = handler->createResultDocument(mSourceDocument);
             if (NS_SUCCEEDED(rv)) {
                 *aHandler = handler.forget();
             }
@@ -203,7 +198,9 @@ txToDocHandlerFactory::createHandlerWith(txOutputFormat* aFormat,
         }
     }
 
-    return NS_OK;
+    NS_RUNTIMEABORT("Unknown output method");
+
+    return NS_ERROR_FAILURE;
 }
 
 nsresult
@@ -227,14 +224,14 @@ txToFragmentHandlerFactory::createHandlerWith(txOutputFormat* aFormat,
                 format.mMethod = eXMLOutput;
             }
 
-            *aHandler = new txMozillaXMLOutput(&format, mFragment, PR_FALSE);
+            *aHandler = new txMozillaXMLOutput(&format, mFragment, false);
             break;
         }
 
         case eXMLOutput:
         case eHTMLOutput:
         {
-            *aHandler = new txMozillaXMLOutput(aFormat, mFragment, PR_FALSE);
+            *aHandler = new txMozillaXMLOutput(aFormat, mFragment, false);
             break;
         }
 
@@ -344,7 +341,6 @@ DOMCI_DATA(XSLTProcessor, txMozillaXSLTProcessor)
 
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(txMozillaXSLTProcessor)
     NS_INTERFACE_MAP_ENTRY(nsIXSLTProcessor)
-    NS_INTERFACE_MAP_ENTRY(nsIXSLTProcessorObsolete)
     NS_INTERFACE_MAP_ENTRY(nsIXSLTProcessorPrivate)
     NS_INTERFACE_MAP_ENTRY(nsIDocumentTransformer)
     NS_INTERFACE_MAP_ENTRY(nsIMutationObserver)
@@ -365,39 +361,6 @@ txMozillaXSLTProcessor::~txMozillaXSLTProcessor()
     if (mStylesheetDocument) {
         mStylesheetDocument->RemoveMutationObserver(this);
     }
-}
-
-NS_IMETHODIMP
-txMozillaXSLTProcessor::TransformDocument(nsIDOMNode* aSourceDOM,
-                                          nsIDOMNode* aStyleDOM,
-                                          nsIDOMDocument* aOutputDoc,
-                                          nsISupports* aObserver)
-{
-    NS_ENSURE_ARG(aSourceDOM);
-    NS_ENSURE_ARG(aStyleDOM);
-    NS_ENSURE_ARG(aOutputDoc);
-    NS_ENSURE_FALSE(aObserver, NS_ERROR_NOT_IMPLEMENTED);
-
-    if (!nsContentUtils::CanCallerAccess(aSourceDOM) ||
-        !nsContentUtils::CanCallerAccess(aStyleDOM) ||
-        !nsContentUtils::CanCallerAccess(aOutputDoc)) {
-        return NS_ERROR_DOM_SECURITY_ERR;
-    }
-
-    PRUint16 type = 0;
-    aStyleDOM->GetNodeType(&type);
-    NS_ENSURE_TRUE(type == nsIDOMNode::ELEMENT_NODE ||
-                   type == nsIDOMNode::DOCUMENT_NODE,
-                   NS_ERROR_INVALID_ARG);
-
-    nsCOMPtr<nsINode> styleNode = do_QueryInterface(aStyleDOM);
-    nsresult rv = TX_CompileStylesheet(styleNode, this, mPrincipal,
-                                       getter_AddRefs(mStylesheet));
-    NS_ENSURE_SUCCESS(rv, rv);
-
-    mSource = aSourceDOM;
-
-    return TransformToDoc(aOutputDoc, nsnull);
 }
 
 NS_IMETHODIMP
@@ -457,9 +420,9 @@ public:
     {
         return NS_ERROR_XPATH_UNKNOWN_FUNCTION;
     }
-    PRBool caseInsensitiveNameTests()
+    bool caseInsensitiveNameTests()
     {
-        return PR_FALSE;
+        return false;
     }
     void SetErrorOffset(PRUint32 aOffset)
     {
@@ -472,9 +435,9 @@ public:
         aResult = nsnull;
         return NS_ERROR_INVALID_ARG;
     }
-    PRBool isStripSpaceAllowed(const txXPathNode& aNode)
+    bool isStripSpaceAllowed(const txXPathNode& aNode)
     {
-        return PR_FALSE;
+        return false;
     }
     void* getPrivateContext()
     {
@@ -587,12 +550,12 @@ public:
   {
     nsCOMPtr<nsIDocument> document =
         do_QueryInterface(mProcessor->GetSourceContentModel());
-    document->UnblockOnload(PR_TRUE);
+    document->UnblockOnload(true);
   }
 
   NS_IMETHOD Run()
   {
-    mProcessor->TransformToDoc(nsnull, nsnull);
+    mProcessor->TransformToDoc(nsnull);
     return NS_OK;
   }
 };
@@ -651,7 +614,7 @@ txMozillaXSLTProcessor::ImportStylesheet(nsIDOMNode *aStyle)
     NS_ENSURE_SUCCESS(rv, rv);
 
     if (styleNode->IsElement()) {
-        mStylesheetDocument = styleNode->GetOwnerDoc();
+        mStylesheetDocument = styleNode->OwnerDoc();
         NS_ENSURE_TRUE(mStylesheetDocument, NS_ERROR_UNEXPECTED);
 
         mEmbeddedStylesheetRoot = static_cast<nsIContent*>(styleNode.get());
@@ -682,12 +645,11 @@ txMozillaXSLTProcessor::TransformToDocument(nsIDOMNode *aSource,
 
     mSource = aSource;
 
-    return TransformToDoc(nsnull, aResult);
+    return TransformToDoc(aResult);
 }
 
 nsresult
-txMozillaXSLTProcessor::TransformToDoc(nsIDOMDocument *aOutputDoc,
-                                       nsIDOMDocument **aResult)
+txMozillaXSLTProcessor::TransformToDoc(nsIDOMDocument **aResult)
 {
     nsAutoPtr<txXPathNode> sourceNode(txXPathNativeNode::createXPathNode(mSource));
     if (!sourceNode) {
@@ -704,8 +666,7 @@ txMozillaXSLTProcessor::TransformToDoc(nsIDOMDocument *aOutputDoc,
 
     // XXX Need to add error observers
 
-    txToDocHandlerFactory handlerFactory(&es, sourceDOMDocument, aOutputDoc,
-                                         mObserver);
+    txToDocHandlerFactory handlerFactory(&es, sourceDOMDocument, mObserver);
     es.mOutputHandlerFactory = &handlerFactory;
 
     nsresult rv = es.init(*sourceNode, &mVariables);
@@ -1304,7 +1265,8 @@ txMozillaXSLTProcessor::Initialize(nsISupports* aOwner, JSContext* cx,
     nsIScriptSecurityManager* secMan = nsContentUtils::GetSecurityManager();
     NS_ENSURE_TRUE(secMan, NS_ERROR_UNEXPECTED);
 
-    secMan->GetSubjectPrincipal(getter_AddRefs(prin));
+    nsresult rv = secMan->GetSubjectPrincipal(getter_AddRefs(prin));
+    NS_ENSURE_SUCCESS(rv, rv);
     NS_ENSURE_TRUE(prin, NS_ERROR_UNEXPECTED);
 
     return Init(prin);
@@ -1386,7 +1348,7 @@ txVariable::Convert(nsIVariant *aValue, txAExprResult** aResult)
         // Boolean
         case nsIDataType::VTYPE_BOOL:
         {
-            PRBool value;
+            bool value;
             nsresult rv = aValue->GetAsBool(&value);
             NS_ENSURE_SUCCESS(rv, rv);
 

@@ -53,17 +53,24 @@ LIBXUL_LIBRARY	= 1
 
 
 MOCSRCS = \
+		moc_moziqwidget.cpp \
 		moc_mozqwidget.cpp \
 		moc_nsAppShell.cpp \
 		$(NULL)
 
-CPPSRCS	= \
+ifdef MOZ_ENABLE_CONTENTMANAGER
+MOCSRCS += moc_nsMFilePicker.cpp \
+		$(NULL)
+CPPSRCS	+= nsMFilePicker.cpp \
+		$(NULL)
+endif
+
+CPPSRCS	+= \
 		$(MOCSRCS) \
 		nsAppShell.cpp \
 		nsWidgetFactory.cpp \
 		nsWindow.cpp \
 		nsLookAndFeel.cpp \
-		nsToolkit.cpp \
 		nsScreenQt.cpp \
 		nsScreenManagerQt.cpp \
 		nsQtKeyUtils.cpp \
@@ -82,6 +89,10 @@ CPPSRCS	= \
 		nsDeviceContextSpecQt.cpp \
 		$(NULL)
 
+EXPORTS		= \
+		nsQtKeyUtils.h \
+		$(NULL)
+
 ifdef MOZ_ENABLE_QTMOBILITY
 MOCSRCS += moc_mozqorientationsensorfilter.cpp
 CPPSRCS += mozqorientationsensorfilter.cpp
@@ -89,31 +100,19 @@ endif
 
 SHARED_LIBRARY_LIBS = ../xpwidgets/libxpwidgets_s.a
 
-EXTRA_DSO_LDOPTS = \
-		$(MOZ_COMPONENT_LIBS) \
-		-lgkgfx \
-		-lthebes \
-		$(MOZ_JS_LIBS) \
-		$(MOZ_QT_LIBS) \
-		$(GLIB_LIBS) \
-		$(QCMS_LIBS) \
-		$(XEXT_LIBS) \
-		$(NULL)
-
-
-EXTRA_DSO_LDOPTS += -L$(DIST)/lib $(MOZ_XLIB_LDFLAGS) $(XLIBS)
-
 # If not primary toolkit, install in secondary path
 ifneq (qt,$(MOZ_WIDGET_TOOLKIT))
 INACTIVE_COMPONENT = 1
 endif
 
+DIRS += faststartupqt
+
 include $(topsrcdir)/config/config.mk
 include $(topsrcdir)/ipc/chromium/chromium-config.mk
 include $(topsrcdir)/config/rules.mk
 
-CXXFLAGS	+= $(MOZ_QT_CFLAGS) $(GLIB_CFLAGS) $(MOZ_CAIRO_CFLAGS)
-CFLAGS		+= $(MOZ_QT_CFLAGS) $(GLIB_CFLAGS) $(MOZ_CAIRO_CFLAGS)
+CXXFLAGS	+= $(MOZ_QT_CFLAGS) $(GLIB_CFLAGS) $(MOZ_CAIRO_CFLAGS) $(MOZ_PLATFORM_MAEMO_CFLAGS)
+CFLAGS		+= $(MOZ_QT_CFLAGS) $(GLIB_CFLAGS) $(MOZ_CAIRO_CFLAGS) $(MOZ_PLATFORM_MAEMO_CFLAGS)
 
 DEFINES		+= -D_IMPL_NS_WIDGET
 #DEFINES		+= -DDEBUG_WIDGETS
@@ -134,9 +133,10 @@ endif
 
 LOCAL_INCLUDES	+= \
 		   -I$(topsrcdir)/widget/src/xpwidgets \
+		   -I$(topsrcdir)/widget/src/qt/faststartupqt \
 		   -I$(srcdir) \
 		   $(NULL)
 ifdef MOZ_X11
 INCLUDES   	+= -I$(srcdir)/../shared/x11
-INCLUDES   	+= -I$(srcdir)/../shared
 endif
+INCLUDES   	+= -I$(srcdir)/../shared

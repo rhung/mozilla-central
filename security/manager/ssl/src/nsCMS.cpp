@@ -46,6 +46,7 @@
 #include "nsIArray.h"
 #include "nsArrayUtils.h"
 #include "nsCertVerificationThread.h"
+#include "nsCERTValInParamWrapper.h"
 
 #include "prlog.h"
 #ifdef PR_LOGGING
@@ -53,6 +54,8 @@ extern PRLogModuleInfo* gPIPNSSLog;
 #endif
 
 #include "nsNSSCleaner.h"
+#include "nsNSSComponent.h"
+static NS_DEFINE_CID(kNSSComponentCID, NS_NSSCOMPONENT_CID);
 
 NSSCleanupAutoPtrClass(CERTCertificate, CERT_DestroyCertificate)
 
@@ -156,7 +159,7 @@ NS_IMETHODIMP nsCMSMessage::GetSignerCommonName(char ** aName)
   return NS_OK;
 }
 
-NS_IMETHODIMP nsCMSMessage::ContentIsEncrypted(PRBool *isEncrypted)
+NS_IMETHODIMP nsCMSMessage::ContentIsEncrypted(bool *isEncrypted)
 {
   nsNSSShutDownPreventionLock locker;
   if (isAlreadyShutDown())
@@ -173,7 +176,7 @@ NS_IMETHODIMP nsCMSMessage::ContentIsEncrypted(PRBool *isEncrypted)
   return NS_OK;
 }
 
-NS_IMETHODIMP nsCMSMessage::ContentIsSigned(PRBool *isSigned)
+NS_IMETHODIMP nsCMSMessage::ContentIsSigned(bool *isSigned)
 {
   nsNSSShutDownPreventionLock locker;
   if (isAlreadyShutDown())
@@ -247,6 +250,8 @@ nsresult nsCMSMessage::CommonVerifySignature(unsigned char* aDigestData, PRUint3
   NSSCMSSignerInfo *si;
   PRInt32 nsigners;
   nsresult rv = NS_ERROR_FAILURE;
+  nsRefPtr<nsCERTValInParamWrapper> survivingParams;
+  nsCOMPtr<nsINSSComponent> inss;
 
   if (!NSS_CMSMessage_IsSigned(m_cmsMsg)) {
     PR_LOG(gPIPNSSLog, PR_LOG_DEBUG, ("nsCMSMessage::CommonVerifySignature - not signed\n"));
@@ -279,7 +284,7 @@ nsresult nsCMSMessage::CommonVerifySignature(unsigned char* aDigestData, PRUint3
   }
 
   // Import certs. Note that import failure is not a signature verification failure. //
-  if (NSS_CMSSignedData_ImportCerts(sigd, CERT_GetDefaultCertDB(), certUsageEmailRecipient, PR_TRUE) != SECSuccess) {
+  if (NSS_CMSSignedData_ImportCerts(sigd, CERT_GetDefaultCertDB(), certUsageEmailRecipient, true) != SECSuccess) {
     PR_LOG(gPIPNSSLog, PR_LOG_DEBUG, ("nsCMSMessage::CommonVerifySignature - can not import certs\n"));
   }
 
@@ -287,15 +292,38 @@ nsresult nsCMSMessage::CommonVerifySignature(unsigned char* aDigestData, PRUint3
   PR_ASSERT(nsigners > 0);
   si = NSS_CMSSignedData_GetSignerInfo(sigd, 0);
 
-
   // See bug 324474. We want to make sure the signing cert is 
   // still valid at the current time.
-  if (CERT_VerifyCertificateNow(CERT_GetDefaultCertDB(), si->cert, PR_TRUE, 
-                                certificateUsageEmailSigner,
-                                si->cmsg->pwfn_arg, NULL) != SECSuccess) {
-    PR_LOG(gPIPNSSLog, PR_LOG_DEBUG, ("nsCMSMessage::CommonVerifySignature - signing cert not trusted now\n"));
-    rv = NS_ERROR_CMS_VERIFY_UNTRUSTED;
-    goto loser;
+
+  if (!nsNSSComponent::globalConstFlagUsePKIXVerification) {
+    if (CERT_VerifyCertificateNow(CERT_GetDefaultCertDB(), si->cert, true, 
+                                  certificateUsageEmailSigner,
+                                  si->cmsg->pwfn_arg, NULL) != SECSuccess) {
+      PR_LOG(gPIPNSSLog, PR_LOG_DEBUG, ("nsCMSMessage::CommonVerifySignature - signing cert not trusted now\n"));
+      rv = NS_ERROR_CMS_VERIFY_UNTRUSTED;
+      goto loser;
+    }
+  }
+  else {
+    CERTValOutParam cvout[1];
+    cvout[0].type = cert_po_end;
+
+    inss = do_GetService(kNSSComponentCID, &rv);
+    if (!inss) {
+      goto loser;
+    }
+
+    if (NS_FAILED(inss->GetDefaultCERTValInParam(survivingParams))) {
+      goto loser;
+    }
+    rv = CERT_PKIXVerifyCert(si->cert, certificateUsageEmailSigner,
+			    survivingParams->GetRawPointerForNSS(),
+			    cvout, si->cmsg->pwfn_arg);
+    if (rv != SECSuccess) {
+      PR_LOG(gPIPNSSLog, PR_LOG_DEBUG, ("nsCMSMessage::CommonVerifySignature - signing cert not trusted now\n"));
+      rv = NS_ERROR_CMS_VERIFY_UNTRUSTED;
+      goto loser;
+    }
   }
 
   // We verify the first signer info,  only //
@@ -440,36 +468,36 @@ public:
     }
 
     if (mPoolp)
-      PORT_FreeArena(mPoolp, PR_FALSE);
+      PORT_FreeArena(mPoolp, false);
   }
 
-  PRBool allocate(PRUint32 count)
+  bool allocate(PRUint32 count)
   {
     // only allow allocation once
     if (mPoolp)
-      return PR_FALSE;
+      return false;
   
     mSize = count;
 
     if (!mSize)
-      return PR_FALSE;
+      return false;
   
     mPoolp = PORT_NewArena(1024);
     if (!mPoolp)
-      return PR_FALSE;
+      return false;
 
     mCerts = (CERTCertificate**)PORT_ArenaZAlloc(
       mPoolp, (count+1)*sizeof(CERTCertificate*));
 
     if (!mCerts)
-      return PR_FALSE;
+      return false;
 
     // null array, including zero termination
     for (PRUint32 i = 0; i < count+1; i++) {
       mCerts[i] = nsnull;
     }
 
-    return PR_TRUE;
+    return true;
   }
   
   void set(PRUint32 i, CERTCertificate *c)
@@ -581,7 +609,7 @@ NS_IMETHODIMP nsCMSMessage::CreateEncrypted(nsIArray * aRecipientCerts)
   }
 
   cinfo = NSS_CMSEnvelopedData_GetContentInfo(envd);
-  if (NSS_CMSContentInfo_SetContent_Data(m_cmsMsg, cinfo, nsnull, PR_FALSE) != SECSuccess) {
+  if (NSS_CMSContentInfo_SetContent_Data(m_cmsMsg, cinfo, nsnull, false) != SECSuccess) {
     PR_LOG(gPIPNSSLog, PR_LOG_DEBUG, ("nsCMSMessage::CreateEncrypted - can't set content data\n"));
     goto loser;
   }
@@ -669,7 +697,7 @@ NS_IMETHODIMP nsCMSMessage::CreateSigned(nsIX509Cert* aSigningCert, nsIX509Cert*
   cinfo = NSS_CMSSignedData_GetContentInfo(sigd);
 
   /* we're always passing data in and detaching optionally */
-  if (NSS_CMSContentInfo_SetContent_Data(m_cmsMsg, cinfo, nsnull, PR_TRUE) 
+  if (NSS_CMSContentInfo_SetContent_Data(m_cmsMsg, cinfo, nsnull, true) 
           != SECSuccess) {
     PR_LOG(gPIPNSSLog, PR_LOG_DEBUG, ("nsCMSMessage::CreateSigned - can't set content data\n"));
     goto loser;
@@ -719,7 +747,7 @@ NS_IMETHODIMP nsCMSMessage::CreateSigned(nsIX509Cert* aSigningCert, nsIX509Cert*
     }
 
     // If signing and encryption cert are identical, don't add it twice.
-    PRBool addEncryptionCert =
+    bool addEncryptionCert =
       (ecert && (!scert || !CERT_CompareCerts(ecert, scert)));
 
     if (addEncryptionCert &&
