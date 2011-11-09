@@ -1,0 +1,2555 @@
+# HG changeset patch
+# User Ted Mielczarek <ted.mielczarek@gmail.com>
+# Date 1312395128 14400
+# Node ID 7df7fcf90f3f3ee44da550882bfe9f134ccb1053
+# Parent  cc66accc81813cd35c5da8f7d50b559c4185ecc2
+bug 604039 - Add DOM Gamepad APIs
+
+diff --git a/config/autoconf.mk.in b/config/autoconf.mk.in
+--- a/config/autoconf.mk.in
++++ b/config/autoconf.mk.in
+@@ -652,16 +652,18 @@
+ 
+ VISIBILITY_FLAGS = @VISIBILITY_FLAGS@
+ WRAP_SYSTEM_INCLUDES = @WRAP_SYSTEM_INCLUDES@
+ 
+ HAVE_ARM_SIMD = @HAVE_ARM_SIMD@
+ HAVE_ARM_NEON = @HAVE_ARM_NEON@
+ HAVE_GCC_ALIGN_ARG_POINTER = @HAVE_GCC_ALIGN_ARG_POINTER@
+ 
++MOZ_GAMEPAD = @MOZ_GAMEPAD@
++
+ MOZ_THEME_FASTSTRIPE = @MOZ_THEME_FASTSTRIPE@
+ 
+ MOZ_SERVICES_SYNC = @MOZ_SERVICES_SYNC@
+ 
+ MOZ_OFFICIAL_BRANDING = @MOZ_OFFICIAL_BRANDING@
+ 
+ HAVE_CLOCK_MONOTONIC = @HAVE_CLOCK_MONOTONIC@
+ REALTIME_LIBS = @REALTIME_LIBS@
+diff --git a/configure.in b/configure.in
+--- a/configure.in
++++ b/configure.in
+@@ -5732,16 +5732,40 @@
+       MOZ_D3DX9_DLL=d3dx9_$MOZ_D3DX9_VERSION.dll
+       MOZ_D3DCOMPILER_DLL=D3DCompiler_$MOZ_D3DX9_VERSION.dll
+     fi
+   fi
+ fi
+ fi
+ 
+ dnl ========================================================
++dnl Gamepad support
++dnl ========================================================
++case "$target_os" in
++*)
++    MOZ_GAMEPAD=
++    ;;
++esac
++
++MOZ_ARG_DISABLE_BOOL(gamepad,
++[  --disable-gamepad   Disable gamepad support],
++    MOZ_GAMEPAD=,
++    MOZ_GAMEPAD=1)
++
++if test "$MOZ_GAMEPAD"; then
++    case "$target_os" in
++    *)
++        ;;
++   esac
++
++  AC_DEFINE(MOZ_GAMEPAD)
++fi
++AC_SUBST(MOZ_GAMEPAD)
++
++dnl ========================================================
+ dnl = Breakpad crash reporting (on by default on supported platforms)
+ dnl ========================================================
+ 
+ case $target in
+ i?86-*-mingw*|x86_64-*-mingw*)
+   MOZ_CRASHREPORTER=1
+   ;;
+ i?86-apple-darwin*|powerpc-apple-darwin*|x86_64-apple-darwin*)
+diff --git a/content/base/src/nsGkAtomList.h b/content/base/src/nsGkAtomList.h
+--- a/content/base/src/nsGkAtomList.h
++++ b/content/base/src/nsGkAtomList.h
+@@ -1839,16 +1839,23 @@
+ GK_ATOM(seeked, "seeked")
+ GK_ATOM(timeupdate, "timeupdate")
+ GK_ATOM(ended, "ended")
+ GK_ATOM(canplay, "canplay")
+ GK_ATOM(canplaythrough, "canplaythrough")
+ GK_ATOM(ratechange, "ratechange")
+ GK_ATOM(durationchange, "durationchange")
+ GK_ATOM(volumechange, "volumechange")
++#ifdef MOZ_GAMEPAD
++GK_ATOM(onMozGamepadButtonDown, "onMozGamepadButtonDown")
++GK_ATOM(onMozGamepadButtonUp, "onMozGamepadButtonUp")
++GK_ATOM(onMozGamepadAxisMove, "onMozGamepadAxisMove")
++GK_ATOM(onMozGamepadConnected, "onMozGamepadConnected")
++GK_ATOM(onMozGamepadDisconnected, "onMozGamepadDisconnected")
++#endif
+ 
+ // Content property names
+ GK_ATOM(animationsProperty, "AnimationsProperty")        // FrameAnimations*
+ GK_ATOM(animationsOfBeforeProperty, "AnimationsOfBeforeProperty") // FrameAnimations*
+ GK_ATOM(animationsOfAfterProperty, "AnimationsOfAfterProperty") // FrameAnimations*
+ GK_ATOM(transitionsProperty, "TransitionsProperty")        // FrameTransitions*
+ GK_ATOM(transitionsOfBeforeProperty, "TransitionsOfBeforeProperty") // FrameTransitions*
+ GK_ATOM(transitionsOfAfterProperty, "TransitionsOfAfterProperty") // FrameTransitions*
+diff --git a/content/events/public/nsEventNameList.h b/content/events/public/nsEventNameList.h
+--- a/content/events/public/nsEventNameList.h
++++ b/content/events/public/nsEventNameList.h
+@@ -684,16 +684,39 @@
+               EventNameType_None,
+               NS_EVENT_NULL)
+ 
+ NON_IDL_EVENT(MozScrolledAreaChanged,
+               NS_SCROLLEDAREACHANGED,
+               EventNameType_None,
+               NS_SCROLLAREA_EVENT)
+ 
++#ifdef MOZ_GAMEPAD
++NON_IDL_EVENT(MozGamepadButtonDown,
++              NS_MOZGAMEPAD_BUTTONDOWN,
++              EventNameType_None,
++              NS_EVENT_NULL)
++NON_IDL_EVENT(MozGamepadButtonUp,
++              NS_MOZGAMEPAD_BUTTONUP,
++              EventNameType_None,
++              NS_EVENT_NULL)
++NON_IDL_EVENT(MozGamepadAxisMove,
++              NS_MOZGAMEPAD_AXISMOVE,
++              EventNameType_None,
++              NS_EVENT_NULL)
++NON_IDL_EVENT(MozGamepadConnected,
++              NS_MOZGAMEPAD_CONNECTED,
++              EventNameType_None,
++              NS_EVENT_NULL)
++NON_IDL_EVENT(MozGamepadDisconnected,
++              NS_MOZGAMEPAD_DISCONNECTED,
++              EventNameType_None,
++              NS_EVENT_NULL)
++#endif
++
+ // Simple gesture events
+ NON_IDL_EVENT(MozSwipeGesture,
+               NS_SIMPLE_GESTURE_SWIPE,
+               EventNameType_None,
+               NS_SIMPLE_GESTURE_EVENT)
+ NON_IDL_EVENT(MozMagnifyGestureStart,
+               NS_SIMPLE_GESTURE_MAGNIFY_START,
+               EventNameType_None,
+diff --git a/content/events/public/nsIPrivateDOMEvent.h b/content/events/public/nsIPrivateDOMEvent.h
+--- a/content/events/public/nsIPrivateDOMEvent.h
++++ b/content/events/public/nsIPrivateDOMEvent.h
+@@ -141,9 +141,17 @@
+ nsresult
+ NS_NewDOMCloseEvent(nsIDOMEvent** aInstancePtrResult, nsPresContext* aPresContext, class nsEvent* aEvent);
+ nsresult
+ NS_NewDOMMozTouchEvent(nsIDOMEvent** aInstancePtrResult, nsPresContext* aPresContext, class nsMozTouchEvent* aEvent);
+ nsresult
+ NS_NewDOMTouchEvent(nsIDOMEvent** aInstancePtrResult, nsPresContext* aPresContext, class nsInputEvent *aEvent);
+ nsresult
+ NS_NewDOMCustomEvent(nsIDOMEvent** aInstancePtrResult, nsPresContext* aPresContext, nsEvent* aEvent);
++#ifdef MOZ_GAMEPAD
++nsresult
++NS_NewDOMGamepadButtonEvent(nsIDOMEvent** aInstancePtrResult, nsPresContext* aPresContext, class nsEvent *aEvent, class nsIDOMGamepad *aGamepad = NULL, PRUint32 aButton = 0);
++nsresult
++NS_NewDOMGamepadAxisMoveEvent(nsIDOMEvent** aInstancePtrResult, nsPresContext* aPresContext, class nsEvent *aEvent, class nsIDOMGamepad *aGamepad = NULL, PRUint32 aAxis = 0, float aValue = 0.0);
++nsresult
++NS_NewDOMGamepadConnectionEvent(nsIDOMEvent** aInstancePtrResult, nsPresContext* aPresContext, class nsEvent *aEvent, class nsIDOMGamepad *aGamepad = NULL);
++#endif
+ #endif // nsIPrivateDOMEvent_h__
+diff --git a/content/events/src/Makefile.in b/content/events/src/Makefile.in
+--- a/content/events/src/Makefile.in
++++ b/content/events/src/Makefile.in
+@@ -45,17 +45,17 @@
+ MODULE		= content
+ LIBRARY_NAME	= gkconevents_s
+ LIBXUL_LIBRARY  = 1
+ 
+ EXPORTS		= \
+ 		nsEventStateManager.h \
+ 		nsEventListenerManager.h \
+ 		$(NULL)
+-		
++
+ CPPSRCS		= \
+ 		nsEventListenerManager.cpp \
+ 		nsEventStateManager.cpp \
+ 		nsDOMEvent.cpp \
+ 		nsDOMDataContainerEvent.cpp \
+ 		nsDOMUIEvent.cpp \
+ 		nsDOMKeyboardEvent.cpp \
+ 		nsDOMTextEvent.cpp \
+@@ -93,16 +93,25 @@
+ 		nsDOMPopStateEvent.cpp \
+ 		nsDOMHashChangeEvent.cpp \
+ 		nsDOMCloseEvent.cpp \
+ 		nsDOMTouchEvent.cpp \
+ 		nsDOMCustomEvent.cpp \
+ 		nsDOMCompositionEvent.cpp \
+ 		$(NULL)
+ 
++ifdef MOZ_GAMEPAD
++CPPSRCS += \
++  nsDOMGamepad.cpp \
++  nsDOMGamepadButtonEvent.cpp \
++  nsDOMGamepadAxisMoveEvent.cpp \
++  nsDOMGamepadConnectionEvent.cpp \
++  $(NULL) 
++endif
++
+ # we don't want the shared lib, but we want to force the creation of a static lib.
+ FORCE_STATIC_LIB = 1
+ 
+ include $(topsrcdir)/config/config.mk
+ include $(topsrcdir)/ipc/chromium/chromium-config.mk
+ include $(topsrcdir)/config/rules.mk
+ 
+ LOCAL_INCLUDES	+= \
+diff --git a/content/events/src/nsDOMEvent.cpp b/content/events/src/nsDOMEvent.cpp
+--- a/content/events/src/nsDOMEvent.cpp
++++ b/content/events/src/nsDOMEvent.cpp
+@@ -89,16 +89,23 @@
+   "beginEvent", "endEvent", "repeatEvent",
+ #endif // MOZ_SMIL
+ #ifdef MOZ_MEDIA
+   "loadstart", "progress", "suspend", "emptied", "stalled", "play", "pause",
+   "loadedmetadata", "loadeddata", "waiting", "playing", "canplay",
+   "canplaythrough", "seeking", "seeked", "timeupdate", "ended", "ratechange",
+   "durationchange", "volumechange", "MozAudioAvailable",
+ #endif // MOZ_MEDIA
++#ifdef MOZ_GAMEPAD
++  "MozGamepadButtonDown",
++  "MozGamepadButtonUp",
++  "MozGamepadAxisMove",
++  "MozGamepadConnected",
++  "MozGamepadDisconnected",
++#endif
+   "MozAfterPaint",
+   "MozBeforePaint",
+   "MozBeforeResize",
+   "mozfullscreenchange",
+   "MozSwipeGesture",
+   "MozMagnifyGestureStart",
+   "MozMagnifyGestureUpdate",
+   "MozMagnifyGesture",
+@@ -1333,16 +1340,28 @@
+     return sEventNames[eDOMEvents_ratechange];
+   case NS_DURATIONCHANGE:
+     return sEventNames[eDOMEvents_durationchange];
+   case NS_VOLUMECHANGE:
+     return sEventNames[eDOMEvents_volumechange];
+   case NS_MOZAUDIOAVAILABLE:
+     return sEventNames[eDOMEvents_mozaudioavailable];
+ #endif
++#ifdef MOZ_GAMEPAD
++  case NS_MOZGAMEPAD_BUTTONDOWN:
++    return sEventNames[eDOMEvents_mozgamepadbuttondown];
++  case NS_MOZGAMEPAD_BUTTONUP:
++    return sEventNames[eDOMEvents_mozgamepadbuttonup];
++  case NS_MOZGAMEPAD_AXISMOVE:
++    return sEventNames[eDOMEvents_mozgamepadaxismove];
++  case NS_MOZGAMEPAD_CONNECTED:
++    return sEventNames[eDOMEvents_mozgamepadconnected];
++  case NS_MOZGAMEPAD_DISCONNECTED:
++    return sEventNames[eDOMEvents_mozgamepaddisconnected];
++#endif
+   case NS_AFTERPAINT:
+     return sEventNames[eDOMEvents_afterpaint];
+   case NS_BEFOREPAINT:
+     return sEventNames[eDOMEvents_beforepaint];
+   case NS_BEFORERESIZE_EVENT:
+     return sEventNames[eDOMEvents_beforeresize];
+   case NS_SIMPLE_GESTURE_SWIPE:
+     return sEventNames[eDOMEvents_MozSwipeGesture];
+diff --git a/content/events/src/nsDOMEvent.h b/content/events/src/nsDOMEvent.h
+--- a/content/events/src/nsDOMEvent.h
++++ b/content/events/src/nsDOMEvent.h
+@@ -172,16 +172,23 @@
+     eDOMEvents_seeked,
+     eDOMEvents_timeupdate,
+     eDOMEvents_ended,
+     eDOMEvents_ratechange,
+     eDOMEvents_durationchange,
+     eDOMEvents_volumechange,
+     eDOMEvents_mozaudioavailable,
+ #endif
++#ifdef MOZ_GAMEPAD
++    eDOMEvents_mozgamepadbuttondown,
++    eDOMEvents_mozgamepadbuttonup,
++    eDOMEvents_mozgamepadaxismove,
++    eDOMEvents_mozgamepadconnected,
++    eDOMEvents_mozgamepaddisconnected,
++#endif
+     eDOMEvents_afterpaint,
+     eDOMEvents_beforepaint,
+     eDOMEvents_beforeresize,
+     eDOMEvents_mozfullscreenchange,
+     eDOMEvents_MozSwipeGesture,
+     eDOMEvents_MozMagnifyGestureStart,
+     eDOMEvents_MozMagnifyGestureUpdate,
+     eDOMEvents_MozMagnifyGesture,
+diff --git a/content/events/src/nsDOMGamepad.cpp b/content/events/src/nsDOMGamepad.cpp
+new file mode 100644
+--- /dev/null
++++ b/content/events/src/nsDOMGamepad.cpp
+@@ -0,0 +1,176 @@
++/* ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is Mozilla Gamepad API.
++ *
++ * The Initial Developer of the Original Code is
++ * The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2011
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *  Ted Mielczarek <ted.mielczarek@gmail.com>
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either the GNU General Public License Version 2 or later (the "GPL"), or
++ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
++#include "nsDOMGamepad.h"
++#include "nsDOMClassInfoID.h"
++#include "nsIClassInfo.h"
++#include "nsIXPCScriptable.h"
++#include "jstypedarray.h"
++#include "nsTArray.h"
++#include "nsContentUtils.h"
++
++DOMCI_DATA(Gamepad, nsDOMGamepad)
++
++NS_IMPL_ADDREF(nsDOMGamepad)
++NS_IMPL_RELEASE(nsDOMGamepad)
++
++NS_INTERFACE_MAP_BEGIN(nsDOMGamepad)
++  NS_INTERFACE_MAP_ENTRY(nsISupports)
++  NS_INTERFACE_MAP_ENTRY(nsIDOMGamepad)
++  NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(Gamepad)
++NS_INTERFACE_MAP_END
++
++nsDOMGamepad::nsDOMGamepad(const nsAString &aID, PRUint32 aIndex,
++                           PRUint32 aNumButtons, PRUint32 aNumAxes)
++  : mID(aID),
++    mIndex(aIndex),
++    mConnected(true)
++{
++  mButtons.InsertElementsAt(0, aNumButtons, 0);
++  mAxes.InsertElementsAt(0, aNumAxes, 0.0f);
++}
++
++nsDOMGamepad::~nsDOMGamepad()
++{
++}
++
++/* readonly attribute DOMString id; */
++NS_IMETHODIMP nsDOMGamepad::GetId(nsAString & aID)
++{
++  aID = mID;
++  return NS_OK;
++}
++
++NS_IMETHODIMP nsDOMGamepad::GetIndex(PRUint32* aIndex)
++{
++  *aIndex = mIndex;
++  return NS_OK;
++}
++
++void nsDOMGamepad::SetIndex(PRUint32 aIndex)
++{
++  mIndex = aIndex;
++}
++
++void nsDOMGamepad::SetConnected(bool aConnected)
++{
++  mConnected = aConnected;
++}
++
++void nsDOMGamepad::SetButton(PRUint32 aButton, PRUint8 aValue)
++{
++  mButtons[aButton] = aValue;
++}
++
++void nsDOMGamepad::SetAxis(PRUint32 axis, float value)
++{
++  mAxes[axis] = value;
++}
++
++/* readonly attribute boolean connected; */
++NS_IMETHODIMP nsDOMGamepad::GetConnected(bool* aConnected)
++{
++  *aConnected = mConnected;
++  return NS_OK;
++}
++
++/* readonly attribute nsIVariant buttons; */
++NS_IMETHODIMP nsDOMGamepad::GetButtons(nsIVariant** aButtons)
++{
++  nsresult rv;
++  nsCOMPtr<nsIWritableVariant> out = do_CreateInstance(NS_VARIANT_CONTRACTID,
++                                                       &rv);
++  if (NS_FAILED(rv))
++    return rv;
++
++  if (mButtons.Length() == 0) {
++    rv = out->SetAsEmptyArray();
++  } else {
++    // Note: The resulting nsIVariant dupes both the array and its elements.
++    PRUint8 *array = reinterpret_cast<PRUint8*>
++                              (NS_Alloc(mButtons.Length() * sizeof(PRUint8)));
++    NS_ENSURE_TRUE(array, NS_ERROR_OUT_OF_MEMORY);
++
++    for (PRUint32 i = 0; i < mButtons.Length(); ++i) {
++      array[i] = mButtons[i];
++    }
++
++    rv = out->SetAsArray(nsIDataType::VTYPE_UINT8,
++                         nsnull,
++                         mButtons.Length(),
++                         reinterpret_cast<void*>(array));
++    NS_Free(array);
++  }
++  if (NS_FAILED(rv))
++    return rv;
++
++  
++  return CallQueryInterface(out, aButtons);
++}
++
++/* readonly attribute nsIVariant axes; */
++NS_IMETHODIMP nsDOMGamepad::GetAxes(nsIVariant** aAxes)
++{
++  nsresult rv;
++  nsCOMPtr<nsIWritableVariant> out = do_CreateInstance(NS_VARIANT_CONTRACTID,
++                                                       &rv);
++  if (NS_FAILED(rv))
++    return rv;
++
++  if (mAxes.Length() == 0) {
++    rv = out->SetAsEmptyArray();
++  } else {
++    // Note: The resulting nsIVariant dupes both the array and its elements.
++    float *array = reinterpret_cast<float*>
++                              (NS_Alloc(mAxes.Length() * sizeof(float)));
++    NS_ENSURE_TRUE(array, NS_ERROR_OUT_OF_MEMORY);
++
++    for (PRUint32 i = 0; i < mAxes.Length(); ++i) {
++      array[i] = mAxes[i];
++    }
++
++    rv = out->SetAsArray(nsIDataType::VTYPE_FLOAT,
++                         nsnull,
++                         mAxes.Length(),
++                         reinterpret_cast<void*>(array));
++    NS_Free(array);
++  }
++  if (NS_FAILED(rv))
++    return rv;
++
++  return CallQueryInterface(out, aAxes);
++}
+diff --git a/content/events/src/nsDOMGamepad.h b/content/events/src/nsDOMGamepad.h
+new file mode 100644
+--- /dev/null
++++ b/content/events/src/nsDOMGamepad.h
+@@ -0,0 +1,80 @@
++/* ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is Mozilla Gamepad API.
++ *
++ * The Initial Developer of the Original Code is
++ * The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2011
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *  Ted Mielczarek <ted.mielczarek@gmail.com>
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either the GNU General Public License Version 2 or later (the "GPL"), or
++ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
++#ifndef nsDomGamepad_h
++#define nsDomGamepad_h
++
++#include "nsIDOMGamepad.h"
++#include "nsCycleCollectionParticipant.h"
++#include "jstypedarray.h"
++#include "nsString.h"
++
++class nsDOMGamepad : public nsIDOMGamepad
++{
++public:
++  nsDOMGamepad(const nsAString &aID, PRUint32 aIndex,
++               PRUint32 aNumButtons, PRUint32 aNumAxes);
++  NS_DECL_ISUPPORTS
++  NS_DECL_NSIDOMGAMEPAD
++
++  nsDOMGamepad();
++  void SetConnected(bool aConnected);
++  void SetButton(PRUint32 aButton, PRUint8 aValue);
++  void SetAxis(PRUint32 aAxis, float aValue);
++  void SetIndex(PRUint32 aIndex);
++
++private:
++  ~nsDOMGamepad();
++
++  // Synchronize mCachedButtonArray with mButtons
++  void UpdateButtonArray();
++  // Synchronize mCachedAxisArray with mAxes
++  void UpdateAxisArray();
++
++protected:
++  nsString mID;
++  PRUint32 mIndex;
++
++  // true if this gamepad is currently connected.
++  bool mConnected;
++
++  // Current state of buttons, axes.
++  nsTArray<PRUint8> mButtons;
++  nsTArray<float> mAxes;
++};
++
++#endif // nsDomGamepad_h
+diff --git a/content/events/src/nsDOMGamepadAxisMoveEvent.cpp b/content/events/src/nsDOMGamepadAxisMoveEvent.cpp
+new file mode 100644
+--- /dev/null
++++ b/content/events/src/nsDOMGamepadAxisMoveEvent.cpp
+@@ -0,0 +1,126 @@
++/* ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is Mozilla Gamepad API.
++ *
++ * The Initial Developer of the Original Code is
++ * The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2011
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *  Ted Mielczarek <ted.mielczarek@gmail.com>
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either the GNU General Public License Version 2 or later (the "GPL"), or
++ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
++#include "nsDOMGamepadAxisMoveEvent.h"
++
++#include "nsDOMClassInfoID.h"
++#include "nsIDOMGamepad.h"
++#include "nsIPrivateDOMEvent.h"
++#include "nsGUIEvent.h"
++
++NS_IMPL_ADDREF_INHERITED(nsDOMGamepadAxisMoveEvent, nsDOMEvent)
++NS_IMPL_RELEASE_INHERITED(nsDOMGamepadAxisMoveEvent, nsDOMEvent)
++
++DOMCI_DATA(GamepadAxisMoveEvent, nsDOMGamepadAxisMoveEvent)
++
++NS_INTERFACE_MAP_BEGIN(nsDOMGamepadAxisMoveEvent)
++  NS_INTERFACE_MAP_ENTRY(nsIDOMGamepadAxisMoveEvent)
++  NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(GamepadAxisMoveEvent)
++NS_INTERFACE_MAP_END_INHERITING(nsDOMEvent)
++
++nsDOMGamepadAxisMoveEvent::nsDOMGamepadAxisMoveEvent(nsPresContext* aPresContext,
++                                                     nsEvent* aEvent,
++                                                     nsIDOMGamepad* aGamepad,
++                                                     PRUint32 aAxis,
++                                                     float aValue)
++: nsDOMEvent(aPresContext, aEvent),
++  mGamepad(aGamepad),
++  mAxis(aAxis),
++  mValue(aValue)
++{
++}
++
++nsDOMGamepadAxisMoveEvent::~nsDOMGamepadAxisMoveEvent()
++{
++}
++
++/* readonly attribute unsigned long axis; */
++NS_IMETHODIMP nsDOMGamepadAxisMoveEvent::GetAxis(PRUint32* aAxis)
++{
++  *aAxis = mAxis;
++  return NS_OK;
++}
++
++/* readonly attribute float value; */
++NS_IMETHODIMP nsDOMGamepadAxisMoveEvent::GetValue(float* aValue)
++{
++  *aValue = mValue;
++  return NS_OK;
++}
++
++/* readonly attribute nsIDOMGamepad gamepad; */
++NS_IMETHODIMP nsDOMGamepadAxisMoveEvent::GetGamepad(nsIDOMGamepad** aGamepad)
++{
++  nsCOMPtr<nsIDOMGamepad> gamepad = mGamepad;
++  gamepad.forget(aGamepad);
++  return NS_OK;
++}
++
++/* void initGamepadAxisMoveEvent (in DOMString typeArg, in boolean canBubbleArg, in boolean cancelableArg, in nsIDOMGamepad gamepad, in unsigned long axis, in float value); */
++NS_IMETHODIMP
++nsDOMGamepadAxisMoveEvent::InitGamepadAxisMoveEvent(const nsAString& typeArg,
++                                                    bool canBubbleArg,
++                                                    bool cancelableArg,
++                                                    nsIDOMGamepad* aGamepad,
++                                                    PRUint32 aAxis,
++                                                    float aValue)
++{
++  nsresult rv = nsDOMEvent::InitEvent(typeArg, canBubbleArg, cancelableArg);
++  NS_ENSURE_SUCCESS(rv, rv);
++  
++  mGamepad = aGamepad;
++  mAxis = aAxis;
++  mValue = aValue;
++
++  return NS_OK;
++}
++
++nsresult
++NS_NewDOMGamepadAxisMoveEvent(nsIDOMEvent** aInstancePtrResult,
++                              nsPresContext* aPresContext,
++                              class nsEvent* aEvent,
++                              nsIDOMGamepad* aGamepad,
++                              PRUint32 aAxis,
++                              float aValue)
++{
++  nsDOMGamepadAxisMoveEvent* event = new nsDOMGamepadAxisMoveEvent(aPresContext,
++                                                                   aEvent,
++                                                                   aGamepad,
++                                                                   aAxis,
++                                                                   aValue);
++  return CallQueryInterface(event, aInstancePtrResult);
++}
+diff --git a/content/events/src/nsDOMGamepadAxisMoveEvent.h b/content/events/src/nsDOMGamepadAxisMoveEvent.h
+new file mode 100644
+--- /dev/null
++++ b/content/events/src/nsDOMGamepadAxisMoveEvent.h
+@@ -0,0 +1,67 @@
++/* ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is Mozilla Gamepad API.
++ *
++ * The Initial Developer of the Original Code is
++ * The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2011
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *  Ted Mielczarek <ted.mielczarek@gmail.com>
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either the GNU General Public License Version 2 or later (the "GPL"), or
++ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
++#ifndef nsDOMGamepadAxisMoveEvent_h_
++#define nsDOMGamepadAxisMoveEvent_h_
++
++#include "nsIDOMGamepadAxisMoveEvent.h"
++#include "nsDOMEvent.h"
++#include "nsPresContext.h"
++
++class nsDOMGamepadAxisMoveEvent : public nsDOMEvent,
++                                  public nsIDOMGamepadAxisMoveEvent
++{
++public:
++  nsDOMGamepadAxisMoveEvent(nsPresContext* aPresContext, nsEvent* aEvent,
++                            nsIDOMGamepad *aGamepadID, PRUint32 aAxis,
++                            float aValue);
++
++  NS_DECL_ISUPPORTS_INHERITED
++
++  // Forward to base class
++  NS_FORWARD_NSIDOMEVENT(nsDOMEvent::)
++
++  NS_DECL_NSIDOMGAMEPADAXISMOVEEVENT
++
++private:
++  ~nsDOMGamepadAxisMoveEvent();
++  nsCOMPtr<nsIDOMGamepad> mGamepad;
++  PRUint32 mAxis;
++  float mValue;
++};
++
++#endif // nsDOMGamepadAxisMoveEvent_h_
+diff --git a/content/events/src/nsDOMGamepadButtonEvent.cpp b/content/events/src/nsDOMGamepadButtonEvent.cpp
+new file mode 100644
+--- /dev/null
++++ b/content/events/src/nsDOMGamepadButtonEvent.cpp
+@@ -0,0 +1,114 @@
++/* ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is Mozilla Gamepad API.
++ *
++ * The Initial Developer of the Original Code is
++ * The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2011
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *  Ted Mielczarek <ted.mielczarek@gmail.com>
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either the GNU General Public License Version 2 or later (the "GPL"), or
++ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
++#include "nsDOMGamepadButtonEvent.h"
++#include "nsIDOMGamepad.h"
++
++#include "nsDOMClassInfoID.h"
++#include "nsIPrivateDOMEvent.h"
++#include "nsGUIEvent.h"
++
++
++NS_IMPL_ADDREF_INHERITED(nsDOMGamepadButtonEvent, nsDOMEvent)
++NS_IMPL_RELEASE_INHERITED(nsDOMGamepadButtonEvent, nsDOMEvent)
++
++DOMCI_DATA(GamepadButtonEvent, nsDOMGamepadButtonEvent)
++
++NS_INTERFACE_MAP_BEGIN(nsDOMGamepadButtonEvent)
++  NS_INTERFACE_MAP_ENTRY(nsIDOMGamepadButtonEvent)
++  NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(GamepadButtonEvent)
++NS_INTERFACE_MAP_END_INHERITING(nsDOMEvent)
++
++nsDOMGamepadButtonEvent::nsDOMGamepadButtonEvent(nsPresContext* aPresContext,
++                                                 nsEvent* aEvent,
++                                                 nsIDOMGamepad* aGamepad,
++                                                 PRUint32 aButton)
++: nsDOMEvent(aPresContext, aEvent),
++  mGamepad(aGamepad),
++  mButton(aButton)
++{
++}
++
++nsDOMGamepadButtonEvent::~nsDOMGamepadButtonEvent()
++{
++}
++
++/* readonly attribute unsigned long button; */
++NS_IMETHODIMP nsDOMGamepadButtonEvent::GetButton(PRUint32* aButton)
++{
++  *aButton = mButton;
++  return NS_OK;
++}
++
++/* readonly attribute nsIDOMGamepad gamepad; */
++NS_IMETHODIMP nsDOMGamepadButtonEvent::GetGamepad(nsIDOMGamepad** aGamepad)
++{
++  nsCOMPtr<nsIDOMGamepad> gamepad = mGamepad;
++  gamepad.forget(aGamepad);
++  return NS_OK;
++}
++
++/* void initGamepadButtonEvent (in DOMString typeArg, in boolean canBubbleArg, in boolean cancelableArg, in nsIDOMGamepad gamepad, in unsigned long button); */
++NS_IMETHODIMP
++nsDOMGamepadButtonEvent::InitGamepadButtonEvent(const nsAString& typeArg,
++                                                bool canBubbleArg,
++                                                bool cancelableArg,
++                                                nsIDOMGamepad *aGamepad,
++                                                PRUint32 aButton)
++{
++  nsresult rv = nsDOMEvent::InitEvent(typeArg, canBubbleArg, cancelableArg);
++  NS_ENSURE_SUCCESS(rv, rv);
++  
++  mGamepad = aGamepad;
++  mButton = aButton;
++
++  return NS_OK;
++}
++
++nsresult
++NS_NewDOMGamepadButtonEvent(nsIDOMEvent** aInstancePtrResult,
++                            nsPresContext* aPresContext,
++                            class nsEvent *aEvent,
++                            nsIDOMGamepad *aGamepad,
++                            PRUint32 aButtonID)
++{
++  nsDOMGamepadButtonEvent* event = new nsDOMGamepadButtonEvent(aPresContext,
++                                                               aEvent,
++                                                               aGamepad,
++                                                               aButtonID);
++  return CallQueryInterface(event, aInstancePtrResult);
++}
+diff --git a/content/events/src/nsDOMGamepadButtonEvent.h b/content/events/src/nsDOMGamepadButtonEvent.h
+new file mode 100644
+--- /dev/null
++++ b/content/events/src/nsDOMGamepadButtonEvent.h
+@@ -0,0 +1,65 @@
++/* ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is Mozilla Gamepad API.
++ *
++ * The Initial Developer of the Original Code is
++ * The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2011
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *  Ted Mielczarek <ted.mielczarek@gmail.com>
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either the GNU General Public License Version 2 or later (the "GPL"), or
++ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
++#ifndef nsDOMGamepadButtonEvent_h_
++#define nsDOMGamepadButtonEvent_h_
++
++#include "nsIDOMGamepadButtonEvent.h"
++#include "nsDOMEvent.h"
++#include "nsPresContext.h"
++
++class nsDOMGamepadButtonEvent : public nsDOMEvent,
++                                public nsIDOMGamepadButtonEvent
++{
++public:
++  nsDOMGamepadButtonEvent(nsPresContext* aPresContext, nsEvent* aEvent,
++                          nsIDOMGamepad* aGamepad, PRUint32 aButton);
++
++  NS_DECL_ISUPPORTS_INHERITED
++
++  // Forward to base class
++  NS_FORWARD_NSIDOMEVENT(nsDOMEvent::)
++
++  NS_DECL_NSIDOMGAMEPADBUTTONEVENT
++
++private:
++  ~nsDOMGamepadButtonEvent();
++  nsCOMPtr<nsIDOMGamepad> mGamepad;
++  PRUint32 mButton;
++};
++
++#endif // nsDOMGamepadButtonEvent_h_
+diff --git a/content/events/src/nsDOMGamepadConnectionEvent.cpp b/content/events/src/nsDOMGamepadConnectionEvent.cpp
+new file mode 100644
+--- /dev/null
++++ b/content/events/src/nsDOMGamepadConnectionEvent.cpp
+@@ -0,0 +1,101 @@
++/* ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is Mozilla Gamepad API.
++ *
++ * The Initial Developer of the Original Code is
++ * The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2011
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *  Ted Mielczarek <ted.mielczarek@gmail.com>
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either the GNU General Public License Version 2 or later (the "GPL"), or
++ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
++#include "nsDOMGamepadConnectionEvent.h"
++#include "nsIDOMGamepad.h"
++
++#include "nsDOMClassInfoID.h"
++#include "nsIPrivateDOMEvent.h"
++#include "nsGUIEvent.h"
++
++NS_IMPL_ADDREF_INHERITED(nsDOMGamepadConnectionEvent, nsDOMEvent)
++NS_IMPL_RELEASE_INHERITED(nsDOMGamepadConnectionEvent, nsDOMEvent)
++
++DOMCI_DATA(GamepadConnectionEvent, nsDOMGamepadConnectionEvent)
++
++NS_INTERFACE_MAP_BEGIN(nsDOMGamepadConnectionEvent)
++  NS_INTERFACE_MAP_ENTRY(nsIDOMGamepadConnectionEvent)
++  NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(GamepadConnectionEvent)
++NS_INTERFACE_MAP_END_INHERITING(nsDOMEvent)
++
++nsDOMGamepadConnectionEvent::nsDOMGamepadConnectionEvent(
++  nsPresContext* aPresContext,
++  nsEvent* aEvent,
++  nsIDOMGamepad* aGamepad)
++: nsDOMEvent(aPresContext, aEvent),
++  mGamepad(aGamepad)
++{
++}
++
++nsDOMGamepadConnectionEvent::~nsDOMGamepadConnectionEvent()
++{
++}
++
++/* readonly attribute nsIDOMGamepad gamepad; */
++NS_IMETHODIMP nsDOMGamepadConnectionEvent::GetGamepad(nsIDOMGamepad** aGamepad)
++{
++  nsCOMPtr<nsIDOMGamepad> gamepad = mGamepad;
++  gamepad.forget(aGamepad);
++  return NS_OK;
++}
++
++/* void initGamepadConnectionEvent (in DOMString typeArg, in boolean canBubbleArg, in boolean cancelableArg, in nsIDOMGamepad gamepad); */
++NS_IMETHODIMP
++nsDOMGamepadConnectionEvent::InitGamepadConnectionEvent(
++  const nsAString& typeArg,
++  bool canBubbleArg,
++  bool cancelableArg,
++  nsIDOMGamepad* aGamepad)
++{
++  nsresult rv = nsDOMEvent::InitEvent(typeArg, canBubbleArg, cancelableArg);
++  NS_ENSURE_SUCCESS(rv, rv);
++  
++  mGamepad = aGamepad;
++
++  return NS_OK;
++}
++
++nsresult
++NS_NewDOMGamepadConnectionEvent(nsIDOMEvent** aInstancePtrResult,
++                                nsPresContext* aPresContext,
++                                class nsEvent* aEvent,
++                                class nsIDOMGamepad* aGamepad)
++{
++  nsDOMGamepadConnectionEvent* event =
++    new nsDOMGamepadConnectionEvent(aPresContext, aEvent, aGamepad);
++  return CallQueryInterface(event, aInstancePtrResult);
++}
+diff --git a/content/events/src/nsDOMGamepadConnectionEvent.h b/content/events/src/nsDOMGamepadConnectionEvent.h
+new file mode 100644
+--- /dev/null
++++ b/content/events/src/nsDOMGamepadConnectionEvent.h
+@@ -0,0 +1,64 @@
++/* ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is Mozilla Gamepad API.
++ *
++ * The Initial Developer of the Original Code is
++ * The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2011
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *  Ted Mielczarek <ted.mielczarek@gmail.com>
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either the GNU General Public License Version 2 or later (the "GPL"), or
++ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
++#ifndef nsDOMGamepadConnectionEvent_h_
++#define nsDOMGamepadConnectionEvent_h_
++
++#include "nsIDOMGamepadConnectionEvent.h"
++#include "nsDOMEvent.h"
++#include "nsPresContext.h"
++
++class nsDOMGamepadConnectionEvent : public nsDOMEvent,
++                                    public nsIDOMGamepadConnectionEvent
++{
++public:
++  nsDOMGamepadConnectionEvent(nsPresContext* aPresContext, nsEvent* aEvent,
++                              nsIDOMGamepad* aGamepad);
++
++  NS_DECL_ISUPPORTS_INHERITED
++
++  // Forward to base class
++  NS_FORWARD_NSIDOMEVENT(nsDOMEvent::)
++
++  NS_DECL_NSIDOMGAMEPADCONNECTIONEVENT
++
++private:
++  ~nsDOMGamepadConnectionEvent();
++  nsCOMPtr<nsIDOMGamepad> mGamepad;
++};
++
++#endif // nsDOMGamepadConnectionEvent_h_
+diff --git a/content/events/src/nsEventDispatcher.cpp b/content/events/src/nsEventDispatcher.cpp
+--- a/content/events/src/nsEventDispatcher.cpp
++++ b/content/events/src/nsEventDispatcher.cpp
+@@ -889,16 +889,24 @@
+   if (aEventType.LowerCaseEqualsLiteral("transitionevent"))
+     return NS_NewDOMTransitionEvent(aDOMEvent, aPresContext, nsnull);
+   if (aEventType.LowerCaseEqualsLiteral("animationevent"))
+     return NS_NewDOMAnimationEvent(aDOMEvent, aPresContext, nsnull);
+   if (aEventType.LowerCaseEqualsLiteral("popstateevent"))
+     return NS_NewDOMPopStateEvent(aDOMEvent, aPresContext, nsnull);
+   if (aEventType.LowerCaseEqualsLiteral("mozaudioavailableevent"))
+     return NS_NewDOMAudioAvailableEvent(aDOMEvent, aPresContext, nsnull);
++#ifdef MOZ_GAMEPAD
++  if (aEventType.LowerCaseEqualsLiteral("mozgamepadbuttonevent"))
++    return NS_NewDOMGamepadButtonEvent(aDOMEvent, aPresContext, nsnull);
++  if (aEventType.LowerCaseEqualsLiteral("mozgamepadaxismoveevent"))
++    return NS_NewDOMGamepadAxisMoveEvent(aDOMEvent, aPresContext, nsnull);
++  if (aEventType.LowerCaseEqualsLiteral("mozgamepadconnectionevent"))
++    return NS_NewDOMGamepadConnectionEvent(aDOMEvent, aPresContext, nsnull);
++#endif
+   if (aEventType.LowerCaseEqualsLiteral("closeevent"))
+     return NS_NewDOMCloseEvent(aDOMEvent, aPresContext, nsnull);
+   if (aEventType.LowerCaseEqualsLiteral("touchevent") &&
+       nsDOMTouchEvent::PrefEnabled())
+     return NS_NewDOMTouchEvent(aDOMEvent, aPresContext, nsnull);
+   if (aEventType.LowerCaseEqualsLiteral("hashchangeevent"))
+     return NS_NewDOMHashChangeEvent(aDOMEvent, aPresContext, nsnull);
+   if (aEventType.LowerCaseEqualsLiteral("customevent"))
+diff --git a/content/events/src/nsEventListenerManager.cpp b/content/events/src/nsEventListenerManager.cpp
+--- a/content/events/src/nsEventListenerManager.cpp
++++ b/content/events/src/nsEventListenerManager.cpp
+@@ -300,16 +300,24 @@
+ #ifdef DEBUG
+       nsCOMPtr<nsIDocument> d = do_QueryInterface(window->GetExtantDocument());
+       NS_WARN_IF_FALSE(!nsContentUtils::IsChromeDoc(d),
+                        "Please do not use mouseenter/leave events in chrome. "
+                        "They are slower than mouseover/out!");
+ #endif
+       window->SetHasMouseEnterLeaveEventListeners();
+     }
++#ifdef MOZ_GAMEPAD
++  } else if (aType >= NS_MOZGAMEPAD_START &&
++             aType <= NS_MOZGAMEPAD_END) {
++    nsPIDOMWindow* window = GetInnerWindowForTarget();
++    if (window) {
++      window->SetHasGamepadEventListener();
++    }
++#endif
+   }
+ }
+ 
+ void
+ nsEventListenerManager::RemoveEventListener(nsIDOMEventListener *aListener, 
+                                             PRUint32 aType,
+                                             nsIAtom* aUserType,
+                                             PRInt32 aFlags)
+diff --git a/dom/base/nsDOMClassInfo.cpp b/dom/base/nsDOMClassInfo.cpp
+--- a/dom/base/nsDOMClassInfo.cpp
++++ b/dom/base/nsDOMClassInfo.cpp
+@@ -338,16 +338,22 @@
+ #include "nsIDOMXULDocument.h"
+ #include "nsIDOMXULElement.h"
+ #include "nsIDOMXULCommandDispatcher.h"
+ #include "nsIDOMCrypto.h"
+ #include "nsIDOMCRMFObject.h"
+ #include "nsIControllers.h"
+ #include "nsISelection.h"
+ #include "nsIBoxObject.h"
++#ifdef MOZ_GAMEPAD
++#include "nsIDOMGamepad.h"
++#include "nsIDOMGamepadButtonEvent.h"
++#include "nsIDOMGamepadAxisMoveEvent.h"
++#include "nsIDOMGamepadConnectionEvent.h"
++#endif
+ #ifdef MOZ_XUL
+ #include "nsITreeSelection.h"
+ #include "nsITreeContentView.h"
+ #include "nsITreeView.h"
+ #include "nsIXULTemplateBuilder.h"
+ #include "nsTreeColumns.h"
+ #endif
+ #include "nsIDOMXPathException.h"
+@@ -1512,16 +1518,27 @@
+ 
+   NS_DEFINE_CLASSINFO_DATA(Touch, nsDOMGenericSH,
+                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
+   NS_DEFINE_CLASSINFO_DATA(TouchList, nsDOMTouchListSH,
+                            ARRAY_SCRIPTABLE_FLAGS)
+   NS_DEFINE_CLASSINFO_DATA(TouchEvent, nsDOMGenericSH,
+                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
+ 
++#ifdef MOZ_GAMEPAD
++  NS_DEFINE_CLASSINFO_DATA(Gamepad, nsDOMGenericSH,
++                           DOM_DEFAULT_SCRIPTABLE_FLAGS)
++  NS_DEFINE_CLASSINFO_DATA(GamepadButtonEvent, nsDOMGenericSH,
++                           DOM_DEFAULT_SCRIPTABLE_FLAGS)
++  NS_DEFINE_CLASSINFO_DATA(GamepadAxisMoveEvent, nsDOMGenericSH,
++                           DOM_DEFAULT_SCRIPTABLE_FLAGS)
++  NS_DEFINE_CLASSINFO_DATA(GamepadConnectionEvent, nsDOMGenericSH,
++                           DOM_DEFAULT_SCRIPTABLE_FLAGS)
++#endif
++
+   NS_DEFINE_CLASSINFO_DATA(MozCSSKeyframeRule, nsDOMGenericSH,
+                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
+   NS_DEFINE_CLASSINFO_DATA(MozCSSKeyframesRule, nsDOMGenericSH,
+                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
+ 
+   NS_DEFINE_CLASSINFO_DATA(MediaQueryList, nsDOMGenericSH,
+                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
+   NS_DEFINE_CLASSINFO_DATA(CustomEvent, nsDOMGenericSH,
+@@ -4109,16 +4126,37 @@
+   DOM_CLASSINFO_MAP_END
+   
+   DOM_CLASSINFO_MAP_BEGIN_MAYBE_DISABLE(TouchEvent, nsIDOMTouchEvent,
+                                         !nsDOMTouchEvent::PrefEnabled())
+     DOM_CLASSINFO_MAP_ENTRY(nsIDOMTouchEvent)
+     DOM_CLASSINFO_UI_EVENT_MAP_ENTRIES
+   DOM_CLASSINFO_MAP_END
+ 
++#ifdef MOZ_GAMEPAD
++  DOM_CLASSINFO_MAP_BEGIN(Gamepad, nsIDOMGamepad)
++    DOM_CLASSINFO_MAP_ENTRY(nsIDOMGamepad)
++  DOM_CLASSINFO_MAP_END
++
++  DOM_CLASSINFO_MAP_BEGIN(GamepadButtonEvent, nsIDOMGamepadButtonEvent)
++    DOM_CLASSINFO_MAP_ENTRY(nsIDOMGamepadButtonEvent)
++    DOM_CLASSINFO_EVENT_MAP_ENTRIES
++  DOM_CLASSINFO_MAP_END
++
++  DOM_CLASSINFO_MAP_BEGIN(GamepadAxisMoveEvent, nsIDOMGamepadAxisMoveEvent)
++    DOM_CLASSINFO_MAP_ENTRY(nsIDOMGamepadAxisMoveEvent)
++    DOM_CLASSINFO_EVENT_MAP_ENTRIES
++  DOM_CLASSINFO_MAP_END
++
++  DOM_CLASSINFO_MAP_BEGIN(GamepadConnectionEvent, nsIDOMGamepadConnectionEvent)
++    DOM_CLASSINFO_MAP_ENTRY(nsIDOMGamepadConnectionEvent)
++    DOM_CLASSINFO_EVENT_MAP_ENTRIES
++  DOM_CLASSINFO_MAP_END
++#endif
++
+   DOM_CLASSINFO_MAP_BEGIN(MozCSSKeyframeRule, nsIDOMMozCSSKeyframeRule)
+     DOM_CLASSINFO_MAP_ENTRY(nsIDOMMozCSSKeyframeRule)
+   DOM_CLASSINFO_MAP_END
+ 
+   DOM_CLASSINFO_MAP_BEGIN(MozCSSKeyframesRule, nsIDOMMozCSSKeyframesRule)
+     DOM_CLASSINFO_MAP_ENTRY(nsIDOMMozCSSKeyframesRule)
+   DOM_CLASSINFO_MAP_END
+ 
+diff --git a/dom/base/nsDOMClassInfoClasses.h b/dom/base/nsDOMClassInfoClasses.h
+--- a/dom/base/nsDOMClassInfoClasses.h
++++ b/dom/base/nsDOMClassInfoClasses.h
+@@ -508,13 +508,20 @@
+ DOMCI_CLASS(IDBVersionChangeEvent)
+ DOMCI_CLASS(IDBOpenDBRequest)
+ DOMCI_CLASS(IDBDatabaseException)
+ 
+ DOMCI_CLASS(Touch)
+ DOMCI_CLASS(TouchList)
+ DOMCI_CLASS(TouchEvent)
+ 
++#ifdef MOZ_GAMEPAD
++DOMCI_CLASS(Gamepad)
++DOMCI_CLASS(GamepadButtonEvent)
++DOMCI_CLASS(GamepadAxisMoveEvent)
++DOMCI_CLASS(GamepadConnectionEvent)
++#endif
++
+ DOMCI_CLASS(MozCSSKeyframeRule)
+ DOMCI_CLASS(MozCSSKeyframesRule)
+ 
+ DOMCI_CLASS(MediaQueryList)
+ DOMCI_CLASS(CustomEvent)
+diff --git a/dom/base/nsGlobalWindow.cpp b/dom/base/nsGlobalWindow.cpp
+--- a/dom/base/nsGlobalWindow.cpp
++++ b/dom/base/nsGlobalWindow.cpp
+@@ -240,16 +240,20 @@
+ #include "prlog.h"
+ #include "prenv.h"
+ 
+ #include "mozilla/dom/indexedDB/IDBFactory.h"
+ #include "mozilla/dom/indexedDB/IndexedDatabaseManager.h"
+ 
+ #include "mozilla/dom/StructuredCloneTags.h"
+ 
++#ifdef MOZ_GAMEPAD
++#include "mozilla/dom/GamepadService.h"
++#endif
++
+ #include "nsRefreshDriver.h"
+ #include "mozAutoDocUpdate.h"
+ 
+ #include "mozilla/Telemetry.h"
+ #include "nsLocation.h"
+ #include "nsWrapperCacheInlines.h"
+ 
+ #ifdef PR_LOGGING
+@@ -840,16 +844,17 @@
+     mShowFocusRings(false),
+ #else
+     mShowAccelerators(true),
+     mShowFocusRings(true),
+ #endif
+     mShowFocusRingForContent(false),
+     mFocusByKeyOccurred(false),
+     mHasDeviceMotion(false),
++    mHasGamepad(false),
+     mNotifiedIDDestroyed(false),
+     mTimeoutInsertionPoint(nsnull),
+     mTimeoutPublicIdCounter(1),
+     mTimeoutFiringDepth(0),
+     mJSObject(nsnull),
+     mPendingStorageEventsObsolete(nsnull),
+     mTimeoutsSuspendDepth(0),
+     mFocusMethod(0),
+@@ -1182,16 +1187,19 @@
+   mParentTarget = nsnull;
+ 
+   nsGlobalWindow *inner = GetCurrentInnerWindowInternal();
+ 
+   if (inner) {
+     inner->CleanUp(aIgnoreModalDialog);
+   }
+ 
++  DisableGamepadUpdates();
++  mHasGamepad = PR_FALSE;
++
+   if (mCleanMessageManager) {
+     NS_ABORT_IF_FALSE(mIsChrome, "only chrome should have msg manager cleaned");
+     nsGlobalChromeWindow *asChrome = static_cast<nsGlobalChromeWindow*>(this);
+     if (asChrome->mMessageManager) {
+       static_cast<nsFrameMessageManager*>(
+         asChrome->mMessageManager.get())->Disconnect();
+     }
+   }
+@@ -7670,16 +7678,38 @@
+       do_GetService(NS_DEVICE_MOTION_CONTRACTID);
+     if (ac) {
+       ac->RemoveWindowListener(this);
+     }
+   }
+ }
+ 
+ void
++nsGlobalWindow::EnableGamepadUpdates()
++{
++  if (mHasGamepad) {
++#ifdef MOZ_GAMEPAD
++    GamepadService* gamepadsvc = GamepadService::GetService();
++    gamepadsvc->AddListener(this);
++#endif
++  }
++}
++
++void
++nsGlobalWindow::DisableGamepadUpdates()
++{
++  if (mHasGamepad) {
++#ifdef MOZ_GAMEPAD
++    GamepadService* gamepadsvc = GamepadService::GetService();
++    gamepadsvc->RemoveListener(this);
++#endif
++  }
++}
++
++void
+ nsGlobalWindow::SetChromeEventHandler(nsIDOMEventTarget* aChromeEventHandler)
+ {
+   SetChromeEventHandlerInternal(aChromeEventHandler);
+   if (IsOuterWindow()) {
+     // update the chrome event handler on all our inner windows
+     for (nsGlobalWindow *inner = (nsGlobalWindow *)PR_LIST_HEAD(this);
+          inner != this;
+          inner = (nsGlobalWindow*)PR_NEXT_LINK(inner)) {
+@@ -10049,16 +10079,17 @@
+ {
+   FORWARD_TO_INNER_VOID(SuspendTimeouts, (aIncrease, aFreezeChildren));
+ 
+   bool suspended = (mTimeoutsSuspendDepth != 0);
+   mTimeoutsSuspendDepth += aIncrease;
+ 
+   if (!suspended) {
+     DisableDeviceMotionUpdates();
++    DisableGamepadUpdates();
+ 
+     // Suspend all of the workers for this window.
+     nsIScriptContext *scx = GetContextInternal();
+     JSContext *cx = scx ? scx->GetNativeContext() : nsnull;
+     mozilla::dom::workers::SuspendWorkersForWindow(cx, this);
+ 
+     TimeStamp now = TimeStamp::Now();
+     for (nsTimeout *t = FirstTimeout(); IsTimeout(t); t = t->Next()) {
+@@ -10125,16 +10156,17 @@
+ 
+   NS_ASSERTION(mTimeoutsSuspendDepth, "Mismatched calls to ResumeTimeouts!");
+   --mTimeoutsSuspendDepth;
+   bool shouldResume = (mTimeoutsSuspendDepth == 0);
+   nsresult rv;
+ 
+   if (shouldResume) {
+     EnableDeviceMotionUpdates();
++    EnableGamepadUpdates();
+ 
+     // Resume all of the workers for this window.
+     nsIScriptContext *scx = GetContextInternal();
+     JSContext *cx = scx ? scx->GetNativeContext() : nsnull;
+     mozilla::dom::workers::ResumeWorkersForWindow(cx, this);
+ 
+     // Restore all of the timeouts, using the stored time remaining
+     // (stored in timeout->mTimeRemaining).
+@@ -10234,16 +10266,23 @@
+ void
+ nsGlobalWindow::SetHasOrientationEventListener()
+ {
+   mHasDeviceMotion = true;
+   EnableDeviceMotionUpdates();
+ }
+ 
+ void
++nsGlobalWindow::SetHasGamepadEventListener()
++{
++  mHasGamepad = PR_TRUE;
++  EnableGamepadUpdates();
++}
++
++void
+ nsGlobalWindow::RemoveOrientationEventListener() {
+   DisableDeviceMotionUpdates();
+ }
+ 
+ NS_IMETHODIMP
+ nsGlobalWindow::GetURL(nsIDOMMozURLProperty** aURL)
+ {
+   FORWARD_TO_INNER(GetURL, (aURL), NS_ERROR_UNEXPECTED);
+diff --git a/dom/base/nsGlobalWindow.h b/dom/base/nsGlobalWindow.h
+--- a/dom/base/nsGlobalWindow.h
++++ b/dom/base/nsGlobalWindow.h
+@@ -395,16 +395,18 @@
+   virtual NS_HIDDEN_(nsresult) ForceClose();
+ 
+   virtual NS_HIDDEN_(void) SetHasOrientationEventListener();
+   virtual NS_HIDDEN_(void) RemoveOrientationEventListener();
+   virtual NS_HIDDEN_(void) MaybeUpdateTouchState();
+   virtual NS_HIDDEN_(void) UpdateTouchState();
+   virtual NS_HIDDEN_(bool) DispatchCustomEvent(const char *aEventName);
+ 
++  virtual NS_HIDDEN_(void) SetHasGamepadEventListener();
++
+   // nsIDOMStorageIndexedDB
+   NS_DECL_NSIDOMSTORAGEINDEXEDDB
+ 
+   // nsIInterfaceRequestor
+   NS_DECL_NSIINTERFACEREQUESTOR
+ 
+   // Object Management
+   nsGlobalWindow(nsGlobalWindow *aOuterWindow);
+@@ -578,16 +580,20 @@
+ 
+ private:
+   // Enable updates for the accelerometer.
+   void EnableDeviceMotionUpdates();
+ 
+   // Disables updates for the accelerometer.
+   void DisableDeviceMotionUpdates();
+ 
++  // Enable/disable updates for gamepad input.
++  void EnableGamepadUpdates();
++  void DisableGamepadUpdates();
++
+ protected:
+   friend class HashchangeCallback;
+   friend class nsBarProp;
+ 
+   // Object Management
+   virtual ~nsGlobalWindow();
+   void CleanUp(bool aIgnoreModalDialog);
+   void ClearControllers();
+@@ -893,16 +899,19 @@
+ 
+   // true if tab navigation has occurred for this window. Focus rings
+   // should be displayed.
+   bool                   mFocusByKeyOccurred : 1;
+ 
+   // Indicates whether this window is getting device motion change events
+   bool                   mHasDeviceMotion : 1;
+ 
++  // Indicates whether this window is getting gamepad input events
++  bool                   mHasGamepad : 1;
++
+   // whether we've sent the destroy notification for our window id
+   bool                   mNotifiedIDDestroyed : 1;
+ 
+   nsCOMPtr<nsIScriptContext>    mContext;
+   nsWeakPtr                     mOpener;
+   nsCOMPtr<nsIControllers>      mControllers;
+   nsCOMPtr<nsIArray>            mArguments;
+   nsCOMPtr<nsIArray>            mArgumentsLast;
+diff --git a/dom/base/nsPIDOMWindow.h b/dom/base/nsPIDOMWindow.h
+--- a/dom/base/nsPIDOMWindow.h
++++ b/dom/base/nsPIDOMWindow.h
+@@ -583,16 +583,21 @@
+    * Tell this window that there is an observer for orientation changes
+    */
+   virtual void SetHasOrientationEventListener() = 0;
+ 
+   /**
+    * Tell this window that we remove an orientation listener
+    */
+   virtual void RemoveOrientationEventListener() = 0;
++  
++  /**
++   * Tell this window that there is an observer for gamepad input
++   */
++  virtual void SetHasGamepadEventListener() = 0;
+ 
+   /**
+    * Set a arguments for this window. This will be set on the window
+    * right away (if there's an existing document) and it will also be
+    * installed on the window when the next document is loaded. Each
+    * language impl is responsible for converting to an array of args
+    * as appropriate for that language.
+    */
+diff --git a/dom/interfaces/events/Makefile.in b/dom/interfaces/events/Makefile.in
+--- a/dom/interfaces/events/Makefile.in
++++ b/dom/interfaces/events/Makefile.in
+@@ -81,11 +81,15 @@
+ 	nsIDOMTransitionEvent.idl		\
+ 	nsIDOMAnimationEvent.idl		\
+ 	nsIDOMPopStateEvent.idl			\
+ 	nsIDOMCloseEvent.idl			\
+ 	nsIDOMTouchEvent.idl			\
+ 	nsIDOMHashChangeEvent.idl		\
+ 	nsIDOMCustomEvent.idl			\
+ 	nsIDOMCompositionEvent.idl		\
++	nsIDOMGamepad.idl		        \
++	nsIDOMGamepadButtonEvent.idl		\
++	nsIDOMGamepadAxisMoveEvent.idl		\
++	nsIDOMGamepadConnectionEvent.idl	\
+ 	$(NULL)
+ 
+ include $(topsrcdir)/config/rules.mk
+diff --git a/dom/interfaces/events/nsIDOMGamepad.idl b/dom/interfaces/events/nsIDOMGamepad.idl
+new file mode 100644
+--- /dev/null
++++ b/dom/interfaces/events/nsIDOMGamepad.idl
+@@ -0,0 +1,69 @@
++/* ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is Mozilla Gamepad API.
++ *
++ * The Initial Developer of the Original Code is
++ * The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2011
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *  Ted Mielczarek <ted.mielczarek@gmail.com>
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either the GNU General Public License Version 2 or later (the "GPL"), or
++ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
++#include "nsISupports.idl"
++
++interface nsIVariant;
++
++[scriptable, uuid(ff13acd9-11da-4817-8f2a-4a5700dfd13e)]
++interface nsIDOMGamepad : nsISupports {
++  /**
++   * An identifier, unique per type of device.
++   */
++  readonly attribute DOMString id;
++
++  /**
++   * The game port index for the device. Unique per device
++   * attached to this system.
++   */
++  readonly attribute unsigned long index;
++
++  /**
++   * true if this gamepad is currently connected to the system.
++   */
++  readonly attribute boolean connected;
++
++  /**
++   * The current state of all buttons on the device.
++   */
++  readonly attribute nsIVariant buttons;
++
++  /**
++   * The current position of all axes on the device.
++   */
++  readonly attribute nsIVariant axes;
++};
+diff --git a/dom/interfaces/events/nsIDOMGamepadAxisMoveEvent.idl b/dom/interfaces/events/nsIDOMGamepadAxisMoveEvent.idl
+new file mode 100644
+--- /dev/null
++++ b/dom/interfaces/events/nsIDOMGamepadAxisMoveEvent.idl
+@@ -0,0 +1,67 @@
++/* ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is Mozilla Gamepad API.
++ *
++ * The Initial Developer of the Original Code is
++ * The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2011
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *  Ted Mielczarek <ted.mielczarek@gmail.com>
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either the GNU General Public License Version 2 or later (the "GPL"), or
++ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
++#include "nsIDOMEvent.idl"
++
++interface nsIDOMGamepad;
++
++[scriptable, uuid(bd09eef8-8e07-4baf-8d39-4f92003dbca8)]
++interface nsIDOMGamepadAxisMoveEvent : nsIDOMEvent
++{
++  /**
++   * Index in gamepad.axes of the axis that was moved.
++   */
++  readonly attribute unsigned long axis;
++
++  /**
++   * Position of the axis in the range -1.0...1.0.
++   */
++  readonly attribute float value;
++
++  /**
++   * The device that generated this event.
++   */
++  readonly attribute nsIDOMGamepad gamepad;
++  
++  [noscript]
++  void initGamepadAxisMoveEvent(in DOMString typeArg,
++                                in boolean canBubbleArg,
++                                in boolean cancelableArg,
++                                in nsIDOMGamepad gamepad,
++                                in unsigned long axis,
++                                in float value);
++};
+diff --git a/dom/interfaces/events/nsIDOMGamepadButtonEvent.idl b/dom/interfaces/events/nsIDOMGamepadButtonEvent.idl
+new file mode 100644
+--- /dev/null
++++ b/dom/interfaces/events/nsIDOMGamepadButtonEvent.idl
+@@ -0,0 +1,61 @@
++/* ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is Mozilla Gamepad API.
++ *
++ * The Initial Developer of the Original Code is
++ * The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2011
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *  Ted Mielczarek <ted.mielczarek@gmail.com>
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either the GNU General Public License Version 2 or later (the "GPL"), or
++ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
++#include "nsIDOMEvent.idl"
++
++interface nsIDOMGamepad;
++
++[scriptable, uuid(d75d4d2b-e7b4-4b93-ac35-2e70b57d9b28)]
++interface nsIDOMGamepadButtonEvent : nsIDOMEvent
++{
++  /**
++   * Index in gamepad.buttons of the button that was pressed or released.
++   */
++  readonly attribute unsigned long button;
++
++  /**
++   * The device that generated this event.
++   */
++  readonly attribute nsIDOMGamepad gamepad;
++
++  [noscript]
++  void initGamepadButtonEvent(in DOMString typeArg,
++                              in boolean canBubbleArg,
++                              in boolean cancelableArg,
++                              in nsIDOMGamepad gamepad,
++                              in unsigned long button);
++};
+diff --git a/dom/interfaces/events/nsIDOMGamepadConnectionEvent.idl b/dom/interfaces/events/nsIDOMGamepadConnectionEvent.idl
+new file mode 100644
+--- /dev/null
++++ b/dom/interfaces/events/nsIDOMGamepadConnectionEvent.idl
+@@ -0,0 +1,55 @@
++/* ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is Mozilla Gamepad API.
++ *
++ * The Initial Developer of the Original Code is
++ * The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2011
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *  Ted Mielczarek <ted.mielczarek@gmail.com>
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either the GNU General Public License Version 2 or later (the "GPL"), or
++ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
++#include "nsIDOMEvent.idl"
++
++interface nsIDOMGamepad;
++
++[scriptable, uuid(93b048d6-2aef-46a9-b0f4-06d7f00d8ef2)]
++interface nsIDOMGamepadConnectionEvent : nsIDOMEvent
++{
++  /**
++   * The device that generated this event.
++   */
++  readonly attribute nsIDOMGamepad gamepad;
++
++  [noscript]
++  void initGamepadConnectionEvent(in DOMString typeArg,
++                                  in boolean canBubbleArg,
++                                  in boolean cancelableArg,
++                                  in nsIDOMGamepad gamepad);
++};
+diff --git a/dom/system/GamepadService.cpp b/dom/system/GamepadService.cpp
+new file mode 100644
+--- /dev/null
++++ b/dom/system/GamepadService.cpp
+@@ -0,0 +1,466 @@
++/* ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is Mozilla Gamepad API.
++ *
++ * The Initial Developer of the Original Code is
++ * The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2011
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *  Ted Mielczarek <ted.mielczarek@gmail.com>
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either the GNU General Public License Version 2 or later (the "GPL"), or
++ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
++#include "GamepadService.h"
++
++#include "nsAutoPtr.h"
++#include "nsFocusManager.h"
++#include "nsIDOMEvent.h"
++#include "nsIDOMDocument.h"
++#include "nsIDOMEventTarget.h"
++#include "nsDOMGamepad.h"
++#include "nsIDOMGamepadButtonEvent.h"
++#include "nsIDOMGamepadAxisMoveEvent.h"
++#include "nsIDOMGamepadConnectionEvent.h"
++#include "nsIDOMWindow.h"
++#include "nsIPrivateDOMEvent.h"
++#include "nsIServiceManager.h"
++#include "nsITimer.h"
++
++#include <cstddef>
++
++namespace mozilla {
++namespace dom {
++
++// This should be implemented per-platform and return an instance
++// of the GamepadService subclass.
++extern GamepadService* CreateGamepadService();
++
++// Amount of time to wait before cleaning up gamepad resources
++// when no pages are listening for events.
++static const int kCleanupDelayMS = 2000;
++
++GamepadService* GamepadService::sSingleton = NULL;
++
++GamepadService::GamepadService()
++  : mStarted(false),
++    mFocusManager(do_GetService(FOCUSMANAGER_CONTRACTID))
++{
++  mListeners.Init();
++}
++
++GamepadService::~GamepadService()
++{
++}
++
++//TODO: add an xpcom shutdown listener to force shutdown
++void
++GamepadService::AddListener(nsIDOMWindow *aWindow)
++{
++  PRUint32 data;
++  if (mListeners.Get(aWindow, &data)) {
++    return; // already exists
++  }
++
++  if (!mStarted) {
++    Startup();
++  }
++
++  mListeners.Put(aWindow, 0);
++}
++
++void
++GamepadService::RemoveListener(nsIDOMWindow *aWindow)
++{
++  PRUint32 data;
++  if (!mListeners.Get(aWindow, &data)) {
++    return; // doesn't exist
++  }
++
++  mListeners.Remove(aWindow);
++
++  if (mListeners.Count() == 0) {
++    StartCleanupTimer();
++  }
++}
++
++PRUint32
++GamepadService::AddGamepad(const char* id,
++                           PRUint32 numButtons,
++                           PRUint32 numAxes) {
++  //TODO: get initial button/axis state
++  nsDOMGamepad* gamepad =
++    new nsDOMGamepad(NS_ConvertUTF8toUTF16(nsDependentCString(id)),
++                     0,
++                     numButtons,
++                     numAxes);
++  int index = -1;
++  for (PRUint32 i = 0; i < mGamepads.Length(); i++) {
++    if (!mGamepads[i]) {
++      mGamepads[i] = gamepad;
++      index = i;
++      break;
++    }
++  }
++  if (index == -1) {
++    mGamepads.AppendElement(gamepad);
++    index = mGamepads.Length() - 1;
++  }
++
++  gamepad->SetIndex(index);
++  NewConnectionEvent(index, true);
++
++  return index;
++}
++
++void
++GamepadService::RemoveGamepad(PRUint32 index) {
++  if (index < mGamepads.Length()) {
++    mGamepads[index]->SetConnected(false);
++    NewConnectionEvent(index, false);
++    // If this is the last entry in the list, just remove it.
++    if (index == mGamepads.Length() - 1) {
++      mGamepads.RemoveElementAt(index);
++    } else {
++      // Otherwise just null it out and leave it, so the
++      // indices of the following entries remain valid.
++      mGamepads[index] = NULL;
++    }
++  }
++}
++
++void
++GamepadService::NewButtonEvent(PRUint32 index, PRUint32 button, bool pressed) {
++  if (index >= mGamepads.Length()) {
++    return;
++  }
++
++  mGamepads[index]->SetButton(button, pressed ? 1 : 0);
++
++  nsCOMPtr<nsIDOMWindow> window;
++  if (GetFocusedWindow(getter_AddRefs(window))) {
++    if (!WindowHasSeenGamepad(window, index)) {
++      SetWindowHasSeenGamepad(window, index);
++      // This window hasn't seen this gamepad before, so
++      // send a connection event first.
++      NewConnectionEvent(index, true);
++    }
++
++    nsCOMPtr<nsIDOMDocument> domdoc;
++    window->GetDocument(getter_AddRefs(domdoc));
++
++    if (domdoc) {
++      nsCOMPtr<nsIDOMEventTarget> target = do_QueryInterface(window);
++      //Fire event
++      FireButtonEvent(domdoc, target, index, button, pressed);
++    }
++  }
++}
++
++void
++GamepadService::FireButtonEvent(nsIDOMDocument *domdoc,
++                                nsIDOMEventTarget *target,
++                                PRUint32 index,
++                                PRUint32 button,
++                                bool pressed)
++{
++  nsCOMPtr<nsIDOMEvent> event;
++  bool defaultActionEnabled = true;
++  domdoc->CreateEvent(NS_LITERAL_STRING("MozGamepadButtonEvent"),
++                      getter_AddRefs(event));
++  if (!event) {
++    return;
++  }
++
++  nsCOMPtr<nsIDOMGamepadButtonEvent> je = do_QueryInterface(event);
++
++  if (!je) {
++    return;
++  }
++
++  nsString name = pressed ? NS_LITERAL_STRING("MozGamepadButtonDown") :
++                            NS_LITERAL_STRING("MozGamepadButtonUp");
++  je->InitGamepadButtonEvent(name, false, false, mGamepads[index], button);
++
++  nsCOMPtr<nsIPrivateDOMEvent> privateEvent = do_QueryInterface(event);
++  if (privateEvent) {
++    privateEvent->SetTrusted(PR_TRUE);
++  }
++
++  target->DispatchEvent(event, &defaultActionEnabled);
++}
++
++void
++GamepadService::NewAxisMoveEvent(PRUint32 index, PRUint32 axis, float value) {
++  if (index >= mGamepads.Length()) {
++    return;
++  }
++  mGamepads[index]->SetAxis(axis, value);
++
++  nsCOMPtr<nsIDOMWindow> window;
++  if (GetFocusedWindow(getter_AddRefs(window))) {
++    if (!WindowHasSeenGamepad(window, index)) {
++      SetWindowHasSeenGamepad(window, index);
++      // This window hasn't seen this gamepad before, so
++      // send a connection event first.
++      NewConnectionEvent(index, true);
++    }
++
++    nsCOMPtr<nsIDOMDocument> domdoc;
++    window->GetDocument(getter_AddRefs(domdoc));
++
++    if (domdoc) {
++      nsCOMPtr<nsIDOMEventTarget> target = do_QueryInterface(window);
++      //Fire event
++      FireAxisMoveEvent(domdoc, target, index, axis, value);
++    }
++  }
++}
++
++void
++GamepadService::FireAxisMoveEvent(nsIDOMDocument* domdoc,
++                                  nsIDOMEventTarget* target,
++                                  PRUint32 index,
++                                  PRUint32 axis,
++                                  float value)
++{
++  nsCOMPtr<nsIDOMEvent> event;
++  bool defaultActionEnabled = true;
++  domdoc->CreateEvent(NS_LITERAL_STRING("MozGamepadAxisMoveEvent"),
++                      getter_AddRefs(event));
++  if (!event) {
++    return;
++  }
++
++  nsCOMPtr<nsIDOMGamepadAxisMoveEvent> je = do_QueryInterface(event);
++
++  if (!je) {
++    return;
++  }
++
++  je->InitGamepadAxisMoveEvent(NS_LITERAL_STRING("MozGamepadAxisMove"),
++                                false, false, mGamepads[index], axis, value);
++
++  nsCOMPtr<nsIPrivateDOMEvent> privateEvent = do_QueryInterface(event);
++  if (privateEvent)
++    privateEvent->SetTrusted(PR_TRUE);
++
++  target->DispatchEvent(event, &defaultActionEnabled);
++}
++
++void
++GamepadService::NewConnectionEvent(PRUint32 index, bool connected)
++{
++  if (index >= mGamepads.Length()) {
++    return;
++  }
++
++  if (connected) {
++    nsCOMPtr<nsIDOMWindow> window;
++    if (GetFocusedWindow(getter_AddRefs(window))) {
++      // We don't fire a connected event here unless the window
++      // has seen input from at least one device.
++      PRUint32 data;
++      bool hasSeenData = mListeners.Get(window, &data) && data != 0;
++      if (connected && !hasSeenData) {
++        return;
++      }
++
++      SetWindowHasSeenGamepad(window, index);
++
++      nsCOMPtr<nsIDOMDocument> domdoc;
++      window->GetDocument(getter_AddRefs(domdoc));
++
++      if (domdoc) {
++        nsCOMPtr<nsIDOMEventTarget> target = do_QueryInterface(window);
++        // Fire event
++        FireConnectionEvent(domdoc, target, index, connected);
++      }
++    }
++  } else {
++    // For disconnection events, fire one at every window that has received
++    // data from this gamepad.
++    mDisconnectingGamepad = index;
++    mListeners.Enumerate(EnumerateForDisconnect, (void*)this);
++  }
++}
++
++// static
++PLDHashOperator
++GamepadService::EnumerateForDisconnect(nsISupports* aKey,
++                                       PRUint32& aData,
++                                       void *userArg)
++{
++  GamepadService* self = reinterpret_cast<GamepadService*>(userArg);
++
++  nsCOMPtr<nsIDOMWindow> window = do_QueryInterface(aKey);
++  if (window &&
++      self->WindowHasSeenGamepad(window, self->mDisconnectingGamepad)) {
++    self->SetWindowHasSeenGamepad(window, self->mDisconnectingGamepad, false);
++
++    nsCOMPtr<nsIDOMDocument> domdoc;
++    window->GetDocument(getter_AddRefs(domdoc));
++
++    if (domdoc) {
++      nsCOMPtr<nsIDOMEventTarget> target = do_QueryInterface(window);
++      // Fire event
++      self->FireConnectionEvent(domdoc,
++                                target,
++                                self->mDisconnectingGamepad,
++                                false);
++    }
++  }
++  return PL_DHASH_NEXT;
++}
++
++void
++GamepadService::FireConnectionEvent(nsIDOMDocument *domdoc,
++                                    nsIDOMEventTarget *target,
++                                    PRUint32 index,
++                                    bool connected)
++{
++  nsCOMPtr<nsIDOMEvent> event;
++  bool defaultActionEnabled = true;
++  domdoc->CreateEvent(NS_LITERAL_STRING("MozGamepadConnectionEvent"),
++                      getter_AddRefs(event));
++  if (!event) {
++    return;
++  }
++
++  nsCOMPtr<nsIDOMGamepadConnectionEvent> je = do_QueryInterface(event);
++
++  if (!je) {
++    return;
++  }
++
++  nsString name = connected ? NS_LITERAL_STRING("MozGamepadConnected") :
++                              NS_LITERAL_STRING("MozGamepadDisconnected");
++  je->InitGamepadConnectionEvent(name, false, false, mGamepads[index]);
++
++  nsCOMPtr<nsIPrivateDOMEvent> privateEvent = do_QueryInterface(event);
++  if (privateEvent) {
++    privateEvent->SetTrusted(PR_TRUE);
++  }
++
++  target->DispatchEvent(event, &defaultActionEnabled);
++}
++
++
++// static
++GamepadService* GamepadService::GetService() {
++  if (!sSingleton) {
++    sSingleton = CreateGamepadService();
++  }
++  return sSingleton;
++}
++
++bool
++GamepadService::WindowHasSeenGamepad(nsIDOMWindow* aWindow, PRUint32 index)
++{
++  PRUint32 data;
++  if (!mListeners.Get(aWindow, &data)) {
++    // This window isn't even listening for gamepad events.
++    return false;
++  }
++
++  return (data & (1 << index)) != 0;
++}
++
++void
++GamepadService::SetWindowHasSeenGamepad(nsIDOMWindow* aWindow,
++                                        PRUint32 index,
++                                        bool hasSeen)
++{
++  PRUint32 data;
++  if (!mListeners.Get(aWindow, &data))
++    // This window isn't even listening for gamepad events.
++    return;
++
++  if (hasSeen) {
++    data |= 1 << index;
++  } else {
++    data &= ~(1 << index);
++  }
++  mListeners.Put(aWindow, data);
++}
++
++bool
++GamepadService::GetFocusedWindow(nsIDOMWindow** aWindow)
++{
++  nsCOMPtr<nsIDOMWindow> focusedWindow;
++  if (NS_FAILED(mFocusManager->GetFocusedWindow(getter_AddRefs(focusedWindow)))) {
++    return false;
++  }
++
++  nsCOMPtr<nsPIDOMWindow> outerWindow = do_QueryInterface(focusedWindow);
++  if (!outerWindow) {
++    return false;
++  }
++  nsCOMPtr<nsIDOMWindow> innerWindow = outerWindow->GetCurrentInnerWindow();
++  innerWindow.forget(aWindow);
++  return *aWindow;
++}
++
++// static
++void
++GamepadService::TimeoutHandler(nsITimer *aTimer, void *aClosure)
++{
++  // the reason that we use self, instead of just using nsITimerCallback or nsIObserver
++  // is so that subclasses are free to use timers without worry about the base classes's
++  // usage.
++  GamepadService* self = reinterpret_cast<GamepadService*>(aClosure);
++  if (!self) {
++    NS_ERROR("no self");
++    return;
++  }
++
++  if (self->mListeners.Count() == 0) {
++    self->Shutdown();
++    if (!self->mGamepads.IsEmpty()) {
++      self->mGamepads.Clear();
++    }
++  }
++}
++
++void
++GamepadService::StartCleanupTimer()
++{
++  if (mTimer) {
++    mTimer->Cancel();
++  }
++
++  mTimer = do_CreateInstance("@mozilla.org/timer;1");
++  if (mTimer) {
++    mTimer->InitWithFuncCallback(TimeoutHandler,
++                                 this,
++                                 kCleanupDelayMS,
++                                 nsITimer::TYPE_ONE_SHOT);
++  }
++}
++
++} // namespace dom
++} // namespace mozilla
+diff --git a/dom/system/GamepadService.h b/dom/system/GamepadService.h
+new file mode 100644
+--- /dev/null
++++ b/dom/system/GamepadService.h
+@@ -0,0 +1,132 @@
++/* ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is Mozilla Gamepad API.
++ *
++ * The Initial Developer of the Original Code is
++ * The Mozilla Foundation.
++ * Portions created by the Initial Developer are Copyright (C) 2011
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *  Ted Mielczarek <ted.mielczarek@gmail.com>
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either the GNU General Public License Version 2 or later (the "GPL"), or
++ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++
++#ifndef mozilla_dom_GamepadService_h_
++#define mozilla_dom_GamepadService_h_
++
++#include "nsAutoPtr.h"
++#include "nsCOMArray.h"
++#include "nsDataHashtable.h"
++
++class nsIDOMWindow;
++class nsIDOMDocument;
++class nsIDOMEventTarget;
++class nsIFocusManager;
++class nsDOMGamepad;
++class nsITimer;
++
++namespace mozilla {
++namespace dom {
++
++class GamepadService {
++ public:
++  // Get the singleton service
++  static GamepadService* GetService();
++
++  // Indicate that |aWindow| wants to receive gamepad events.
++  void AddListener(nsIDOMWindow* aWindow);
++  // Indicate that |aWindow| should no longer receive gamepad events.
++  void RemoveListener(nsIDOMWindow* aWindow);
++
++  // Add a gamepad to the list of known gamepads, and return its index.
++  PRUint32 AddGamepad(const char* id, PRUint32 numButtons, PRUint32 numAxes);
++  // Remove the gamepad at |index| from the list of known gamepads.
++  void RemoveGamepad(PRUint32 index);
++
++  void NewButtonEvent(PRUint32 index, PRUint32 button, bool pressed);
++  void FireButtonEvent(nsIDOMDocument* domdoc,
++                       nsIDOMEventTarget* target,
++                       PRUint32 index,
++                       PRUint32 button,
++                       bool pressed);
++  void NewAxisMoveEvent(PRUint32  index, PRUint32 axis, float value);
++  void FireAxisMoveEvent(nsIDOMDocument* domdoc,
++                         nsIDOMEventTarget* target,
++                         PRUint32 index,
++                         PRUint32 axis,
++                         float value);
++
++  void NewConnectionEvent(PRUint32 index, bool connected);
++  void FireConnectionEvent(nsIDOMDocument* domdoc,
++                           nsIDOMEventTarget* target,
++                           PRUint32 index,
++                           bool connected);
++
++ protected:
++  GamepadService();
++  virtual ~GamepadService();
++  virtual void Startup() = 0;
++  virtual void Shutdown() = 0;
++  void StartCleanupTimer();
++
++  bool mStarted;
++
++ private:
++  // Returns true if we have already sent data from this gamepad
++  // to this window. This should only return true if the user
++  // explicitly interacted with a gamepad while this window
++  // was focused, by pressing buttons or similar actions.
++  bool WindowHasSeenGamepad(nsIDOMWindow* window, PRUint32 index);
++  // Indicate that a window has recieved data from a gamepad.
++  void SetWindowHasSeenGamepad(nsIDOMWindow* window, PRUint32 index,
++                               bool hasSeen = true);
++
++  bool GetFocusedWindow(nsIDOMWindow** window);
++  static PLDHashOperator EnumerateForDisconnect(nsISupports* aKey,
++                                                PRUint32& aData,
++                                                void* userArg);
++
++  static void TimeoutHandler(nsITimer* aTimer, void* aClosure);
++  static GamepadService* sSingleton;
++
++  // Gamepads connected to the system.
++  nsTArray<nsRefPtr<nsDOMGamepad> > mGamepads;
++  // This hashtable is keyed by nsIDOMWindows that are listening
++  // for gamepad events. The data is a bitmap of gamepad numbers.
++  // A bit in the bitmap is set if this window has received data
++  // for that gamepad.
++  nsDataHashtable<nsISupportsHashKey, PRUint32> mListeners;
++  nsCOMPtr<nsITimer> mTimer;
++  nsCOMPtr<nsIFocusManager> mFocusManager;
++  // Used for convenience when enumerating mListeners entries.
++  int mDisconnectingGamepad;
++};
++
++}
++}
++
++#endif // mozilla_dom_GamepadService_h_
+diff --git a/dom/system/Makefile.in b/dom/system/Makefile.in
+--- a/dom/system/Makefile.in
++++ b/dom/system/Makefile.in
+@@ -60,16 +60,20 @@
+ ifneq (,$(filter android,$(MOZ_WIDGET_TOOLKIT)))
+ DIRS = android
+ endif
+ 
+ CPPSRCS     = \
+   nsDeviceMotion.cpp \
+   $(NULL)
+ 
++ifdef MOZ_GAMEPAD
++CPPSRCS += GamepadService.cpp
++endif
++
+ # We fire the nsDOMDeviceAcceleration
+ LOCAL_INCLUDES += -I$(topsrcdir)/content/events/src
+ 
+ # On Systems that have build in geolocation providers,
+ # we really do not need these.
+ ifneq (Android,$(OS_TARGET))
+ EXTRA_COMPONENTS = \
+   NetworkGeolocationProvider.js \
+@@ -78,16 +82,23 @@
+   GPSDGeolocationProvider.manifest \
+   $(NULL)
+ endif
+ 
+ EXPORTS     = \
+   nsDeviceMotion.h \
+   $(NULL)
+ 
++ifdef MOZ_GAMEPAD
++EXPORTS_NAMESPACES = mozilla/dom
++EXPORTS_mozilla/dom = \
++  GamepadService.h \
++  $(NULL)
++endif
++
+ include $(topsrcdir)/config/config.mk
+ 
+ # we don't want the shared lib, but we want to force the creation of a static lib.
+ LIBXUL_LIBRARY   = 1
+ FORCE_STATIC_LIB = 1
+ EXPORT_LIBRARY = 1
+ 
+ include $(topsrcdir)/config/rules.mk
+diff --git a/js/xpconnect/src/dom_quickstubs.qsconf b/js/xpconnect/src/dom_quickstubs.qsconf
+--- a/js/xpconnect/src/dom_quickstubs.qsconf
++++ b/js/xpconnect/src/dom_quickstubs.qsconf
+@@ -436,16 +436,23 @@
+     # getContextAttributes is directly manipulating its return value
+     '-nsIDOMWebGLRenderingContext.getContextAttributes',
+ 
+     # Audio
+     'nsIDOMNotifyAudioAvailableEvent.frameBuffer',
+     'nsIDOMNotifyAudioAvailableEvent.time',
+     'nsIDOMHTMLAudioElement.mozWriteAudio',
+ 
++    # Gamepad
++    'nsIDOMGamepadButtonEvent.button',
++    'nsIDOMGamepadButtonEvent.gamepad',
++    'nsIDOMGamepadAxisMoveEvent.axis',
++    'nsIDOMGamepadAxisMoveEvent.value',
++    'nsIDOMGamepadAxisMoveEvent.gamepad',
++
+     # dom/indexedDB
+     'nsIIDBCursor.*',
+     'nsIIDBCursorWithValue.*',
+     'nsIIDBDatabase.*',
+     'nsIIDBDatabaseException.*',
+     'nsIIDBIndex.*',
+     'nsIIDBKeyRange.*',
+     'nsIIDBObjectStore.*',
+diff --git a/widget/public/nsGUIEvent.h b/widget/public/nsGUIEvent.h
+--- a/widget/public/nsGUIEvent.h
++++ b/widget/public/nsGUIEvent.h
+@@ -543,16 +543,28 @@
+ #define NS_DEVICE_MOTION             (NS_DEVICE_ORIENTATION_START+1)
+ 
+ #define NS_SHOW_EVENT                5000
+ 
+ // Fullscreen DOM API
+ #define NS_FULL_SCREEN_START         5100
+ #define NS_FULLSCREENCHANGE          (NS_FULL_SCREEN_START)
+ 
++#ifdef MOZ_GAMEPAD
++// Gamepad input events
++#define NS_MOZGAMEPAD_START         6000
++#define NS_MOZGAMEPAD_BUTTONDOWN    (NS_MOZGAMEPAD_START)
++#define NS_MOZGAMEPAD_BUTTONUP      (NS_MOZGAMEPAD_START+1)
++#define NS_MOZGAMEPAD_AXISMOVE      (NS_MOZGAMEPAD_START+2)
++#define NS_MOZGAMEPAD_CONNECTED     (NS_MOZGAMEPAD_START+3)
++#define NS_MOZGAMEPAD_DISCONNECTED  (NS_MOZGAMEPAD_START+4)
++// Keep this defined to the same value as the event above
++#define NS_MOZGAMEPAD_END           (NS_MOZGAMEPAD_START+4)
++#endif
++
+ /**
+  * Return status for event processors, nsEventStatus, is defined in
+  * nsEvent.h.
+  */
+ 
+ /**
+  * different types of (top-level) window z-level positioning
+  */
