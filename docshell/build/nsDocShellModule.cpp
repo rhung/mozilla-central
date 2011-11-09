@@ -66,13 +66,14 @@
 
 // session history
 #include "nsSHEntry.h"
+#include "nsSHEntryShared.h"
 #include "nsSHistory.h"
 #include "nsSHTransaction.h"
 
 // download history
 #include "nsDownloadHistory.h"
 
-static PRBool gInitialized = PR_FALSE;
+static bool gInitialized = false;
 
 // The one time initialization for this module
 static nsresult
@@ -82,20 +83,21 @@ Initialize()
   if (gInitialized) {
     return NS_OK;
   }
-  gInitialized = PR_TRUE;
+  gInitialized = true;
 
   nsresult rv = nsSHistory::Startup();
   NS_ENSURE_SUCCESS(rv, rv);
 
-  rv = nsSHEntry::Startup();
-  return rv;
+  nsSHEntryShared::Startup();
+  return NS_OK;
 }
 
 static void
 Shutdown()
 {
-  nsSHEntry::Shutdown();
-  gInitialized = PR_FALSE;
+  nsSHistory::Shutdown();
+  nsSHEntryShared::Shutdown();
+  gInitialized = false;
 }
 
 // docshell
@@ -210,6 +212,7 @@ const mozilla::Module::ContractIDEntry kDocShellContracts[] = {
   { NS_ABOUT_MODULE_CONTRACTID_PREFIX "neterror", &kNS_ABOUT_REDIRECTOR_MODULE_CID },
   { NS_ABOUT_MODULE_CONTRACTID_PREFIX "memory", &kNS_ABOUT_REDIRECTOR_MODULE_CID },
   { NS_ABOUT_MODULE_CONTRACTID_PREFIX "addons", &kNS_ABOUT_REDIRECTOR_MODULE_CID },
+  { NS_ABOUT_MODULE_CONTRACTID_PREFIX "newaddon", &kNS_ABOUT_REDIRECTOR_MODULE_CID },
   { NS_ABOUT_MODULE_CONTRACTID_PREFIX "support", &kNS_ABOUT_REDIRECTOR_MODULE_CID },
   { NS_URI_LOADER_CONTRACTID, &kNS_URI_LOADER_CID },
   { NS_DOCUMENTLOADER_SERVICE_CONTRACTID, &kNS_DOCUMENTLOADER_SERVICE_CID },

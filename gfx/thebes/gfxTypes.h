@@ -47,9 +47,7 @@
  */
 typedef double gfxFloat;
 
-#if defined(MOZ_STATIC_BUILD)
-# define THEBES_API
-#elif defined(IMPL_THEBES)
+#if defined(IMPL_THEBES)
 # define THEBES_API NS_EXPORT
 #else
 # define THEBES_API NS_IMPORT
@@ -59,7 +57,7 @@ typedef double gfxFloat;
  * gfx errors
  */
 
-/* nsIDeviceContext.h defines a set of printer errors  */
+/* nsIDeviceContextSpec.h defines a set of printer errors  */
 #define NS_ERROR_GFX_GENERAL_BASE (50) 
 
 /* Font cmap is strangely structured - avoid this font! */

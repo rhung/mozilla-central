@@ -42,6 +42,7 @@
 #include "nsServiceManagerUtils.h"
 #include "nsString.h"
 #include "mozilla/Services.h"
+#include "nsCRT.h"
 
 NS_IMPL_ISUPPORTS2(nsQtNetworkLinkService,
                    nsINetworkLinkService,
@@ -56,16 +57,26 @@ nsQtNetworkLinkService::~nsQtNetworkLinkService()
 }
 
 NS_IMETHODIMP
-nsQtNetworkLinkService::GetIsLinkUp(PRBool* aIsUp)
+nsQtNetworkLinkService::GetIsLinkUp(bool* aIsUp)
 {
-  *aIsUp = gQtNetworkManager->isOnline();
+  *aIsUp = nsQtNetworkManager::get()->isOnline();
   return NS_OK;
 }
 
 NS_IMETHODIMP
-nsQtNetworkLinkService::GetLinkStatusKnown(PRBool* aIsKnown)
+nsQtNetworkLinkService::GetLinkStatusKnown(bool* aIsKnown)
 {
-  *aIsKnown = gQtNetworkManager->isOnline();
+  *aIsKnown = nsQtNetworkManager::get()->isOnline();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsQtNetworkLinkService::GetLinkType(PRUint32 *aLinkType)
+{
+  NS_ENSURE_ARG_POINTER(aLinkType);
+
+  // XXX This function has not yet been implemented for this platform
+  *aLinkType = nsINetworkLinkService::LINK_TYPE_UNKNOWN;
   return NS_OK;
 }
 
@@ -76,8 +87,7 @@ nsQtNetworkLinkService::Observe(nsISupports* aSubject,
 {
   if (!strcmp(aTopic, "xpcom-shutdown")) {
     Shutdown();
-    delete gQtNetworkManager;
-    gQtNetworkManager = 0;
+    nsQtNetworkManager::get()->destroy();
   }
 
   if (!strcmp(aTopic, "browser-lastwindow-close-granted")) {
@@ -96,16 +106,15 @@ nsQtNetworkLinkService::Init(void)
     return NS_ERROR_FAILURE;
   }
 
-  delete gQtNetworkManager;
-  gQtNetworkManager = new nsQtNetworkManager();
+  nsQtNetworkManager::create();
   nsresult rv;
 
-  rv = observerService->AddObserver(this, "xpcom-shutdown", PR_FALSE);
+  rv = observerService->AddObserver(this, "xpcom-shutdown", false);
   if (NS_FAILED(rv)) {
     return NS_ERROR_FAILURE;
   }
 
-  rv = observerService->AddObserver(this, "browser-lastwindow-close-granted", PR_FALSE);
+  rv = observerService->AddObserver(this, "browser-lastwindow-close-granted", false);
   if (NS_FAILED(rv)) {
     return NS_ERROR_FAILURE;
   }
@@ -117,6 +126,6 @@ nsQtNetworkLinkService::Init(void)
 nsresult
 nsQtNetworkLinkService::Shutdown()
 {
-  gQtNetworkManager->closeSession();
+  nsQtNetworkManager::get()->closeSession();
   return NS_OK;
 }

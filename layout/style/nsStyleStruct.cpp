@@ -21,7 +21,7 @@
  *
  * Contributor(s):
  *   David Hyatt (hyatt@netscape.com)
- *   Mats Palmgren <mats.palmgren@bredband.net>
+ *   Mats Palmgren <matspal@gmail.com>
  *   Michael Ventnor <m.ventnor@gmail.com>
  *   Jonathon Jongsma <jonathon.jongsma@collabora.co.uk>, Collabora Ltd.
  *   L. David Baron <dbaron@dbaron.org>, Mozilla Corporation
@@ -51,10 +51,9 @@
 #include "nsThemeConstants.h"
 #include "nsString.h"
 #include "nsPresContext.h"
-#include "nsIDeviceContext.h"
 #include "nsIWidget.h"
 #include "nsIStyleRule.h"
-#include "nsCRT.h"
+#include "nsCRTGlue.h"
 #include "nsCSSProps.h"
 
 #include "nsCOMPtr.h"
@@ -64,6 +63,7 @@
 
 #include "nsSVGUtils.h"
 #include "nsBidiUtils.h"
+#include "nsLayoutUtils.h"
 
 #include "imgIRequest.h"
 #include "imgIContainer.h"
@@ -73,41 +73,50 @@
 PR_STATIC_ASSERT((((1 << nsStyleStructID_Length) - 1) &
                   ~(NS_STYLE_INHERIT_MASK)) == 0);
 
-inline PRBool IsFixedUnit(const nsStyleCoord& aCoord, PRBool aEnumOK)
+inline bool IsFixedUnit(const nsStyleCoord& aCoord, bool aEnumOK)
 {
   return aCoord.ConvertsToLength() || 
          (aEnumOK && aCoord.GetUnit() == eStyleUnit_Enumerated);
 }
 
-static PRBool EqualURIs(nsIURI *aURI1, nsIURI *aURI2)
+static bool EqualURIs(nsIURI *aURI1, nsIURI *aURI2)
 {
-  PRBool eq;
+  bool eq;
   return aURI1 == aURI2 ||    // handle null==null, and optimize
          (aURI1 && aURI2 &&
           NS_SUCCEEDED(aURI1->Equals(aURI2, &eq)) && // not equal on fail
           eq);
 }
 
-static PRBool EqualURIs(nsCSSValue::URL *aURI1, nsCSSValue::URL *aURI2)
+static bool EqualURIs(nsCSSValue::URL *aURI1, nsCSSValue::URL *aURI2)
 {
   return aURI1 == aURI2 ||    // handle null==null, and optimize
          (aURI1 && aURI2 && aURI1->URIEquals(*aURI2));
 }
 
-static PRBool EqualImages(imgIRequest *aImage1, imgIRequest* aImage2)
+static bool EqualImages(imgIRequest *aImage1, imgIRequest* aImage2)
 {
   if (aImage1 == aImage2) {
-    return PR_TRUE;
+    return true;
   }
 
   if (!aImage1 || !aImage2) {
-    return PR_FALSE;
+    return false;
   }
 
   nsCOMPtr<nsIURI> uri1, uri2;
   aImage1->GetURI(getter_AddRefs(uri1));
   aImage2->GetURI(getter_AddRefs(uri2));
   return EqualURIs(uri1, uri2);
+}
+
+// A nullsafe wrapper for strcmp. We depend on null-safety.
+static int safe_strcmp(const PRUnichar* a, const PRUnichar* b)
+{
+  if (!a || !b) {
+    return (int)(a - b);
+  }
+  return NS_strcmp(a, b);
 }
 
 static nsChangeHint CalcShadowDifference(nsCSSShadowArray* lhs,
@@ -122,25 +131,21 @@ nsStyleFont::nsStyleFont(const nsFont& aFont, nsPresContext *aPresContext)
 {
   MOZ_COUNT_CTOR(nsStyleFont);
   mSize = mFont.size = nsStyleFont::ZoomText(aPresContext, mFont.size);
-#ifdef MOZ_MATHML
   mScriptUnconstrainedSize = mSize;
   mScriptMinSize = aPresContext->CSSTwipsToAppUnits(
       NS_POINTS_TO_TWIPS(NS_MATHML_DEFAULT_SCRIPT_MIN_SIZE_PT));
   mScriptLevel = 0;
   mScriptSizeMultiplier = NS_MATHML_DEFAULT_SCRIPT_SIZE_MULTIPLIER;
-#endif
 }
 
 nsStyleFont::nsStyleFont(const nsStyleFont& aSrc)
   : mFont(aSrc.mFont)
   , mSize(aSrc.mSize)
   , mGenericID(aSrc.mGenericID)
-#ifdef MOZ_MATHML
   , mScriptLevel(aSrc.mScriptLevel)
   , mScriptUnconstrainedSize(aSrc.mScriptUnconstrainedSize)
   , mScriptMinSize(aSrc.mScriptMinSize)
   , mScriptSizeMultiplier(aSrc.mScriptSizeMultiplier)
-#endif
 {
   MOZ_COUNT_CTOR(nsStyleFont);
 }
@@ -151,13 +156,11 @@ nsStyleFont::nsStyleFont(nsPresContext* aPresContext)
 {
   MOZ_COUNT_CTOR(nsStyleFont);
   mSize = mFont.size = nsStyleFont::ZoomText(aPresContext, mFont.size);
-#ifdef MOZ_MATHML
   mScriptUnconstrainedSize = mSize;
   mScriptMinSize = aPresContext->CSSTwipsToAppUnits(
       NS_POINTS_TO_TWIPS(NS_MATHML_DEFAULT_SCRIPT_MIN_SIZE_PT));
   mScriptLevel = 0;
   mScriptSizeMultiplier = NS_MATHML_DEFAULT_SCRIPT_SIZE_MULTIPLIER;
-#endif
 }
 
 void* 
@@ -221,13 +224,13 @@ nsChangeHint nsStyleFont::CalcFontDifference(const nsFont& aFont1, const nsFont&
   return NS_STYLE_HINT_REFLOW;
 }
 
-static PRBool IsFixedData(const nsStyleSides& aSides, PRBool aEnumOK)
+static bool IsFixedData(const nsStyleSides& aSides, bool aEnumOK)
 {
   NS_FOR_CSS_SIDES(side) {
     if (!IsFixedUnit(aSides.Get(side), aEnumOK))
-      return PR_FALSE;
+      return false;
   }
-  return PR_TRUE;
+  return true;
 }
 
 static nscoord CalcCoord(const nsStyleCoord& aCoord, 
@@ -253,13 +256,13 @@ nsStyleMargin::nsStyleMargin() {
   NS_FOR_CSS_SIDES(side) {
     mMargin.Set(side, zero);
   }
-  mHasCachedMargin = PR_FALSE;
+  mHasCachedMargin = false;
 }
 
 nsStyleMargin::nsStyleMargin(const nsStyleMargin& aSrc) {
   MOZ_COUNT_CTOR(nsStyleMargin);
   mMargin = aSrc.mMargin;
-  mHasCachedMargin = PR_FALSE;
+  mHasCachedMargin = false;
 }
 
 void* 
@@ -279,14 +282,14 @@ nsStyleMargin::Destroy(nsPresContext* aContext) {
 
 void nsStyleMargin::RecalcData()
 {
-  if (IsFixedData(mMargin, PR_FALSE)) {
+  if (IsFixedData(mMargin, false)) {
     NS_FOR_CSS_SIDES(side) {
-      mCachedMargin.side(side) = CalcCoord(mMargin.Get(side), nsnull, 0);
+      mCachedMargin.Side(side) = CalcCoord(mMargin.Get(side), nsnull, 0);
     }
-    mHasCachedMargin = PR_TRUE;
+    mHasCachedMargin = true;
   }
   else
-    mHasCachedMargin = PR_FALSE;
+    mHasCachedMargin = false;
 }
 
 nsChangeHint nsStyleMargin::CalcDifference(const nsStyleMargin& aOther) const
@@ -317,13 +320,13 @@ nsStylePadding::nsStylePadding() {
   NS_FOR_CSS_SIDES(side) {
     mPadding.Set(side, zero);
   }
-  mHasCachedPadding = PR_FALSE;
+  mHasCachedPadding = false;
 }
 
 nsStylePadding::nsStylePadding(const nsStylePadding& aSrc) {
   MOZ_COUNT_CTOR(nsStylePadding);
   mPadding = aSrc.mPadding;
-  mHasCachedPadding = PR_FALSE;
+  mHasCachedPadding = false;
 }
 
 void* 
@@ -342,16 +345,16 @@ nsStylePadding::Destroy(nsPresContext* aContext) {
 
 void nsStylePadding::RecalcData()
 {
-  if (IsFixedData(mPadding, PR_FALSE)) {
+  if (IsFixedData(mPadding, false)) {
     NS_FOR_CSS_SIDES(side) {
       // Clamp negative calc() to 0.
-      mCachedPadding.side(side) =
+      mCachedPadding.Side(side) =
         NS_MAX(CalcCoord(mPadding.Get(side), nsnull, 0), 0);
     }
-    mHasCachedPadding = PR_TRUE;
+    mHasCachedPadding = true;
   }
   else
-    mHasCachedPadding = PR_FALSE;
+    mHasCachedPadding = false;
 }
 
 nsChangeHint nsStylePadding::CalcDifference(const nsStylePadding& aOther) const
@@ -377,7 +380,7 @@ nsChangeHint nsStylePadding::MaxDifference()
 #endif
 
 nsStyleBorder::nsStyleBorder(nsPresContext* aPresContext)
-  : mHaveBorderImageWidth(PR_FALSE)
+  : mHaveBorderImageWidth(false)
 #ifdef DEBUG
   , mImageTracked(false)
 #endif
@@ -388,7 +391,7 @@ nsStyleBorder::nsStyleBorder(nsPresContext* aPresContext)
   nscoord medium =
     (aPresContext->GetBorderWidthTable())[NS_STYLE_BORDER_WIDTH_MEDIUM];
   NS_FOR_CSS_SIDES(side) {
-    mBorder.side(side) = medium;
+    mBorder.Side(side) = medium;
     mBorderStyle[side] = NS_STYLE_BORDER_STYLE_NONE | BORDER_COLOR_FOREGROUND;
     mBorderColor[side] = NS_RGB(0, 0, 0);
   }
@@ -410,13 +413,13 @@ nsBorderColors::~nsBorderColors()
 }
 
 nsBorderColors*
-nsBorderColors::Clone(PRBool aDeep) const
+nsBorderColors::Clone(bool aDeep) const
 {
   nsBorderColors* result = new nsBorderColors(mColor);
   if (NS_UNLIKELY(!result))
     return result;
   if (aDeep)
-    NS_CSS_CLONE_LIST_MEMBER(nsBorderColors, this, mNext, result, (PR_FALSE));
+    NS_CSS_CLONE_LIST_MEMBER(nsBorderColors, this, mNext, result, (false));
   return result;
 }
 
@@ -544,7 +547,7 @@ nsChangeHint nsStyleBorder::MaxDifference()
 }
 #endif
 
-PRBool
+bool
 nsStyleBorder::ImageBorderDiffers() const
 {
   return mComputedBorder !=
@@ -614,7 +617,7 @@ nsStyleOutline::nsStyleOutline(nsPresContext* aPresContext)
   mOutlineStyle = NS_STYLE_BORDER_STYLE_NONE;
   mOutlineColor = NS_RGB(0, 0, 0);
 
-  mHasCachedOutline = PR_FALSE;
+  mHasCachedOutline = false;
   mTwipsPerPixel = aPresContext->DevPixelsToAppUnits(1);
 }
 
@@ -628,24 +631,24 @@ nsStyleOutline::RecalcData(nsPresContext* aContext)
 {
   if (NS_STYLE_BORDER_STYLE_NONE == GetOutlineStyle()) {
     mCachedOutlineWidth = 0;
-    mHasCachedOutline = PR_TRUE;
-  } else if (IsFixedUnit(mOutlineWidth, PR_TRUE)) {
+    mHasCachedOutline = true;
+  } else if (IsFixedUnit(mOutlineWidth, true)) {
     // Clamp negative calc() to 0.
     mCachedOutlineWidth =
       NS_MAX(CalcCoord(mOutlineWidth, aContext->GetBorderWidthTable(), 3), 0);
     mCachedOutlineWidth =
       NS_ROUND_BORDER_TO_PIXELS(mCachedOutlineWidth, mTwipsPerPixel);
-    mHasCachedOutline = PR_TRUE;
+    mHasCachedOutline = true;
   }
   else
-    mHasCachedOutline = PR_FALSE;
+    mHasCachedOutline = false;
 }
 
 nsChangeHint nsStyleOutline::CalcDifference(const nsStyleOutline& aOther) const
 {
-  PRBool outlineWasVisible =
+  bool outlineWasVisible =
     mCachedOutlineWidth > 0 && mOutlineStyle != NS_STYLE_BORDER_STYLE_NONE;
-  PRBool outlineIsVisible = 
+  bool outlineIsVisible = 
     aOther.mCachedOutlineWidth > 0 && aOther.mOutlineStyle != NS_STYLE_BORDER_STYLE_NONE;
   if (outlineWasVisible != outlineIsVisible ||
       (outlineIsVisible && (mOutlineOffset != aOther.mOutlineOffset ||
@@ -699,7 +702,7 @@ nsChangeHint nsStyleList::CalcDifference(const nsStyleList& aOther) const
     return NS_STYLE_HINT_FRAMECHANGE;
   if (EqualImages(mListStyleImage, aOther.mListStyleImage) &&
       mListStyleType == aOther.mListStyleType) {
-    if (mImageRegion == aOther.mImageRegion)
+    if (mImageRegion.IsEqualInterior(aOther.mImageRegion))
       return NS_STYLE_HINT_NONE;
     if (mImageRegion.width == aOther.mImageRegion.width &&
         mImageRegion.height == aOther.mImageRegion.height)
@@ -728,7 +731,7 @@ nsStyleXUL::nsStyleXUL()
   mBoxOrient = NS_STYLE_BOX_ORIENT_HORIZONTAL;
   mBoxPack   = NS_STYLE_BOX_PACK_START;
   mBoxOrdinal = 1;
-  mStretchStack = PR_TRUE;
+  mStretchStack = true;
 }
 
 nsStyleXUL::~nsStyleXUL() 
@@ -777,7 +780,7 @@ nsStyleColumn::nsStyleColumn(nsPresContext* aPresContext)
   mColumnRuleWidth = (aPresContext->GetBorderWidthTable())[NS_STYLE_BORDER_WIDTH_MEDIUM];
   mColumnRuleStyle = NS_STYLE_BORDER_STYLE_NONE;
   mColumnRuleColor = NS_RGB(0, 0, 0);
-  mColumnRuleColorIsForeground = PR_TRUE;
+  mColumnRuleColorIsForeground = true;
 
   mTwipsPerPixel = aPresContext->AppUnitsPerDevPixel();
 }
@@ -906,7 +909,7 @@ nsStyleSVG::nsStyleSVG(const nsStyleSVG& aSource)
   mTextRendering = aSource.mTextRendering;
 }
 
-static PRBool PaintURIChanged(const nsStyleSVGPaint& aPaint1,
+static bool PaintURIChanged(const nsStyleSVGPaint& aPaint1,
                               const nsStyleSVGPaint& aPaint2)
 {
   if (aPaint1.mType != aPaint2.mType) {
@@ -1089,15 +1092,15 @@ nsStyleSVGPaint& nsStyleSVGPaint::operator=(const nsStyleSVGPaint& aOther)
   return *this;
 }
 
-PRBool nsStyleSVGPaint::operator==(const nsStyleSVGPaint& aOther) const
+bool nsStyleSVGPaint::operator==(const nsStyleSVGPaint& aOther) const
 {
   if (mType != aOther.mType)
-    return PR_FALSE;
+    return false;
   if (mType == eStyleSVGPaintType_Server)
     return EqualURIs(mPaint.mPaintServer, aOther.mPaint.mPaintServer) &&
            mFallbackColor == aOther.mFallbackColor;
   if (mType == eStyleSVGPaintType_None)
-    return PR_TRUE;
+    return true;
   return mPaint.mColor == aOther.mPaint.mColor;
 }
 
@@ -1187,7 +1190,7 @@ nsChangeHint nsStylePosition::MaxDifference()
 }
 #endif
 
-/* static */ PRBool
+/* static */ bool
 nsStylePosition::WidthCoordDependsOnContainer(const nsStyleCoord &aCoord)
 {
   return aCoord.GetUnit() == eStyleUnit_Auto ||
@@ -1335,7 +1338,7 @@ nsChangeHint nsStyleColor::MaxDifference()
 // --------------------
 // nsStyleGradient
 //
-PRBool
+bool
 nsStyleGradient::operator==(const nsStyleGradient& aOther) const
 {
   NS_ABORT_IF_FALSE(mSize == NS_STYLE_GRADIENT_SIZE_FARTHEST_CORNER ||
@@ -1348,38 +1351,40 @@ nsStyleGradient::operator==(const nsStyleGradient& aOther) const
   if (mShape != aOther.mShape ||
       mSize != aOther.mSize ||
       mRepeating != aOther.mRepeating ||
+      mToCorner != aOther.mToCorner ||
       mBgPosX != aOther.mBgPosX ||
       mBgPosY != aOther.mBgPosY ||
       mAngle != aOther.mAngle)
-    return PR_FALSE;
+    return false;
 
   if (mStops.Length() != aOther.mStops.Length())
-    return PR_FALSE;
+    return false;
 
   for (PRUint32 i = 0; i < mStops.Length(); i++) {
     if (mStops[i].mLocation != aOther.mStops[i].mLocation ||
         mStops[i].mColor != aOther.mStops[i].mColor)
-      return PR_FALSE;
+      return false;
   }
 
-  return PR_TRUE;
+  return true;
 }
 
 nsStyleGradient::nsStyleGradient(void)
   : mShape(NS_STYLE_GRADIENT_SHAPE_LINEAR)
   , mSize(NS_STYLE_GRADIENT_SIZE_FARTHEST_CORNER)
-  , mRepeating(PR_FALSE)
+  , mRepeating(false)
+  , mToCorner(false)
 {
 }
 
-PRBool
+bool
 nsStyleGradient::IsOpaque()
 {
   for (PRUint32 i = 0; i < mStops.Length(); i++) {
     if (NS_GET_A(mStops[i].mColor) < 255)
-      return PR_FALSE;
+      return false;
   }
-  return PR_TRUE;
+  return true;
 }
 
 // --------------------
@@ -1451,7 +1456,7 @@ nsStyleImage::SetNull()
   else if (mType == eStyleImageType_Image)
     NS_RELEASE(mImage);
   else if (mType == eStyleImageType_Element)
-    nsCRT::free(mElementId);
+    NS_Free(mElementId);
 
   mType = eStyleImageType_Null;
   mCropRect = nsnull;
@@ -1534,7 +1539,7 @@ nsStyleImage::SetElementId(const PRUnichar* aElementId)
     SetNull();
 
   if (aElementId) {
-    mElementId = nsCRT::strdup(aElementId);
+    mElementId = NS_strdup(aElementId);
     mType = eStyleImageType_Element;
   }
 }
@@ -1570,23 +1575,23 @@ ConvertToPixelCoord(const nsStyleCoord& aCoord, PRInt32 aPercentScale)
   return NS_lround(pixelValue);
 }
 
-PRBool
+bool
 nsStyleImage::ComputeActualCropRect(nsIntRect& aActualCropRect,
-                                    PRBool* aIsEntireImage) const
+                                    bool* aIsEntireImage) const
 {
   if (mType != eStyleImageType_Image)
-    return PR_FALSE;
+    return false;
 
   nsCOMPtr<imgIContainer> imageContainer;
   mImage->GetImage(getter_AddRefs(imageContainer));
   if (!imageContainer)
-    return PR_FALSE;
+    return false;
 
   nsIntSize imageSize;
   imageContainer->GetWidth(&imageSize.width);
   imageContainer->GetHeight(&imageSize.height);
   if (imageSize.width <= 0 || imageSize.height <= 0)
-    return PR_FALSE;
+    return false;
 
   PRInt32 left   = ConvertToPixelCoord(mCropRect->GetLeft(),   imageSize.width);
   PRInt32 top    = ConvertToPixelCoord(mCropRect->GetTop(),    imageSize.height);
@@ -1599,8 +1604,8 @@ nsStyleImage::ComputeActualCropRect(nsIntRect& aActualCropRect,
   aActualCropRect.IntersectRect(imageRect, cropRect);
 
   if (aIsEntireImage)
-    *aIsEntireImage = (aActualCropRect == imageRect);
-  return PR_TRUE;
+    *aIsEntireImage = aActualCropRect.IsEqualInterior(imageRect);
+  return true;
 }
 
 nsresult
@@ -1611,17 +1616,17 @@ nsStyleImage::RequestDecode() const
   return NS_OK;
 }
 
-PRBool
+bool
 nsStyleImage::IsOpaque() const
 {
   if (!IsComplete())
-    return PR_FALSE;
+    return false;
 
   if (mType == eStyleImageType_Gradient)
     return mGradient->IsOpaque();
 
   if (mType == eStyleImageType_Element)
-    return PR_FALSE;
+    return false;
 
   NS_ABORT_IF_FALSE(mType == eStyleImageType_Image, "unexpected image type");
 
@@ -1630,32 +1635,32 @@ nsStyleImage::IsOpaque() const
   NS_ABORT_IF_FALSE(imageContainer, "IsComplete() said image container is ready");
 
   // Check if the crop region of the current image frame is opaque
-  PRBool isOpaque;
+  bool isOpaque;
   if (NS_SUCCEEDED(imageContainer->GetCurrentFrameIsOpaque(&isOpaque)) &&
       isOpaque) {
     if (!mCropRect)
-      return PR_TRUE;
+      return true;
 
     // Must make sure if mCropRect contains at least a pixel.
-    // XXX Is this optimization worth it? Maybe I should just return PR_FALSE.
+    // XXX Is this optimization worth it? Maybe I should just return false.
     nsIntRect actualCropRect;
-    PRBool rv = ComputeActualCropRect(actualCropRect);
+    bool rv = ComputeActualCropRect(actualCropRect);
     NS_ASSERTION(rv, "ComputeActualCropRect() can not fail here");
     return rv && !actualCropRect.IsEmpty();
   }
 
-  return PR_FALSE;
+  return false;
 }
 
-PRBool
+bool
 nsStyleImage::IsComplete() const
 {
   switch (mType) {
     case eStyleImageType_Null:
-      return PR_FALSE;
+      return false;
     case eStyleImageType_Gradient:
     case eStyleImageType_Element:
-      return PR_TRUE;
+      return true;
     case eStyleImageType_Image:
     {
       PRUint32 status = imgIRequest::STATUS_ERROR;
@@ -1665,25 +1670,25 @@ nsStyleImage::IsComplete() const
     }
     default:
       NS_NOTREACHED("unexpected image type");
-      return PR_FALSE;
+      return false;
   }
 }
 
-static inline PRBool
+static inline bool
 EqualRects(const nsStyleSides* aRect1, const nsStyleSides* aRect2)
 {
   return aRect1 == aRect2 || /* handles null== null, and optimize */
          (aRect1 && aRect2 && *aRect1 == *aRect2);
 }
 
-PRBool
+bool
 nsStyleImage::operator==(const nsStyleImage& aOther) const
 {
   if (mType != aOther.mType)
-    return PR_FALSE;
+    return false;
 
   if (!EqualRects(mCropRect, aOther.mCropRect))
-    return PR_FALSE;
+    return false;
 
   if (mType == eStyleImageType_Image)
     return EqualImages(mImage, aOther.mImage);
@@ -1692,9 +1697,9 @@ nsStyleImage::operator==(const nsStyleImage& aOther) const
     return *mGradient == *aOther.mGradient;
 
   if (mType == eStyleImageType_Element)
-    return nsCRT::strcmp(mElementId, aOther.mElementId) == 0;
+    return NS_strcmp(mElementId, aOther.mElementId) == 0;
 
-  return PR_TRUE;
+  return true;
 }
 
 // --------------------
@@ -1801,19 +1806,19 @@ nsChangeHint nsStyleBackground::MaxDifference()
 }
 #endif
 
-PRBool nsStyleBackground::HasFixedBackground() const
+bool nsStyleBackground::HasFixedBackground() const
 {
   NS_FOR_VISIBLE_BACKGROUND_LAYERS_BACK_TO_FRONT(i, this) {
     const Layer &layer = mLayers[i];
     if (layer.mAttachment == NS_STYLE_BG_ATTACHMENT_FIXED &&
         !layer.mImage.IsEmpty()) {
-      return PR_TRUE;
+      return true;
     }
   }
-  return PR_FALSE;
+  return false;
 }
 
-PRBool nsStyleBackground::IsTransparent() const
+bool nsStyleBackground::IsTransparent() const
 {
   return BottomLayer().mImage.IsEmpty() &&
          mImageCount == 1 &&
@@ -1823,10 +1828,92 @@ PRBool nsStyleBackground::IsTransparent() const
 void
 nsStyleBackground::Position::SetInitialValues()
 {
+  // Initial value is "0% 0%"
   mXPosition.mPercent = 0.0f;
   mXPosition.mLength = 0;
+  mXPosition.mHasPercent = true;
   mYPosition.mPercent = 0.0f;
   mYPosition.mLength = 0;
+  mYPosition.mHasPercent = true;
+}
+
+bool
+nsStyleBackground::Size::DependsOnFrameSize(const nsStyleImage& aImage) const
+{
+  NS_ABORT_IF_FALSE(aImage.GetType() != eStyleImageType_Null,
+                    "caller should have handled this");
+
+  // If either dimension contains a non-zero percentage, rendering for that
+  // dimension straightforwardly depends on frame size.
+  if ((mWidthType == eLengthPercentage && mWidth.mPercent != 0.0f) ||
+      (mHeightType == eLengthPercentage && mHeight.mPercent != 0.0f)) {
+    return true;
+  }
+
+  // So too for contain and cover.
+  if (mWidthType == eContain || mWidthType == eCover) {
+    return true;
+  }
+
+  // If both dimensions are fixed lengths, there's no dependency.
+  if (mWidthType == eLengthPercentage && mHeightType == eLengthPercentage) {
+    return false;
+  }
+
+  NS_ABORT_IF_FALSE((mWidthType == eLengthPercentage && mHeightType == eAuto) ||
+                    (mWidthType == eAuto && mHeightType == eLengthPercentage) ||
+                    (mWidthType == eAuto && mHeightType == eAuto),
+                    "logic error");
+
+  nsStyleImageType type = aImage.GetType();
+
+  // Gradient rendering depends on frame size when auto is involved because
+  // gradients have no intrinsic ratio or dimensions, and therefore the relevant
+  // dimension is "treat[ed] as 100%".
+  if (type == eStyleImageType_Gradient) {
+    return true;
+  }
+
+  // XXX Element rendering for auto or fixed length doesn't depend on frame size
+  //     according to the spec.  However, we don't implement the spec yet, so
+  //     for now we bail and say element() plus auto affects ultimate size.
+  if (type == eStyleImageType_Element) {
+    return true;
+  }
+
+  if (type == eStyleImageType_Image) {
+    nsCOMPtr<imgIContainer> imgContainer;
+    aImage.GetImageData()->GetImage(getter_AddRefs(imgContainer));
+    if (imgContainer) {
+      nsIntSize imageSize;
+      nsSize imageRatio;
+      bool hasWidth, hasHeight;
+      nsLayoutUtils::ComputeSizeForDrawing(imgContainer, imageSize, imageRatio,
+                                           hasWidth, hasHeight);
+
+      // If the image has a fixed width and height, rendering never depends on
+      // the frame size.
+      if (hasWidth && hasHeight) {
+        return false;
+      }
+
+      // If the image has an intrinsic ratio, rendering will depend on frame
+      // size when background-size is all auto.
+      if (imageRatio != nsSize(0, 0)) {
+        return mWidthType == mHeightType;
+      }
+
+      // Otherwise, rendering depends on frame size when the image dimensions
+      // and background-size don't complement each other.
+      return !(hasWidth && mHeightType == eLengthPercentage) &&
+             !(hasHeight && mWidthType == eLengthPercentage);
+    }
+  } else {
+    NS_NOTREACHED("missed an enum value");
+  }
+
+  // Passed the gauntlet: no dependency.
+  return false;
 }
 
 void
@@ -1873,38 +1960,18 @@ nsStyleBackground::Layer::SetInitialValues()
   mImage.SetNull();
 }
 
-PRBool
+bool
 nsStyleBackground::Layer::RenderingMightDependOnFrameSize() const
 {
   // Do we even have an image?
   if (mImage.IsEmpty()) {
-    return PR_FALSE;
+    return false;
   }
 
-  // Does our position or size depend on frame size?
-  if (mPosition.DependsOnFrameSize() ||
-      mSize.DependsOnFrameSize(mImage.GetType())) {
-    return PR_TRUE;
-  }
-
-  // Are we an SVG image with a viewBox attribute?
-  if (mImage.GetType() == eStyleImageType_Image) {
-    nsCOMPtr<imgIContainer> imageContainer;
-    mImage.GetImageData()->GetImage(getter_AddRefs(imageContainer));
-    if (imageContainer &&
-        imageContainer->GetType() == imgIContainer::TYPE_VECTOR) {
-      nsIFrame* rootFrame = imageContainer->GetRootLayoutFrame();
-      if (rootFrame &&
-          nsSVGUtils::RootSVGElementHasViewbox(rootFrame->GetContent())) {
-        return PR_TRUE;
-      }
-    }
-  }
-
-  return PR_FALSE;
+  return mPosition.DependsOnFrameSize() || mSize.DependsOnFrameSize(mImage);
 }
 
-PRBool
+bool
 nsStyleBackground::Layer::operator==(const Layer& aOther) const
 {
   return mAttachment == aOther.mAttachment &&
@@ -1983,7 +2050,6 @@ void nsTransition::SetUnknownProperty(const nsAString& aUnknownProperty)
   mUnknownProperty = do_GetAtom(aUnknownProperty);
 }
 
-#ifdef MOZ_CSS_ANIMATIONS
 nsAnimation::nsAnimation(const nsAnimation& aCopy)
   : mTimingFunction(aCopy.mTimingFunction)
   , mDuration(aCopy.mDuration)
@@ -2008,19 +2074,19 @@ nsAnimation::SetInitialValues()
   mPlayState = NS_STYLE_ANIMATION_PLAY_STATE_RUNNING;
   mIterationCount = 1.0f;
 }
-#endif
 
 nsStyleDisplay::nsStyleDisplay()
 {
   MOZ_COUNT_CTOR(nsStyleDisplay);
   mAppearance = NS_THEME_NONE;
   mDisplay = NS_STYLE_DISPLAY_INLINE;
-  mOriginalDisplay = NS_STYLE_DISPLAY_NONE;
+  mOriginalDisplay = mDisplay;
   mPosition = NS_STYLE_POSITION_STATIC;
   mFloats = NS_STYLE_FLOAT_NONE;
+  mOriginalFloats = mFloats;
   mBreakType = NS_STYLE_CLEAR_NONE;
-  mBreakBefore = PR_FALSE;
-  mBreakAfter = PR_FALSE;
+  mBreakBefore = false;
+  mBreakAfter = false;
   mOverflowX = NS_STYLE_OVERFLOW_VISIBLE;
   mOverflowY = NS_STYLE_OVERFLOW_VISIBLE;
   mResize = NS_STYLE_RESIZE_NONE;
@@ -2029,7 +2095,14 @@ nsStyleDisplay::nsStyleDisplay()
   mOpacity = 1.0f;
   mSpecifiedTransform = nsnull;
   mTransformOrigin[0].SetPercentValue(0.5f); // Transform is centered on origin
-  mTransformOrigin[1].SetPercentValue(0.5f); 
+  mTransformOrigin[1].SetPercentValue(0.5f);
+  mTransformOrigin[2].SetCoordValue(0);
+  mPerspectiveOrigin[0].SetPercentValue(0.5f);
+  mPerspectiveOrigin[1].SetPercentValue(0.5f);
+  mChildPerspective.SetCoordValue(0);
+  mBackfaceVisibility = NS_STYLE_BACKFACE_VISIBILITY_VISIBLE;
+  mTransformStyle = NS_STYLE_TRANSFORM_STYLE_FLAT;
+  mOrient = NS_STYLE_ORIENT_HORIZONTAL;
 
   mTransitions.AppendElement();
   NS_ABORT_IF_FALSE(mTransitions.Length() == 1,
@@ -2040,7 +2113,6 @@ nsStyleDisplay::nsStyleDisplay()
   mTransitionDelayCount = 1;
   mTransitionPropertyCount = 1;
 
-#ifdef MOZ_CSS_ANIMATIONS
   mAnimations.AppendElement();
   NS_ABORT_IF_FALSE(mAnimations.Length() == 1,
                     "appending within auto buffer should never fail");
@@ -2053,7 +2125,6 @@ nsStyleDisplay::nsStyleDisplay()
   mAnimationFillModeCount = 1;
   mAnimationPlayStateCount = 1;
   mAnimationIterationCountCount = 1;
-#endif
 }
 
 nsStyleDisplay::nsStyleDisplay(const nsStyleDisplay& aSource)
@@ -2062,7 +2133,6 @@ nsStyleDisplay::nsStyleDisplay(const nsStyleDisplay& aSource)
   , mTransitionDurationCount(aSource.mTransitionDurationCount)
   , mTransitionDelayCount(aSource.mTransitionDelayCount)
   , mTransitionPropertyCount(aSource.mTransitionPropertyCount)
-#ifdef MOZ_CSS_ANIMATIONS
   , mAnimations(aSource.mAnimations)
   , mAnimationTimingFunctionCount(aSource.mAnimationTimingFunctionCount)
   , mAnimationDurationCount(aSource.mAnimationDurationCount)
@@ -2072,12 +2142,12 @@ nsStyleDisplay::nsStyleDisplay(const nsStyleDisplay& aSource)
   , mAnimationFillModeCount(aSource.mAnimationFillModeCount)
   , mAnimationPlayStateCount(aSource.mAnimationPlayStateCount)
   , mAnimationIterationCountCount(aSource.mAnimationIterationCountCount)
-#endif
 {
   MOZ_COUNT_CTOR(nsStyleDisplay);
   mAppearance = aSource.mAppearance;
   mDisplay = aSource.mDisplay;
   mOriginalDisplay = aSource.mOriginalDisplay;
+  mOriginalFloats = aSource.mOriginalFloats;
   mBinding = aSource.mBinding;
   mPosition = aSource.mPosition;
   mFloats = aSource.mFloats;
@@ -2090,15 +2160,20 @@ nsStyleDisplay::nsStyleDisplay(const nsStyleDisplay& aSource)
   mClipFlags = aSource.mClipFlags;
   mClip = aSource.mClip;
   mOpacity = aSource.mOpacity;
+  mOrient = aSource.mOrient;
 
   /* Copy over the transformation information. */
   mSpecifiedTransform = aSource.mSpecifiedTransform;
-  if (mSpecifiedTransform)
-    mTransform = aSource.mTransform;
   
   /* Copy over transform origin. */
   mTransformOrigin[0] = aSource.mTransformOrigin[0];
   mTransformOrigin[1] = aSource.mTransformOrigin[1];
+  mTransformOrigin[2] = aSource.mTransformOrigin[2];
+  mPerspectiveOrigin[0] = aSource.mPerspectiveOrigin[0];
+  mPerspectiveOrigin[1] = aSource.mPerspectiveOrigin[1];
+  mChildPerspective = aSource.mChildPerspective;
+  mBackfaceVisibility = aSource.mBackfaceVisibility;
+  mTransformStyle = aSource.mTransformStyle;
 }
 
 nsChangeHint nsStyleDisplay::CalcDifference(const nsStyleDisplay& aOther) const
@@ -2109,8 +2184,8 @@ nsChangeHint nsStyleDisplay::CalcDifference(const nsStyleDisplay& aOther) const
       || mPosition != aOther.mPosition
       || mDisplay != aOther.mDisplay
       || (mFloats == NS_STYLE_FLOAT_NONE) != (aOther.mFloats == NS_STYLE_FLOAT_NONE)
-      || (mOverflowX != aOther.mOverflowX && mDisplay != NS_STYLE_DISPLAY_INLINE)
-      || (mOverflowY != aOther.mOverflowY && mDisplay != NS_STYLE_DISPLAY_INLINE)
+      || mOverflowX != aOther.mOverflowX
+      || mOverflowY != aOther.mOverflowY
       || mResize != aOther.mResize)
     NS_UpdateHint(hint, nsChangeHint_ReconstructFrame);
 
@@ -2128,7 +2203,8 @@ nsChangeHint nsStyleDisplay::CalcDifference(const nsStyleDisplay& aOther) const
       || mBreakBefore != aOther.mBreakBefore
       || mBreakAfter != aOther.mBreakAfter
       || mAppearance != aOther.mAppearance
-      || mClipFlags != aOther.mClipFlags || mClip != aOther.mClip)
+      || mOrient != aOther.mOrient
+      || mClipFlags != aOther.mClipFlags || !mClip.IsEqualInterior(aOther.mClip))
     NS_UpdateHint(hint, NS_CombineHint(nsChangeHint_ReflowFrame, nsChangeHint_RepaintFrame));
 
   if (mOpacity != aOther.mOpacity) {
@@ -2148,16 +2224,35 @@ nsChangeHint nsStyleDisplay::CalcDifference(const nsStyleDisplay& aOther) const
      * the overflow rect (which probably changed if the transform changed)
      * and to redraw within the bounds of that new overflow rect.
      */
-    if (mTransform != aOther.mTransform)
+    if (!mSpecifiedTransform != !aOther.mSpecifiedTransform ||
+        (mSpecifiedTransform && *mSpecifiedTransform != *aOther.mSpecifiedTransform))
       NS_UpdateHint(hint, NS_CombineHint(nsChangeHint_ReflowFrame,
                                          nsChangeHint_UpdateTransformLayer));
     
-    for (PRUint8 index = 0; index < 2; ++index)
+    for (PRUint8 index = 0; index < 3; ++index)
       if (mTransformOrigin[index] != aOther.mTransformOrigin[index]) {
         NS_UpdateHint(hint, NS_CombineHint(nsChangeHint_ReflowFrame,
                                            nsChangeHint_RepaintFrame));
         break;
       }
+    
+    for (PRUint8 index = 0; index < 2; ++index)
+      if (mPerspectiveOrigin[index] != aOther.mPerspectiveOrigin[index]) {
+        NS_UpdateHint(hint, NS_CombineHint(nsChangeHint_ReflowFrame,
+                                           nsChangeHint_RepaintFrame));
+        break;
+      }
+
+    if (mChildPerspective != aOther.mChildPerspective)
+      NS_UpdateHint(hint, NS_CombineHint(nsChangeHint_ReflowFrame,
+                                         nsChangeHint_RepaintFrame));
+
+    if (mBackfaceVisibility != aOther.mBackfaceVisibility)
+      NS_UpdateHint(hint, nsChangeHint_RepaintFrame);
+
+    if (mTransformStyle != aOther.mTransformStyle)
+      NS_UpdateHint(hint, NS_CombineHint(nsChangeHint_ReflowFrame,
+                                         nsChangeHint_RepaintFrame));
   }
 
   // Note:  Our current behavior for handling changes to the
@@ -2294,14 +2389,14 @@ nsStyleContentData& nsStyleContentData::operator=(const nsStyleContentData& aOth
   return *this;
 }
 
-PRBool nsStyleContentData::operator==(const nsStyleContentData& aOther) const
+bool nsStyleContentData::operator==(const nsStyleContentData& aOther) const
 {
   if (mType != aOther.mType)
-    return PR_FALSE;
+    return false;
   if (mType == eStyleContentType_Image) {
     if (!mContent.mImage || !aOther.mContent.mImage)
       return mContent.mImage == aOther.mContent.mImage;
-    PRBool eq;
+    bool eq;
     nsCOMPtr<nsIURI> thisURI, otherURI;
     mContent.mImage->GetURI(getter_AddRefs(thisURI));
     aOther.mContent.mImage->GetURI(getter_AddRefs(otherURI));
@@ -2313,7 +2408,7 @@ PRBool nsStyleContentData::operator==(const nsStyleContentData& aOther) const
   if (mType == eStyleContentType_Counter ||
       mType == eStyleContentType_Counters)
     return *mContent.mCounters == *aOther.mContent.mCounters;
-  return nsCRT::strcmp(mContent.mString, aOther.mContent.mString) == 0;
+  return safe_strcmp(mContent.mString, aOther.mContent.mString) == 0;
 }
 
 void
@@ -2602,7 +2697,8 @@ nsStyleTextReset::nsStyleTextReset(void)
 { 
   MOZ_COUNT_CTOR(nsStyleTextReset);
   mVerticalAlign.SetIntValue(NS_STYLE_VERTICAL_ALIGN_BASELINE, eStyleUnit_Enumerated);
-  mTextDecoration = NS_STYLE_TEXT_DECORATION_NONE;
+  mTextBlink = NS_STYLE_TEXT_BLINK_NONE;
+  mTextDecorationLine = NS_STYLE_TEXT_DECORATION_LINE_NONE;
   mTextDecorationColor = NS_RGB(0,0,0);
   mTextDecorationStyle =
     NS_STYLE_TEXT_DECORATION_STYLE_SOLID | BORDER_COLOR_FOREGROUND;
@@ -2612,7 +2708,7 @@ nsStyleTextReset::nsStyleTextReset(void)
 nsStyleTextReset::nsStyleTextReset(const nsStyleTextReset& aSource) 
 { 
   MOZ_COUNT_CTOR(nsStyleTextReset);
-  memcpy((nsStyleTextReset*)this, &aSource, sizeof(nsStyleTextReset));
+  *this = aSource;
 }
 
 nsStyleTextReset::~nsStyleTextReset(void)
@@ -2624,15 +2720,15 @@ nsChangeHint nsStyleTextReset::CalcDifference(const nsStyleTextReset& aOther) co
 {
   if (mVerticalAlign == aOther.mVerticalAlign
       && mUnicodeBidi == aOther.mUnicodeBidi) {
+    // Reflow for blink changes
+    if (mTextBlink != aOther.mTextBlink) {
+      return NS_STYLE_HINT_REFLOW;
+    }
+
     PRUint8 lineStyle = GetDecorationStyle();
     PRUint8 otherLineStyle = aOther.GetDecorationStyle();
-    if (mTextDecoration != aOther.mTextDecoration ||
+    if (mTextDecorationLine != aOther.mTextDecorationLine ||
         lineStyle != otherLineStyle) {
-      // Reflow for blink changes
-      if ((mTextDecoration & NS_STYLE_TEXT_DECORATION_BLINK) !=
-            (aOther.mTextDecoration & NS_STYLE_TEXT_DECORATION_BLINK)) {
-        return NS_STYLE_HINT_REFLOW;
-      }
       // Reflow for decoration line style changes only to or from double or
       // wave because that may cause overflow area changes
       if (lineStyle == NS_STYLE_TEXT_DECORATION_STYLE_DOUBLE ||
@@ -2648,13 +2744,16 @@ nsChangeHint nsStyleTextReset::CalcDifference(const nsStyleTextReset& aOther) co
 
     // Repaint for decoration color changes
     nscolor decColor, otherDecColor;
-    PRBool isFG, otherIsFG;
+    bool isFG, otherIsFG;
     GetDecorationColor(decColor, isFG);
     aOther.GetDecorationColor(otherDecColor, otherIsFG);
     if (isFG != otherIsFG || (!isFG && decColor != otherDecColor)) {
       return NS_STYLE_HINT_VISUAL;
     }
 
+    if (mTextOverflow != aOther.mTextOverflow) {
+      return NS_STYLE_HINT_VISUAL;
+    }
     return NS_STYLE_HINT_NONE;
   }
   return NS_STYLE_HINT_REFLOW;
@@ -2700,6 +2799,7 @@ nsStyleText::nsStyleText(void)
   mTextTransform = NS_STYLE_TEXT_TRANSFORM_NONE;
   mWhiteSpace = NS_STYLE_WHITESPACE_NORMAL;
   mWordWrap = NS_STYLE_WORDWRAP_NORMAL;
+  mHyphens = NS_STYLE_HYPHENS_MANUAL;
 
   mLetterSpacing.SetNormalValue();
   mLineHeight.SetNormalValue();
@@ -2715,6 +2815,7 @@ nsStyleText::nsStyleText(const nsStyleText& aSource)
     mTextTransform(aSource.mTextTransform),
     mWhiteSpace(aSource.mWhiteSpace),
     mWordWrap(aSource.mWordWrap),
+    mHyphens(aSource.mHyphens),
     mTabSize(aSource.mTabSize),
     mLetterSpacing(aSource.mLetterSpacing),
     mLineHeight(aSource.mLineHeight),
@@ -2741,6 +2842,7 @@ nsChangeHint nsStyleText::CalcDifference(const nsStyleText& aOther) const
       (mTextTransform != aOther.mTextTransform) ||
       (mWhiteSpace != aOther.mWhiteSpace) ||
       (mWordWrap != aOther.mWordWrap) ||
+      (mHyphens != aOther.mHyphens) ||
       (mLetterSpacing != aOther.mLetterSpacing) ||
       (mLineHeight != aOther.mLineHeight) ||
       (mTextIndent != aOther.mTextIndent) ||
@@ -2764,7 +2866,7 @@ nsChangeHint nsStyleText::MaxDifference()
 //
 
 nsCursorImage::nsCursorImage()
-  : mHaveHotspot(PR_FALSE)
+  : mHaveHotspot(false)
   , mHotspotX(0.0f)
   , mHotspotY(0.0f)
 {

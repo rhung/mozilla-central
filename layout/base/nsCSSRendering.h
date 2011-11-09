@@ -54,7 +54,7 @@ struct nsCSSRendering {
   /**
    * Initialize any static variables used by nsCSSRendering.
    */
-  static nsresult Init();
+  static void Init();
   
   /**
    * Clean up any static variables used by nsCSSRendering.
@@ -147,17 +147,17 @@ struct nsCSSRendering {
   static nsIFrame* FindBackgroundStyleFrame(nsIFrame* aForFrame);
 
   /**
-   * @return PR_TRUE if |aFrame| is a canvas frame, in the CSS sense.
+   * @return true if |aFrame| is a canvas frame, in the CSS sense.
    */
-  static PRBool IsCanvasFrame(nsIFrame* aFrame);
+  static bool IsCanvasFrame(nsIFrame* aFrame);
 
   /**
    * Fill in an aBackgroundSC to be used to paint the background
    * for an element.  This applies the rules for propagating
    * backgrounds between BODY, the root element, and the canvas.
-   * @return PR_TRUE if there is some meaningful background.
+   * @return true if there is some meaningful background.
    */
-  static PRBool FindBackground(nsPresContext* aPresContext,
+  static bool FindBackground(nsPresContext* aPresContext,
                                nsIFrame* aForFrame,
                                nsStyleContext** aBackgroundSC);
 
@@ -203,7 +203,7 @@ struct nsCSSRendering {
    */
   static nsIFrame*
   FindNonTransparentBackgroundFrame(nsIFrame* aFrame,
-                                    PRBool aStartAtParent = PR_FALSE);
+                                    bool aStartAtParent = false);
 
   /**
    * Determine the background color to draw taking into account print settings.
@@ -292,6 +292,7 @@ struct nsCSSRendering {
    *       not app units.
    *   input:
    *     @param aGfxContext
+   *     @param aDirtyRect        no need to paint outside this rect
    *     @param aColor            the color of the decoration line
    *     @param aPt               the top/left edge of the text
    *     @param aLineSize         the width and the height of the decoration
@@ -301,9 +302,9 @@ struct nsCSSRendering {
    *                              the baseline of the text (if the value is
    *                              positive, the line is lifted up)
    *     @param aDecoration       which line will be painted. The value can be
-   *                              NS_STYLE_TEXT_DECORATION_UNDERLINE or
-   *                              NS_STYLE_TEXT_DECORATION_OVERLINE or
-   *                              NS_STYLE_TEXT_DECORATION_LINE_THROUGH.
+   *                              NS_STYLE_TEXT_DECORATION_LINE_UNDERLINE or
+   *                              NS_STYLE_TEXT_DECORATION_LINE_OVERLINE or
+   *                              NS_STYLE_TEXT_DECORATION_LINE_LINE_THROUGH.
    *     @param aStyle            the style of the decoration line such as
    *                              NS_STYLE_TEXT_DECORATION_STYLE_*.
    *     @param aDescentLimit     If aDescentLimit is zero or larger and the
@@ -319,6 +320,7 @@ struct nsCSSRendering {
    *                              used for strikeout line and overline too.
    */
   static void PaintDecorationLine(gfxContext* aGfxContext,
+                                  const gfxRect& aDirtyRect,
                                   const nscolor aColor,
                                   const gfxPoint& aPt,
                                   const gfxSize& aLineSize,
@@ -341,9 +343,9 @@ struct nsCSSRendering {
    *                              the baseline of the text (if the value is
    *                              positive, the line is lifted up)
    *     @param aDecoration       which line will be painted. The value can be
-   *                              NS_STYLE_TEXT_DECORATION_UNDERLINE or
-   *                              NS_STYLE_TEXT_DECORATION_OVERLINE or
-   *                              NS_STYLE_TEXT_DECORATION_LINE_THROUGH.
+   *                              NS_STYLE_TEXT_DECORATION_LINE_UNDERLINE or
+   *                              NS_STYLE_TEXT_DECORATION_LINE_OVERLINE or
+   *                              NS_STYLE_TEXT_DECORATION_LINE_LINE_THROUGH.
    *     @param aStyle            the style of the decoration line such as
    *                              NS_STYLE_TEXT_DECORATION_STYLE_*.
    *     @param aDescentLimit     If aDescentLimit is zero or larger and the

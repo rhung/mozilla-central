@@ -43,11 +43,11 @@
 #include "nsDOMUIEvent.h"
 #include "nsIPresShell.h"
 #include "nsIInterfaceRequestorUtils.h"
-#include "nsIDOMWindowInternal.h"
+#include "nsIDOMWindow.h"
 #include "nsIDOMNode.h"
 #include "nsIContent.h"
 #include "nsContentUtils.h"
-#include "nsIEventStateManager.h"
+#include "nsEventStateManager.h"
 #include "nsIFrame.h"
 #include "nsLayoutUtils.h"
 #include "nsIScrollableFrame.h"
@@ -55,14 +55,14 @@
 nsDOMUIEvent::nsDOMUIEvent(nsPresContext* aPresContext, nsGUIEvent* aEvent)
   : nsDOMEvent(aPresContext, aEvent ?
                static_cast<nsEvent *>(aEvent) :
-               static_cast<nsEvent *>(new nsUIEvent(PR_FALSE, 0, 0)))
+               static_cast<nsEvent *>(new nsUIEvent(false, 0, 0)))
   , mClientPoint(0, 0), mLayerPoint(0, 0), mPagePoint(0, 0)
 {
   if (aEvent) {
-    mEventIsInternal = PR_FALSE;
+    mEventIsInternal = false;
   }
   else {
-    mEventIsInternal = PR_TRUE;
+    mEventIsInternal = true;
     mEvent->time = PR_Now();
   }
   
@@ -95,7 +95,7 @@ nsDOMUIEvent::nsDOMUIEvent(nsPresContext* aPresContext, nsGUIEvent* aEvent)
     nsCOMPtr<nsISupports> container = mPresContext->GetContainer();
     if (container)
     {
-       nsCOMPtr<nsIDOMWindowInternal> window = do_GetInterface(container);
+       nsCOMPtr<nsIDOMWindow> window = do_GetInterface(container);
        if (window)
           mView = do_QueryInterface(window);
     }
@@ -119,7 +119,6 @@ DOMCI_DATA(UIEvent, nsDOMUIEvent)
 
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION_INHERITED(nsDOMUIEvent)
   NS_INTERFACE_MAP_ENTRY(nsIDOMUIEvent)
-  NS_INTERFACE_MAP_ENTRY(nsIDOMNSUIEvent)
   NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(UIEvent)
 NS_INTERFACE_MAP_END_INHERITING(nsDOMEvent)
 
@@ -176,7 +175,7 @@ nsDOMUIEvent::GetClientPoint()
 }
 
 NS_IMETHODIMP
-nsDOMUIEvent::GetView(nsIDOMAbstractView** aView)
+nsDOMUIEvent::GetView(nsIDOMWindow** aView)
 {
   *aView = mView;
   NS_IF_ADDREF(*aView);
@@ -191,7 +190,11 @@ nsDOMUIEvent::GetDetail(PRInt32* aDetail)
 }
 
 NS_IMETHODIMP
-nsDOMUIEvent::InitUIEvent(const nsAString & typeArg, PRBool canBubbleArg, PRBool cancelableArg, nsIDOMAbstractView *viewArg, PRInt32 detailArg)
+nsDOMUIEvent::InitUIEvent(const nsAString& typeArg,
+                          bool canBubbleArg,
+                          bool cancelableArg,
+                          nsIDOMWindow* viewArg,
+                          PRInt32 detailArg)
 {
   nsresult rv = nsDOMEvent::InitEvent(typeArg, canBubbleArg, cancelableArg);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -245,10 +248,7 @@ nsDOMUIEvent::GetPageY(PRInt32* aPageY)
 NS_IMETHODIMP
 nsDOMUIEvent::GetWhich(PRUint32* aWhich)
 {
-  NS_ENSURE_ARG_POINTER(aWhich);
-  // Usually we never reach here, as this is reimplemented for mouse and keyboard events.
-  *aWhich = 0;
-  return NS_OK;
+  return Which(aWhich);
 }
 
 NS_IMETHODIMP
@@ -258,7 +258,7 @@ nsDOMUIEvent::GetRangeParent(nsIDOMNode** aRangeParent)
   nsIFrame* targetFrame = nsnull;
 
   if (mPresContext) {
-    mPresContext->EventStateManager()->GetEventTarget(&targetFrame);
+    targetFrame = mPresContext->EventStateManager()->GetEventTarget();
   }
 
   *aRangeParent = nsnull;
@@ -286,7 +286,7 @@ nsDOMUIEvent::GetRangeOffset(PRInt32* aRangeOffset)
   nsIFrame* targetFrame = nsnull;
 
   if (mPresContext) {
-    mPresContext->EventStateManager()->GetEventTarget(&targetFrame);
+    targetFrame = mPresContext->EventStateManager()->GetEventTarget();
   }
 
   if (targetFrame) {
@@ -300,16 +300,16 @@ nsDOMUIEvent::GetRangeOffset(PRInt32* aRangeOffset)
 }
 
 NS_IMETHODIMP
-nsDOMUIEvent::GetCancelBubble(PRBool* aCancelBubble)
+nsDOMUIEvent::GetCancelBubble(bool* aCancelBubble)
 {
   NS_ENSURE_ARG_POINTER(aCancelBubble);
   *aCancelBubble =
-    (mEvent->flags & NS_EVENT_FLAG_STOP_DISPATCH) ? PR_TRUE : PR_FALSE;
+    (mEvent->flags & NS_EVENT_FLAG_STOP_DISPATCH) ? true : false;
   return NS_OK;
 }
 
 NS_IMETHODIMP
-nsDOMUIEvent::SetCancelBubble(PRBool aCancelBubble)
+nsDOMUIEvent::SetCancelBubble(bool aCancelBubble)
 {
   if (aCancelBubble) {
     mEvent->flags |= NS_EVENT_FLAG_STOP_DISPATCH;
@@ -334,8 +334,7 @@ nsDOMUIEvent::GetLayerPoint()
     return mLayerPoint;
   }
   // XXX I'm not really sure this is correct; it's my best shot, though
-  nsIFrame* targetFrame;
-  mPresContext->EventStateManager()->GetEventTarget(&targetFrame);
+  nsIFrame* targetFrame = mPresContext->EventStateManager()->GetEventTarget();
   if (!targetFrame)
     return mLayerPoint;
   nsIFrame* layer = nsLayoutUtils::GetClosestLayer(targetFrame);
@@ -361,7 +360,7 @@ nsDOMUIEvent::GetLayerY(PRInt32* aLayerY)
 }
 
 NS_IMETHODIMP
-nsDOMUIEvent::GetIsChar(PRBool* aIsChar)
+nsDOMUIEvent::GetIsChar(bool* aIsChar)
 {
   switch(mEvent->eventStructType)
   {
@@ -372,7 +371,7 @@ nsDOMUIEvent::GetIsChar(PRBool* aIsChar)
       *aIsChar = ((nsTextEvent*)mEvent)->isChar;
       return NS_OK;
     default:
-      *aIsChar = PR_FALSE;
+      *aIsChar = false;
       return NS_OK;
   }
 }
@@ -393,25 +392,25 @@ nsDOMUIEvent::DuplicatePrivateData()
 }
 
 void
-nsDOMUIEvent::Serialize(IPC::Message* aMsg, PRBool aSerializeInterfaceType)
+nsDOMUIEvent::Serialize(IPC::Message* aMsg, bool aSerializeInterfaceType)
 {
   if (aSerializeInterfaceType) {
     IPC::WriteParam(aMsg, NS_LITERAL_STRING("uievent"));
   }
 
-  nsDOMEvent::Serialize(aMsg, PR_FALSE);
+  nsDOMEvent::Serialize(aMsg, false);
 
   PRInt32 detail = 0;
   GetDetail(&detail);
   IPC::WriteParam(aMsg, detail);
 }
 
-PRBool
+bool
 nsDOMUIEvent::Deserialize(const IPC::Message* aMsg, void** aIter)
 {
-  NS_ENSURE_TRUE(nsDOMEvent::Deserialize(aMsg, aIter), PR_FALSE);
-  NS_ENSURE_TRUE(IPC::ReadParam(aMsg, aIter, &mDetail), PR_FALSE);
-  return PR_TRUE;
+  NS_ENSURE_TRUE(nsDOMEvent::Deserialize(aMsg, aIter), false);
+  NS_ENSURE_TRUE(IPC::ReadParam(aMsg, aIter, &mDetail), false);
+  return true;
 }
 
 nsresult NS_NewDOMUIEvent(nsIDOMEvent** aInstancePtrResult,
@@ -419,9 +418,5 @@ nsresult NS_NewDOMUIEvent(nsIDOMEvent** aInstancePtrResult,
                           nsGUIEvent *aEvent) 
 {
   nsDOMUIEvent* it = new nsDOMUIEvent(aPresContext, aEvent);
-  if (nsnull == it) {
-    return NS_ERROR_OUT_OF_MEMORY;
-  }
-
   return CallQueryInterface(it, aInstancePtrResult);
 }

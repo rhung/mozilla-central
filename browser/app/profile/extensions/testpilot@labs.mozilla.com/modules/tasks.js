@@ -487,29 +487,44 @@ TestPilotExperiment.prototype = {
   onNewWindow: function TestPilotExperiment_onNewWindow(window) {
     this._logger.trace("Experiment.onNewWindow called.");
     if (this.experimentIsRunning()) {
-      this._handlers.onNewWindow(window);
+      try {
+        this._handlers.onNewWindow(window);
+      } catch(e) {
+        this._dataStore.logException("onNewWindow: " + e);
+      }
     }
   },
 
   onWindowClosed: function TestPilotExperiment_onWindowClosed(window) {
     this._logger.trace("Experiment.onWindowClosed called.");
     if (this.experimentIsRunning()) {
-      this._handlers.onWindowClosed(window);
+      try {
+        this._handlers.onWindowClosed(window);
+      } catch(e) {
+        this._dataStore.logException("onWindowClosed: " + e);
+      }
     }
   },
 
   onAppStartup: function TestPilotExperiment_onAppStartup() {
     this._logger.trace("Experiment.onAppStartup called.");
     if (this.experimentIsRunning()) {
-      this._handlers.onAppStartup();
+      try {
+        this._handlers.onAppStartup();
+      } catch(e) {
+        this._dataStore.logException("onAppStartup: " + e);
+      }
     }
   },
 
   onAppShutdown: function TestPilotExperiment_onAppShutdown() {
     this._logger.trace("Experiment.onAppShutdown called.");
-    // TODO the caller for this is not yet implemented
     if (this.experimentIsRunning()) {
-      this._handlers.onAppShutdown();
+      try {
+        this._handlers.onAppShutdown();
+      } catch(e) {
+        this._dataStore.logException("onAppShutdown: " + e);
+      }
     }
   },
 
@@ -518,7 +533,11 @@ TestPilotExperiment.prototype = {
     // Make sure not to call this if it's already been called:
     if (this.experimentIsRunning() && !this._startedUpHandlers) {
       this._logger.trace("  ... starting up handlers!");
-      this._handlers.onExperimentStartup(this._dataStore);
+      try {
+        this._handlers.onExperimentStartup(this._dataStore);
+      } catch(e) {
+        this._dataStore.logException("onExperimentStartup: " + e);
+      }
       this._startedUpHandlers = true;
     }
   },
@@ -526,7 +545,11 @@ TestPilotExperiment.prototype = {
   onExperimentShutdown: function TestPilotExperiment_onShutdown() {
     this._logger.trace("Experiment.onExperimentShutdown called.");
     if (this.experimentIsRunning() && this._startedUpHandlers) {
-      this._handlers.onExperimentShutdown();
+      try {
+        this._handlers.onExperimentShutdown();
+      } catch(e) {
+        this._dataStore.logException("onExperimentShutdown: " + e);
+      }
       this._startedUpHandlers = false;
     }
   },
@@ -534,21 +557,33 @@ TestPilotExperiment.prototype = {
   doExperimentCleanup: function TestPilotExperiment_doExperimentCleanup() {
     if (this._handlers.doExperimentCleanup) {
       this._logger.trace("Doing experiment cleanup.");
-      this._handlers.doExperimentCleanup();
+      try {
+        this._handlers.doExperimentCleanup();
+      } catch(e) {
+        this._dataStore.logException("doExperimentCleanup: " + e);
+      }
     }
   },
 
   onEnterPrivateBrowsing: function TestPilotExperiment_onEnterPrivate() {
     this._logger.trace("Task is entering private browsing.");
     if (this.experimentIsRunning()) {
-      this._handlers.onEnterPrivateBrowsing();
+      try {
+        this._handlers.onEnterPrivateBrowsing();
+      } catch(e) {
+        this._dataStore.logException("onEnterPrivateBrowsing: " + e);
+      }
     }
   },
 
   onExitPrivateBrowsing: function TestPilotExperiment_onExitPrivate() {
     this._logger.trace("Task is exiting private browsing.");
     if (this.experimentIsRunning()) {
-      this._handlers.onExitPrivateBrowsing();
+      try {
+        this._handlers.onExitPrivateBrowsing();
+      } catch(e) {
+        this._dataStore.logException("onExitPrivateBrowsing: " + e);
+      }
     }
   },
 
@@ -562,7 +597,7 @@ TestPilotExperiment.prototype = {
         }
       }
     } catch(e) {
-      this._logger.warn("Error in getStudyMetadata: " + e);
+      this._dataStore.logException("getStudyMetadata: " + e);
     }
     return null;
   },
@@ -625,6 +660,7 @@ TestPilotExperiment.prototype = {
     // This method handles all date-related status changes and should be
     // called periodically.
     let currentDate = this._now();
+    let self = this;
 
     // Reset automatically recurring tests:
     if (this._recursAutomatically &&
@@ -668,7 +704,6 @@ TestPilotExperiment.prototype = {
         currentDate <= this._endDate) {
       this._logger.info("Study now starting.");
       // clear the data before starting.
-      let self = this;
       this._dataStore.wipeAllData(function() {
         // Experiment is now in progress.
         self.changeStatus(TaskConstants.STATUS_IN_PROGRESS, true);
@@ -679,7 +714,6 @@ TestPilotExperiment.prototype = {
     // What happens when a test finishes:
     if (this._status < TaskConstants.STATUS_FINISHED &&
 	currentDate > this._endDate) {
-      let self = this;
       let setDataDeletionDate = true;
       this._logger.info("Passed End Date - Switched Task Status to Finished");
       this.changeStatus(TaskConstants.STATUS_FINISHED);
@@ -778,9 +812,12 @@ TestPilotExperiment.prototype = {
         }
       }
       self._dataStore.getJSONRows(function(rows) {
-                                    json.events = rows;
-                                    callback( JSON.stringify(json) );
-                                  });
+        json.events = rows;
+        self._dataStore.getExceptionsAsJson(function(errs) {
+          json.exceptions = errs;
+          callback( JSON.stringify(json) );
+        });
+      });
     });
   },
 
@@ -809,7 +846,7 @@ TestPilotExperiment.prototype = {
       req.setRequestHeader("Content-type", "application/json");
       req.setRequestHeader("Content-length", dataString.length);
       req.setRequestHeader("Connection", "close");
-      req.onreadystatechange = function(aEvt) {
+      req.addEventListener("readystatechange", function(aEvt) {
         if (req.readyState == 4) {
           if (req.status == 200 || req.status == 201 || req.status == 202) {
             let location = req.getResponseHeader("Location");
@@ -850,7 +887,7 @@ TestPilotExperiment.prototype = {
             callback(false);
           }
         }
-      };
+      }, false);
       req.send(dataString);
     });
   },
@@ -858,7 +895,6 @@ TestPilotExperiment.prototype = {
   optOut: function TestPilotExperiment_optOut(reason, callback) {
     // Regardless of study ID, post the opt-out message to a special
     // database table of just opt-out messages; include study ID in metadata.
-    let url = Application.prefs.getValue(DATA_UPLOAD_PREF, "") + "opt-out";
     let logger = this._logger;
 
     this.onExperimentShutdown();
@@ -871,6 +907,7 @@ TestPilotExperiment.prototype = {
     if (reason) {
       // Send us the reason...
       // (TODO: include metadata?)
+      let url = Application.prefs.getValue(DATA_UPLOAD_PREF, "") + "opt-out";
       let answer = {id: this._id,
                     reason: reason};
       let dataString = JSON.stringify(answer);
@@ -882,21 +919,27 @@ TestPilotExperiment.prototype = {
       req.setRequestHeader("Content-type", "application/json");
       req.setRequestHeader("Content-length", dataString.length);
       req.setRequestHeader("Connection", "close");
-      req.onreadystatechange = function(aEvt) {
+      req.addEventListener("readystatechange", function(aEvt) {
         if (req.readyState == 4) {
           if (req.status == 200 || req.status == 201 || req.status == 202) {
 	    logger.info("Quit reason posted successfully " + req.responseText);
-    	    callback(true);
+            if (callback) {
+              callback(true);
+            }
 	  } else {
 	    logger.warn(req.status + " posting error " + req.responseText);
-	    callback(false);
+            if (callback) {
+              callback(false);
+            }
 	  }
 	}
-      };
+      }, false);
       logger.trace("Sending quit reason.");
       req.send(dataString);
     } else {
-      callback(false);
+      if (callback) {
+        callback(false);
+      }
     }
   },
 
@@ -923,6 +966,7 @@ TestPilotBuiltinSurvey.prototype = {
     this._versionNumber = surveyInfo.versionNumber;
     this._questions = surveyInfo.surveyQuestions;
     this._explanation = surveyInfo.surveyExplanation;
+    this._onPageLoad = surveyInfo.onPageLoad;
   },
 
   get taskType() {
@@ -948,6 +992,12 @@ TestPilotBuiltinSurvey.prototype = {
 
   get relatedStudyId() {
     return this._studyId;
+  },
+
+  onPageLoad: function(task, document) {
+    if (this._onPageLoad) {
+      this._onPageLoad(task, document);
+    }
   },
 
   onDetailPageOpened: function TPS_onDetailPageOpened() {
@@ -1019,7 +1069,7 @@ TestPilotBuiltinSurvey.prototype = {
       req.setRequestHeader("Content-type", "application/json");
       req.setRequestHeader("Content-length", params.length);
       req.setRequestHeader("Connection", "close");
-      req.onreadystatechange = function(aEvt) {
+      req.addEventListener("readystatechange", function(aEvt) {
         if (req.readyState == 4) {
           if (req.status == 200 || req.status == 201 ||
              req.status == 202) {
@@ -1049,7 +1099,7 @@ TestPilotBuiltinSurvey.prototype = {
 	    callback(false);
 	  }
         }
-      };
+      }, false);
       req.send(params);
     });
   }

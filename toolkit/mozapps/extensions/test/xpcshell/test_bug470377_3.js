@@ -36,6 +36,8 @@
  * ***** END LICENSE BLOCK *****
  */
 
+Services.prefs.setBoolPref(PREF_EM_STRICT_COMPATIBILITY, false);
+
 function run_test() {
   do_test_pending();
   createAppInfo("xpcshell@tests.mozilla.org", "XPCShell", "2.2.3", "2");
@@ -87,9 +89,9 @@ function run_test_1() {
     do_check_neq(a1, null);
     do_check_false(a1.isActive);
     do_check_neq(a2, null);
-    do_check_false(a2.isActive);
+    do_check_true(a2.isActive);
     do_check_neq(a3, null);
-    do_check_false(a3.isActive);
+    do_check_true(a3.isActive);
     do_check_neq(a4, null);
     do_check_true(a4.isActive);
     do_check_neq(a5, null);
@@ -101,7 +103,20 @@ function run_test_1() {
 
 function run_test_2() {
   // Disable compatibility checks
-  Services.prefs.setBoolPref("extensions.checkCompatibility.2.2", false);
+  var channel = "default";
+  try {
+    channel = Services.prefs.getCharPref("app.update.channel");
+  }
+  catch (e) { }
+
+  if (channel != "aurora" &&
+      channel != "beta" &&
+      channel != "release") {
+    Services.prefs.setBoolPref("extensions.checkCompatibility.nightly", false);
+  }
+  else {
+    Services.prefs.setBoolPref("extensions.checkCompatibility.2.2", false);
+  }
   restartManager();
 
   AddonManager.getAddonsByIDs(["bug470377_1@tests.mozilla.org",

@@ -58,11 +58,8 @@ ifndef MOZ_NATIVE_ZLIB
 tier_platform_dirs += modules/zlib
 endif
 
-ifndef WINCE
-tier_platform_dirs += modules/libreg
-endif
-
 tier_platform_dirs += \
+		modules/libreg \
 		modules/libpref \
 		intl \
 		netwerk \
@@ -77,12 +74,7 @@ endif
 #
 
 ifndef MOZ_NATIVE_JPEG
-tier_platform_dirs	+= jpeg
-endif
-
-# Installer needs standalone libjar, hence standalone zlib
-ifdef MOZ_INSTALLER
-tier_platform_dirs	+= modules/zlib/standalone
+tier_platform_dirs	+= media/libjpeg
 endif
 
 ifdef MOZ_UPDATER
@@ -95,10 +87,6 @@ endif
 
 tier_platform_dirs	+= gfx/qcms
 
-ifeq ($(OS_ARCH),WINCE)
-tier_platform_dirs += modules/lib7z
-endif
-
 #
 # "gecko" - core components
 #
@@ -106,7 +94,8 @@ endif
 tier_platform_dirs += ipc js/ipc js/jetpack
 
 tier_platform_dirs += \
-		js/src/xpconnect \
+		hal \
+		js/xpconnect \
 		intl/chardet \
 		$(NULL)
 
@@ -118,7 +107,7 @@ endif
 
 tier_platform_dirs	+= \
 		modules/libjar \
-		db \
+		storage \
 		$(NULL)
 
 ifdef MOZ_PERMISSIONS
@@ -128,13 +117,7 @@ tier_platform_dirs += \
 		$(NULL)
 endif
 
-ifdef MOZ_STORAGE
-tier_platform_dirs += storage
-endif
-
-ifdef MOZ_RDF
 tier_platform_dirs += rdf
-endif
 
 ifdef MOZ_JSDEBUGGER
 tier_platform_dirs += js/jsd
@@ -172,14 +155,16 @@ tier_platform_dirs += \
 		$(NULL)
 endif
 
+ifndef MOZ_NATIVE_PNG
+tier_platform_dirs += media/libpng
+endif
+
 tier_platform_dirs	+= \
 		uriloader \
-		modules/libimg \
 		caps \
 		parser \
 		gfx \
-		modules/libpr0n \
-		modules/plugin \
+		image \
 		dom \
 		view \
 		widget \
@@ -210,6 +195,8 @@ ifdef MOZ_JPROF
 tier_platform_dirs        += tools/jprof
 endif
 
+tier_platform_dirs  += tools/profiler
+
 tier_platform_dirs	+= xpfe/components
 
 ifdef MOZ_ENABLE_XREMOTE
@@ -234,11 +221,10 @@ endif
 
 tier_platform_dirs += services/crypto/component
 
-ifdef MOZ_ENABLE_LIBXUL
 tier_platform_dirs += startupcache
-endif
 
-ifndef BUILD_STATIC_LIBS
+tier_platform_dirs += js/ductwork/debugger
+
 ifdef APP_LIBXUL_STATICDIRS
 # Applications can cheat and ask for code to be
 # built before libxul so libxul can be linked against it.
@@ -251,11 +237,8 @@ tier_platform_dirs += $(APP_LIBXUL_DIRS)
 endif
 
 tier_platform_dirs += toolkit/library
-endif
 
-ifdef MOZ_ENABLE_LIBXUL
 tier_platform_dirs += xpcom/stub
-endif
 
 ifdef NS_TRACE_MALLOC
 tier_platform_dirs += tools/trace-malloc
@@ -282,8 +265,7 @@ endif
 
 ifdef ENABLE_TESTS
 tier_platform_dirs += testing/mochitest
-tier_platform_dirs += testing/xpcshell 
-tier_platform_dirs += testing/mozmill
+tier_platform_dirs += testing/xpcshell
 tier_platform_dirs += testing/tools/screenshot
 endif
 

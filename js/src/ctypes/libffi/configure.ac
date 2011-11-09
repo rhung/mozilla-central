@@ -277,10 +277,10 @@ fi
 if test x$TARGET = xX86 || test x$TARGET = xX86_WIN32 || test x$TARGET = xX86_64; then
     AC_CACHE_CHECK([assembler supports pc related relocs],
 	libffi_cv_as_x86_pcrel, [
-	libffi_cv_as_x86_pcrel=yes
+	libffi_cv_as_x86_pcrel=no
 	echo '.text; foo: nop; .data; .long foo-.; .text' > conftest.s
-	if $CC $CFLAGS -c conftest.s 2>&1 | $EGREP -i 'illegal|warning' > /dev/null; then
-	    libffi_cv_as_x86_pcrel=no
+	if $CC $CFLAGS -c conftest.s > /dev/null; then
+	    libffi_cv_as_x86_pcrel=yes
 	fi
 	])
     if test "x$libffi_cv_as_x86_pcrel" = xyes; then
@@ -316,7 +316,8 @@ if test x$TARGET = xX86 || test x$TARGET = xX86_WIN32 || test x$TARGET = xX86_64
 fi
 
 case "$target" in
-     *-apple-darwin10* | *-*-freebsd* | *-*-openbsd* | *-pc-solaris*)
+     # Darwin 10 (OSX 10.6) and beyond allocate non-executable pages
+     *-apple-darwin1* | *-*-freebsd* | *-*-openbsd* | *-pc-solaris*)
        AC_DEFINE(FFI_MMAP_EXEC_WRIT, 1,
                  [Cannot use malloc on this target, so, we revert to
                    alternative means])

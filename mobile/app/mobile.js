@@ -72,10 +72,17 @@ pref("toolkit.zoomManager.zoomValues", ".2,.3,.5,.67,.8,.9,1,1.1,1.2,1.33,1.5,1.
 
 // Device pixel to CSS px ratio, in percent. Set to -1 to calculate based on display density.
 pref("browser.viewport.scaleRatio", -1);
+pref("browser.viewport.desktopWidth", 980);
 
-/* use custom widget for html:select */
-pref("ui.use_native_popup_windows", true);
-
+#ifndef ANDROID
+#ifndef MOZ_PLATFORM_MAEMO
+// On desktop builds, simulate an MDPI tablet by default.
+pref("layout.css.dpi", 160);
+#else
+// Maemo X11 lies about its dpi
+pref("layout.css.dpi", 240);
+#endif
+#endif
 /* allow scrollbars to float above chrome ui */
 pref("ui.scrollbarsCanOverlapContent", 1);
 
@@ -83,8 +90,8 @@ pref("ui.scrollbarsCanOverlapContent", 1);
 pref("ui.click_hold_context_menus", true);
 
 /* cache prefs */
-pref("browser.cache.disk.enable", false);
-pref("browser.cache.disk.capacity", 0); // kilobytes
+pref("browser.cache.disk.enable", true);
+pref("browser.cache.disk.capacity", 10240); // kilobytes
 pref("browser.cache.disk.smart_size.enabled", false);
 pref("browser.cache.disk.smart_size.first_run", false);
 
@@ -133,19 +140,19 @@ pref("browser.display.remotetabs.timeout", 10);
 /* session history */
 pref("browser.sessionhistory.max_total_viewers", 1);
 pref("browser.sessionhistory.max_entries", 50);
-pref("browser.sessionhistory.optimize_eviction", true);
 
 /* session store */
 pref("browser.sessionstore.resume_session_once", false);
 pref("browser.sessionstore.resume_from_crash", true);
 pref("browser.sessionstore.resume_from_crash_timeout", 60); // minutes
 pref("browser.sessionstore.interval", 10000); // milliseconds
-pref("browser.sessionstore.max_tabs_undo", 5);
+pref("browser.sessionstore.max_tabs_undo", 1);
 
 /* these should help performance */
 pref("mozilla.widget.force-24bpp", true);
 pref("mozilla.widget.use-buffer-pixmap", true);
 pref("mozilla.widget.disable-native-theme", true);
+pref("layout.reflow.synthMouseMove", false);
 
 /* download manager (don't show the window or alert) */
 pref("browser.download.useDownloadDir", true);
@@ -166,13 +173,17 @@ pref("alerts.slideIncrementTime", 10);
 pref("alerts.totalOpenTime", 6000);
 pref("alerts.height", 50);
 
+/* download helper */
+pref("browser.helperApps.deleteTempFileOnExit", false);
+
 /* password manager */
 pref("signon.rememberSignons", true);
 pref("signon.expireMasterPassword", false);
 pref("signon.SignonFileName", "signons.txt");
 
 /* form helper */
-pref("formhelper.enabled", true);
+// 0 = disabled, 1 = enabled, 2 = dynamic depending on screen size
+pref("formhelper.mode", 2);
 pref("formhelper.autozoom", true);
 pref("formhelper.autozoom.caret", true);
 pref("formhelper.restore", false);
@@ -182,10 +193,6 @@ pref("findhelper.autozoom", true);
 
 /* autocomplete */
 pref("browser.formfill.enable", true);
-
-/* microsummaries */
-pref("browser.microsummary.enabled", false);
-pref("browser.microsummary.updateGenerators", false);
 
 /* spellcheck */
 pref("layout.spellcheckDefault", 0);
@@ -216,6 +223,10 @@ pref("extensions.getAddons.search.browseURL", "https://addons.mozilla.org/%LOCAL
 pref("extensions.getAddons.search.url", "https://services.addons.mozilla.org/%LOCALE%/mobile/api/%API_VERSION%/search/%TERMS%/all/%MAX_RESULTS%/%OS%/%VERSION%");
 pref("extensions.getAddons.browseAddons", "https://addons.mozilla.org/%LOCALE%/mobile/");
 pref("extensions.getAddons.get.url", "https://services.addons.mozilla.org/%LOCALE%/mobile/api/%API_VERSION%/search/guid:%IDS%?src=mobile&appOS=%OS%&appVersion=%VERSION%&tMain=%TIME_MAIN%&tFirstPaint=%TIME_FIRST_PAINT%&tSessionRestored=%TIME_SESSION_RESTORED%");
+
+/* preference for the locale picker */
+pref("extensions.getLocales.get.url", "");
+pref("extensions.compatability.locales.buildid", "0");
 
 /* blocklist preferences */
 pref("extensions.blocklist.enabled", true);
@@ -364,15 +375,10 @@ pref("privacy.item.geolocation", true);
 pref("privacy.item.siteSettings", true);
 pref("privacy.item.syncAccount", true);
 
-#ifdef MOZ_PLATFORM_MAEMO
 pref("plugins.force.wmode", "opaque");
-#endif
 
 // URL to the Learn More link XXX this is the firefox one.  Bug 495578 fixes this.
 pref("browser.geolocation.warning.infoURL", "http://www.mozilla.com/%LOCALE%/firefox/geolocation/");
-
-// base url for the wifi geolocation network provider
-pref("geo.wifi.uri", "https://www.google.com/loc/json");
 
 // enable geo
 pref("geo.enabled", true);
@@ -384,15 +390,22 @@ pref("content.sink.pending_event_mode", 0);
 pref("content.sink.perf_deflect_count", 1000000);
 pref("content.sink.perf_parse_time", 50000000);
 
-pref("javascript.options.mem.gc_frequency", 300);
+// Disable methodjit in chrome to save memory
+pref("javascript.options.methodjit.chrome",  false);
+
 pref("javascript.options.mem.high_water_mark", 32);
-pref("javascript.options.methodjit.chrome", false);
+
+// Disable the JS engine's gc on memory pressure, since we do one in the mobile
+// browser (bug 669346).
+pref("javascript.options.gc_on_memory_pressure", false);
 
 pref("dom.max_chrome_script_run_time", 0); // disable slow script dialog for chrome
 pref("dom.max_script_run_time", 20);
 
 // JS error console
 pref("devtools.errorconsole.enabled", false);
+
+pref("browser.ui.layout.tablet", -1); // on: 1, off: 0, auto: -1
 
 // kinetic tweakables
 pref("browser.ui.kinetic.updateInterval", 16);
@@ -422,14 +435,18 @@ pref("browser.ui.touch.weight.visited", 120); // percentage
 // plugins
 #if MOZ_PLATFORM_MAEMO == 6
 pref("plugin.disable", false);
+pref("dom.ipc.plugins.enabled", true);
+#elifdef ANDROID
+pref("plugin.disable", false);
+pref("dom.ipc.plugins.enabled", false);
 #else
 pref("plugin.disable", true);
-#endif
 pref("dom.ipc.plugins.enabled", true);
+#endif
 
 // process priority
 // higher values give content process less CPU time
-#if MOZ_PLATFORM_MAEMO
+#if MOZ_PLATFORM_MAEMO == 5
 pref("dom.ipc.content.nice", 10);
 #else
 pref("dom.ipc.content.nice", 1);
@@ -444,6 +461,7 @@ pref("app.support.baseURL", "http://support.mozilla.com/mobile");
 pref("app.feedbackURL", "http://input.mozilla.com/feedback/");
 pref("app.privacyURL", "http://www.mozilla.com/%LOCALE%/m/privacy.html");
 pref("app.creditsURL", "http://www.mozilla.org/credits/");
+pref("app.channelURL", "http://www.mozilla.org/%LOCALE%/firefox/channel/");
 #if MOZ_UPDATE_CHANNEL == beta
 pref("app.featuresURL", "http://www.mozilla.com/%LOCALE%/mobile/beta/features/");
 pref("app.faqURL", "http://www.mozilla.com/%LOCALE%/mobile/beta/faq/");
@@ -504,7 +522,6 @@ pref("app.update.channel", "@MOZ_UPDATE_CHANNEL@");
 pref("app.update.mode", 1);
 pref("app.update.silent", false);
 pref("app.update.url", "https://aus2.mozilla.org/update/4/%PRODUCT%/%VERSION%/%BUILD_ID%/%BUILD_TARGET%/%LOCALE%/%CHANNEL%/%OS_VERSION%/%DISTRIBUTION%/%DISTRIBUTION_VERSION%/%PLATFORM_VERSION%/update.xml");
-pref("app.update.nagTimer.restart", 86400);
 pref("app.update.promptWaitTime", 43200);
 pref("app.update.idletime", 60);
 pref("app.update.showInstalledUI", false);
@@ -536,8 +553,6 @@ pref("font.default.x-western", "SwissA");
 #endif
 
 #ifdef MOZ_SERVICES_SYNC
-pref("browser.sync.enabled", true);
-
 // sync service
 pref("services.sync.client.type", "mobile");
 pref("services.sync.registerEngines", "Tab,Bookmarks,Form,History,Password,Prefs");
@@ -554,6 +569,7 @@ pref("services.sync.prefs.sync.lightweightThemes.isThemeSelected", true);
 pref("services.sync.prefs.sync.lightweightThemes.usedThemes", true);
 pref("services.sync.prefs.sync.network.cookie.cookieBehavior", true);
 pref("services.sync.prefs.sync.permissions.default.image", true);
+pref("services.sync.prefs.sync.privacy.donottrackheader.enabled", true);
 pref("services.sync.prefs.sync.signon.rememberSignons", true);
 #endif
 
@@ -564,6 +580,8 @@ pref("ui.dragThresholdY", 25);
 
 #if MOZ_PLATFORM_MAEMO == 6
 pref("layers.acceleration.disabled", false);
+#elifdef ANDROID
+pref("layers.acceleration.disabled", false);
 #else
 pref("layers.acceleration.disabled", true);
 #endif
@@ -572,7 +590,8 @@ pref("notification.feature.enabled", true);
 
 // prevent tooltips from showing up
 pref("browser.chrome.toolbar_tips", false);
-pref("indexedDB.feature.enabled", false);
+pref("indexedDB.feature.enabled", true);
+pref("dom.indexedDB.warningQuota", 5);
 
 // prevent video elements from preloading too much data
 pref("media.preload.default", 1); // default to preload none
@@ -581,11 +600,84 @@ pref("media.preload.auto", 2);    // preload metadata if preload=auto
 //  0: don't show fullscreen keyboard
 //  1: always show fullscreen keyboard
 // -1: show fullscreen keyboard based on threshold pref
-pref("widget.ime.android.landscape_fullscreen", 0);
-pref("widget.ime.android.fullscreen_threshold", 300); // in hundreths of inches
+pref("widget.ime.android.landscape_fullscreen", -1);
+pref("widget.ime.android.fullscreen_threshold", 250); // in hundreths of inches
 
 // optimize images memory usage
 pref("image.mem.decodeondraw", true);
 pref("content.image.allow_locking", false);
-pref("image.mem.min_discard_timeout_ms", 20000);
+pref("image.mem.min_discard_timeout_ms", 10000);
 
+// enable touch events interfaces
+pref("dom.w3c_touch_events.enabled", true);
+pref("dom.w3c_touch_events.safetyX", 5); // escape borders in units of 1/240"
+pref("dom.w3c_touch_events.safetyY", 20); // escape borders in units of 1/240"
+
+#ifdef MOZ_SAFE_BROWSING
+// Safe browsing does nothing unless this pref is set
+pref("browser.safebrowsing.enabled", true);
+
+// Prevent loading of pages identified as malware
+pref("browser.safebrowsing.malware.enabled", true);
+
+// Non-enhanced mode (local url lists) URL list to check for updates
+pref("browser.safebrowsing.provider.0.updateURL", "http://safebrowsing.clients.google.com/safebrowsing/downloads?client={moz:client}&appver={moz:version}&pver=2.2");
+
+pref("browser.safebrowsing.dataProvider", 0);
+
+// Does the provider name need to be localizable?
+pref("browser.safebrowsing.provider.0.name", "Google");
+pref("browser.safebrowsing.provider.0.keyURL", "https://sb-ssl.google.com/safebrowsing/newkey?client={moz:client}&appver={moz:version}&pver=2.2");
+pref("browser.safebrowsing.provider.0.reportURL", "http://safebrowsing.clients.google.com/safebrowsing/report?");
+pref("browser.safebrowsing.provider.0.gethashURL", "http://safebrowsing.clients.google.com/safebrowsing/gethash?client={moz:client}&appver={moz:version}&pver=2.2");
+
+// HTML report pages
+pref("browser.safebrowsing.provider.0.reportGenericURL", "http://{moz:locale}.phish-generic.mozilla.com/?hl={moz:locale}");
+pref("browser.safebrowsing.provider.0.reportErrorURL", "http://{moz:locale}.phish-error.mozilla.com/?hl={moz:locale}");
+pref("browser.safebrowsing.provider.0.reportPhishURL", "http://{moz:locale}.phish-report.mozilla.com/?hl={moz:locale}");
+pref("browser.safebrowsing.provider.0.reportMalwareURL", "http://{moz:locale}.malware-report.mozilla.com/?hl={moz:locale}");
+pref("browser.safebrowsing.provider.0.reportMalwareErrorURL", "http://{moz:locale}.malware-error.mozilla.com/?hl={moz:locale}");
+
+// FAQ URLs
+pref("browser.safebrowsing.warning.infoURL", "http://www.mozilla.com/%LOCALE%/%APP%/phishing-protection/");
+pref("browser.geolocation.warning.infoURL", "http://www.mozilla.com/%LOCALE%/%APP%/geolocation/");
+
+// Name of the about: page contributed by safebrowsing to handle display of error
+// pages on phishing/malware hits.  (bug 399233)
+pref("urlclassifier.alternate_error_page", "blocked");
+
+// The number of random entries to send with a gethash request.
+pref("urlclassifier.gethashnoise", 4);
+
+// The list of tables that use the gethash request to confirm partial results.
+pref("urlclassifier.gethashtables", "goog-phish-shavar,goog-malware-shavar");
+
+// If an urlclassifier table has not been updated in this number of seconds,
+// a gethash request will be forced to check that the result is still in
+// the database.
+pref("urlclassifier.confirm-age", 2700);
+
+// Maximum size of the sqlite3 cache during an update, in bytes
+pref("urlclassifier.updatecachemax", 4194304);
+
+// URL for checking the reason for a malware warning.
+pref("browser.safebrowsing.malware.reportURL", "http://safebrowsing.clients.google.com/safebrowsing/diagnostic?client=%NAME%&hl=%LOCALE%&site=");
+#endif
+
+// True if this is the first time we are showing about:firstrun
+pref("browser.firstrun.show.uidiscovery", true);
+pref("browser.firstrun.show.localepicker", false);
+
+// True if you always want dump() to work
+//
+// On Android, you also need to do the following for the output
+// to show up in logcat:
+//
+// $ adb shell stop
+// $ adb shell setprop log.redirect-stdio true
+// $ adb shell start
+pref("browser.dom.window.dump.enabled", false);
+
+// controls if we want camera support
+pref("device.camera.enabled", true);
+pref("media.realtime_decoder.enabled", true);

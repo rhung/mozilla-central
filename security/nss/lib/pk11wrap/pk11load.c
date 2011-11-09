@@ -178,8 +178,8 @@ secmod_handleReload(SECMODModule *oldModule, SECMODModule *newModule)
 	char *oldModuleSpec;
 
 	if (secmod_IsInternalKeySlot(newModule)) {
-	    pk11_SetInternalKeySlot(slot);
-	}
+	    pk11_SetInternalKeySlotIfFirst(slot);
+	} 
 	newID = slot->slotID;
 	PK11_FreeSlot(slot);
 	for (thisChild=children, thisID=ids; thisChild && *thisChild; 
@@ -387,7 +387,6 @@ SECStatus
 secmod_LoadPKCS11Module(SECMODModule *mod, SECMODModule **oldModule) {
     PRLibrary *library = NULL;
     CK_C_GetFunctionList entry = NULL;
-    char * full_name;
     CK_INFO info;
     CK_ULONG slotCount = 0;
     SECStatus rv;
@@ -434,14 +433,11 @@ secmod_LoadPKCS11Module(SECMODModule *mod, SECMODModule **oldModule) {
 	    return SECFailure;
 	}
 
-	full_name = PORT_Strdup(mod->dllName);
-
 	/* load the library. If this succeeds, then we have to remember to
 	 * unload the library if anything goes wrong from here on out...
 	 */
-	library = PR_LoadLibrary(full_name);
+	library = PR_LoadLibrary(mod->dllName);
 	mod->library = (void *)library;
-	PORT_Free(full_name);
 
 	if (library == NULL) {
 	    return SECFailure;
@@ -550,6 +546,11 @@ secmod_LoadPKCS11Module(SECMODModule *mod, SECMODModule **oldModule) {
 	    /* look down the slot info table */
 	    PK11_LoadSlotList(mod->slots[i],mod->slotInfo,mod->slotInfoCount);
 	    SECMOD_SetRootCerts(mod->slots[i],mod);
+	    /* explicitly mark the internal slot as such if IsInternalKeySlot()
+	     * is set */
+	    if (secmod_IsInternalKeySlot(mod) && (i == (mod->isFIPS ? 0 : 1))) {
+		pk11_SetInternalKeySlotIfFirst(mod->slots[i]);
+	    } 
 	}
 	mod->slotCount = slotCount;
 	mod->slotInfoCount = 0;

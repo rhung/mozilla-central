@@ -48,6 +48,7 @@
 # include "prlock.h"
 # include "prcvar.h"
 # include "prthread.h"
+# include "prinit.h"
 #endif
 
 #ifdef JS_THREADSAFE
@@ -57,6 +58,7 @@
     (defined(__i386) && (defined(__GNUC__) || defined(__SUNPRO_CC))) ||       \
     (defined(__x86_64) && (defined(__GNUC__) || defined(__SUNPRO_CC))) ||     \
     (defined(__sparc) && (defined(__GNUC__) || defined(__SUNPRO_CC))) ||      \
+    (defined(__arm__) && defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4)) ||      \
     defined(AIX) ||                                                           \
     defined(USE_ARM_KUSER)
 # define JS_HAS_NATIVE_COMPARE_AND_SWAP 1
@@ -81,7 +83,7 @@ typedef struct JSThinLock {
     JSFatLock   *fat;
 } JSThinLock;
 
-#define CX_THINLOCK_ID(cx)       ((jsword)(cx)->thread)
+#define CX_THINLOCK_ID(cx)       ((jsword)(cx)->thread())
 #define CURRENT_THREAD_IS_ME(me) (((JSThread *)me)->id == js_CurrentThreadId())
 
 typedef PRLock JSLock;
@@ -163,13 +165,6 @@ extern JSBool js_IsRuntimeLocked(JSRuntime *rt);
 
 #endif /* !JS_THREADSAFE */
 
-#define JS_LOCK_RUNTIME_VOID(rt,e)                                            \
-    JS_BEGIN_MACRO                                                            \
-        JS_LOCK_RUNTIME(rt);                                                  \
-        e;                                                                    \
-        JS_UNLOCK_RUNTIME(rt);                                                \
-    JS_END_MACRO
-
 #define JS_LOCK_GC(rt)              JS_ACQUIRE_LOCK((rt)->gcLock)
 #define JS_UNLOCK_GC(rt)            JS_RELEASE_LOCK((rt)->gcLock)
 #define JS_AWAIT_GC_DONE(rt)        JS_WAIT_CONDVAR((rt)->gcDone, JS_NO_TIMEOUT)
@@ -204,6 +199,9 @@ js_AtomicClearMask(volatile jsword *w, jsword mask);
 #define JS_ATOMIC_SET_MASK(w, mask) js_AtomicSetMask(w, mask)
 #define JS_ATOMIC_CLEAR_MASK(w, mask) js_AtomicClearMask(w, mask)
 
+extern  unsigned
+js_GetCPUCount();
+
 #else
 
 static inline JSBool
@@ -215,10 +213,19 @@ js_CompareAndSwap(jsword *w, jsword ov, jsword nv)
 #define JS_ATOMIC_SET_MASK(w, mask) (*(w) |= (mask))
 #define JS_ATOMIC_CLEAR_MASK(w, mask) (*(w) &= ~(mask))
 
+static inline unsigned
+js_GetCPUCount()
+{
+    return 1;
+}
+
 #endif
 
-#ifdef JS_THREADSAFE
+#ifdef __cplusplus
+
 namespace js {
+
+#ifdef JS_THREADSAFE
 class AutoLock {
   private:
     JSLock *lock;
@@ -227,10 +234,29 @@ class AutoLock {
     AutoLock(JSLock *lock) : lock(lock) { JS_ACQUIRE_LOCK(lock); }
     ~AutoLock() { JS_RELEASE_LOCK(lock); }
 };
-}  /* namespace js */
 # define JS_AUTO_LOCK_GUARD(name, l) AutoLock name((l));
 #else
 # define JS_AUTO_LOCK_GUARD(name, l)
+#endif
+
+class AutoAtomicIncrement {
+    int32 *p;
+    JS_DECL_USE_GUARD_OBJECT_NOTIFIER
+
+  public:
+    AutoAtomicIncrement(int32 *p JS_GUARD_OBJECT_NOTIFIER_PARAM)
+      : p(p) {
+        JS_GUARD_OBJECT_NOTIFIER_INIT;
+        JS_ATOMIC_INCREMENT(p);
+    }
+
+    ~AutoAtomicIncrement() {
+        JS_ATOMIC_DECREMENT(p);
+    }
+};
+
+} /* namespace js */
+
 #endif
 
 #endif /* jslock_h___ */

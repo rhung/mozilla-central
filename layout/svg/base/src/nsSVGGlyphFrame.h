@@ -40,15 +40,16 @@
 #define __NS_SVGGLYPHFRAME_H__
 
 #include "nsSVGGeometryFrame.h"
-#include "nsISVGGlyphFragmentLeaf.h"
+#include "nsISVGGlyphFragmentNode.h"
 #include "nsISVGChildFrame.h"
 #include "gfxContext.h"
 #include "gfxFont.h"
 #include "gfxRect.h"
 #include "gfxMatrix.h"
-#include "nsSVGMatrix.h"
+#include "nsTextFragment.h"
 
 class nsSVGTextFrame;
+class nsSVGTextPathFrame;
 class nsSVGGlyphFrame;
 class CharacterIterator;
 struct CharacterPosition;
@@ -56,7 +57,7 @@ struct CharacterPosition;
 typedef nsSVGGeometryFrame nsSVGGlyphFrameBase;
 
 class nsSVGGlyphFrame : public nsSVGGlyphFrameBase,
-                        public nsISVGGlyphFragmentLeaf, // : nsISVGGlyphFragmentNode
+                        public nsISVGGlyphFragmentNode,
                         public nsISVGChildFrame
 {
   friend nsIFrame*
@@ -66,7 +67,10 @@ protected:
     : nsSVGGlyphFrameBase(aContext),
       mTextRun(nsnull),
       mStartIndex(0),
-      mWhitespaceHandling(COMPRESS_WHITESPACE)
+      mCompressWhitespace(true),
+      mTrimLeadingWhitespace(false),
+      mTrimTrailingWhitespace(false),
+      mPropagateTransform(true)
       {}
   ~nsSVGGlyphFrame()
   {
@@ -77,15 +81,65 @@ public:
   NS_DECL_QUERYFRAME
   NS_DECL_FRAMEARENA_HELPERS
 
+  // These do not use the global transform if NS_STATE_NONDISPLAY_CHILD
+  nsresult GetStartPositionOfChar(PRUint32 charnum, nsIDOMSVGPoint **_retval);
+  nsresult GetEndPositionOfChar(PRUint32 charnum, nsIDOMSVGPoint **_retval);
+  nsresult GetExtentOfChar(PRUint32 charnum, nsIDOMSVGRect **_retval);
+  nsresult GetRotationOfChar(PRUint32 charnum, float *_retval);
+  /**
+   * @param aForceGlobalTransform controls whether to use the
+   * global transform even when NS_STATE_NONDISPLAY_CHILD
+   */
+  float GetAdvance(bool aForceGlobalTransform);
+
+  void SetGlyphPosition(gfxPoint *aPosition, bool aForceGlobalTransform);
+  nsSVGTextPathFrame* FindTextPathParent();
+  bool IsStartOfChunk(); // == is new absolutely positioned chunk.
+
+  void GetXY(mozilla::SVGUserUnitList *aX, mozilla::SVGUserUnitList *aY);
+  void SetStartIndex(PRUint32 aStartIndex);
+  /*
+   * Returns inherited x and y values instead of parent element's attribute
+   * values.
+   */
+  void GetEffectiveXY(PRInt32 strLength,
+                      nsTArray<float> &aX, nsTArray<float> &aY);
+  /*
+   * Returns inherited dx and dy values instead of parent element's attribute
+   * values.
+   */
+  void GetEffectiveDxDy(PRInt32 strLength, 
+                        nsTArray<float> &aDx,
+                        nsTArray<float> &aDy);
+  /*
+   * Returns inherited rotate values instead of parent element's attribute
+   * values.
+   */
+  void GetEffectiveRotate(PRInt32 strLength,
+                          nsTArray<float> &aRotate);
+  PRUint16 GetTextAnchor();
+  bool IsAbsolutelyPositioned();
+  bool IsTextEmpty() const {
+    return mContent->GetText()->GetLength() == 0;
+  }
+  void SetTrimLeadingWhitespace(bool aTrimLeadingWhitespace) {
+    mTrimLeadingWhitespace = aTrimLeadingWhitespace;
+  }
+  void SetTrimTrailingWhitespace(bool aTrimTrailingWhitespace) {
+    mTrimTrailingWhitespace = aTrimTrailingWhitespace;
+  }
+  bool EndsWithWhitespace() const;
+  bool IsAllWhitespace() const;
+
   // nsIFrame interface:
   NS_IMETHOD  CharacterDataChanged(CharacterDataChangeInfo* aInfo);
 
   virtual void DidSetStyleContext(nsStyleContext* aOldStyleContext);
 
-  virtual void SetSelected(PRBool        aSelected,
+  virtual void SetSelected(bool          aSelected,
                            SelectionType aType);
-  NS_IMETHOD  GetSelected(PRBool *aSelected) const;
-  NS_IMETHOD  IsSelectable(PRBool* aIsSelectable, PRUint8* aSelectStyle) const;
+  NS_IMETHOD  GetSelected(bool *aSelected) const;
+  NS_IMETHOD  IsSelectable(bool* aIsSelectable, PRUint8* aSelectStyle) const;
 
   NS_IMETHOD Init(nsIContent*      aContent,
                   nsIFrame*        aParent,
@@ -98,7 +152,7 @@ public:
    */
   virtual nsIAtom* GetType() const;
 
-  virtual PRBool IsFrameOfType(PRUint32 aFlags) const
+  virtual bool IsFrameOfType(PRUint32 aFlags) const
   {
     // Set the frame state bit for text frames to mark them as replaced.
     // XXX kipp: temporary
@@ -119,48 +173,19 @@ public:
                       const nsIntRect *aDirtyRect);
   NS_IMETHOD_(nsIFrame*) GetFrameForPoint(const nsPoint &aPoint);
   NS_IMETHOD UpdateCoveredRegion();
-  virtual gfxRect GetBBoxContribution(const gfxMatrix &aToBBoxUserspace);
+  virtual gfxRect GetBBoxContribution(const gfxMatrix &aToBBoxUserspace,
+                                      PRUint32 aFlags);
 
   NS_IMETHOD_(nsRect) GetCoveredRegion();
   NS_IMETHOD InitialUpdate();
   virtual void NotifySVGChanged(PRUint32 aFlags);
   NS_IMETHOD NotifyRedrawSuspended();
   NS_IMETHOD NotifyRedrawUnsuspended();
-  NS_IMETHOD SetMatrixPropagation(PRBool aPropagate);
-  virtual PRBool GetMatrixPropagation();
-  NS_IMETHOD_(PRBool) IsDisplayContainer() { return PR_FALSE; }
-  NS_IMETHOD_(PRBool) HasValidCoveredRect() { return PR_TRUE; }
+  NS_IMETHOD_(bool) IsDisplayContainer() { return false; }
+  NS_IMETHOD_(bool) HasValidCoveredRect() { return true; }
 
   // nsSVGGeometryFrame methods
   gfxMatrix GetCanvasTM();
-
-  // nsISVGGlyphFragmentLeaf interface:
-  // These do not use the global transform if NS_STATE_NONDISPLAY_CHILD
-  NS_IMETHOD GetStartPositionOfChar(PRUint32 charnum, nsIDOMSVGPoint **_retval);
-  NS_IMETHOD GetEndPositionOfChar(PRUint32 charnum, nsIDOMSVGPoint **_retval);
-  NS_IMETHOD GetExtentOfChar(PRUint32 charnum, nsIDOMSVGRect **_retval);
-  NS_IMETHOD GetRotationOfChar(PRUint32 charnum, float *_retval);
-  /**
-   * @param aForceGlobalTransform controls whether to use the
-   * global transform even when NS_STATE_NONDISPLAY_CHILD
-   */
-  NS_IMETHOD_(float) GetAdvance(PRBool aForceGlobalTransform);
-
-  NS_IMETHOD_(void) SetGlyphPosition(gfxPoint *aPosition, PRBool aForceGlobalTransform);
-  NS_IMETHOD_(nsSVGTextPathFrame*) FindTextPathParent();
-  NS_IMETHOD_(PRBool) IsStartOfChunk(); // == is new absolutely positioned chunk.
-
-  NS_IMETHOD_(void) GetXY(mozilla::SVGUserUnitList *aX, mozilla::SVGUserUnitList *aY);
-  NS_IMETHOD_(void) SetStartIndex(PRUint32 aStartIndex);
-  NS_IMETHOD_(void) GetEffectiveXY(PRInt32 strLength,
-                                   nsTArray<float> &aX, nsTArray<float> &aY);
-  NS_IMETHOD_(void) GetEffectiveDxDy(PRInt32 strLength, 
-                                     nsTArray<float> &aDx,
-                                     nsTArray<float> &aDy);
-  NS_IMETHOD_(void) GetEffectiveRotate(PRInt32 strLength,
-                                       nsTArray<float> &aRotate);
-  NS_IMETHOD_(PRUint16) GetTextAnchor();
-  NS_IMETHOD_(PRBool) IsAbsolutelyPositioned();
 
   // nsISVGGlyphFragmentNode interface:
   // These do not use the global transform if NS_STATE_NONDISPLAY_CHILD
@@ -168,16 +193,17 @@ public:
   virtual float GetComputedTextLength();
   virtual float GetSubStringLength(PRUint32 charnum, PRUint32 fragmentChars);
   virtual PRInt32 GetCharNumAtPosition(nsIDOMSVGPoint *point);
-  NS_IMETHOD_(nsISVGGlyphFragmentLeaf *) GetFirstGlyphFragment();
-  NS_IMETHOD_(nsISVGGlyphFragmentLeaf *) GetNextGlyphFragment();
-  NS_IMETHOD_(void) SetWhitespaceHandling(PRUint8 aWhitespaceHandling);
-  NS_IMETHOD_(PRBool) IsAllWhitespace();
+  NS_IMETHOD_(nsSVGGlyphFrame *) GetFirstGlyphFrame();
+  NS_IMETHOD_(nsSVGGlyphFrame *) GetNextGlyphFrame();
+  NS_IMETHOD_(void) SetWhitespaceCompression(bool aCompressWhitespace) {
+    mCompressWhitespace = aCompressWhitespace;
+  }
 
 protected:
   friend class CharacterIterator;
 
   // Use a power of 2 here. It's not so important to match
-  // nsIDeviceContext::AppUnitsPerDevPixel, but since we do a lot of
+  // nsDeviceContext::AppUnitsPerDevPixel, but since we do a lot of
   // multiplying by 1/GetTextRunUnitsFactor, it's good for it to be a
   // power of 2 to avoid accuracy loss.
   static PRUint32 GetTextRunUnitsFactor() { return 64; }
@@ -191,12 +217,12 @@ protected:
    * the global transform; otherwise we won't use the global transform
    * if we're a NONDISPLAY_CHILD
    */
-  PRBool EnsureTextRun(float *aDrawScale, float *aMetricsScale,
-                       PRBool aForceGlobalTransform);
+  bool EnsureTextRun(float *aDrawScale, float *aMetricsScale,
+                       bool aForceGlobalTransform);
   void ClearTextRun();
 
-  PRBool GetCharacterData(nsAString & aCharacterData);
-  PRBool GetCharacterPositions(nsTArray<CharacterPosition>* aCharacterPositions,
+  bool GetCharacterData(nsAString & aCharacterData);
+  bool GetCharacterPositions(nsTArray<CharacterPosition>* aCharacterPositions,
                                float aMetricsScale);
   PRUint32 GetTextRunFlags(PRUint32 strLength);
 
@@ -208,7 +234,7 @@ protected:
                       gfxContext *aContext);
 
   void NotifyGlyphMetricsChange();
-  PRBool GetGlobalTransform(gfxMatrix *aMatrix);
+  bool GetGlobalTransform(gfxMatrix *aMatrix);
   void SetupGlobalTransform(gfxContext *aContext);
   nsresult GetHighlight(PRUint32 *charnum, PRUint32 *nchars,
                         nscolor *foreground, nscolor *background);
@@ -221,14 +247,17 @@ protected:
 
   // Used to support GetBBoxContribution by making GetConvasTM use this as the
   // parent transform instead of the real CanvasTM.
-  nsCOMPtr<nsIDOMSVGMatrix> mOverrideCanvasTM;
+  nsAutoPtr<gfxMatrix> mOverrideCanvasTM;
 
   // Owning pointer, must call gfxTextRunWordCache::RemoveTextRun before deleting
   gfxTextRun *mTextRun;
   gfxPoint mPosition;
   // The start index into the position and rotation data
   PRUint32 mStartIndex;
-  PRUint8 mWhitespaceHandling;
+  bool mCompressWhitespace;
+  bool mTrimLeadingWhitespace;
+  bool mTrimTrailingWhitespace;
+  bool mPropagateTransform;
 };
 
 #endif

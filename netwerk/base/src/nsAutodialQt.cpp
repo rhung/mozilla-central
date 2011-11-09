@@ -61,19 +61,19 @@ nsAutodial::Init()
 nsresult
 nsAutodial::DialDefault(const PRUnichar* hostName)
 {
-  if (gQtNetworkManager->openConnection(QString::fromUtf16(hostName))) {
+  if (nsQtNetworkManager::get()->openConnection(QString::fromUtf16(hostName))) {
     return NS_OK;
   }
 
   return NS_ERROR_FAILURE;
 }
 
-PRBool
+bool
 nsAutodial::ShouldDialOnNetworkError()
 {
-  if (gQtNetworkManager->isOnline()) {
-    return PR_FALSE;
+  if (nsQtNetworkManager::get()->isOnline()) {
+    return false;
   }
 
-  return PR_TRUE;
+  return true;
 }

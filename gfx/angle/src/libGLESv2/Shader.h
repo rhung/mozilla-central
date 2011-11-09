@@ -57,7 +57,9 @@ class Shader
     int getInfoLogLength() const;
     void getInfoLog(GLsizei bufSize, GLsizei *length, char *infoLog);
     int getSourceLength() const;
-    void getSource(GLsizei bufSize, GLsizei *length, char *source);
+    void getSource(GLsizei bufSize, GLsizei *length, char *buffer);
+    int getTranslatedSourceLength() const;
+    void getTranslatedSource(GLsizei bufSize, GLsizei *length, char *buffer);
 
     virtual void compile() = 0;
     bool isCompiled();
@@ -77,6 +79,8 @@ class Shader
     void parseVaryings();
 
     void compileToHLSL(void *compiler);
+
+    void getSourceImpl(char *source, GLsizei bufSize, GLsizei *length, char *buffer);
 
     static GLenum parseType(const std::string &type);
     static bool compareVarying(const Varying &x, const Varying &y);
@@ -127,8 +131,8 @@ class VertexShader : public Shader
 
     ~VertexShader();
 
-    GLenum getType();
-    void compile();
+    virtual GLenum getType();
+    virtual void compile();
     int getSemanticIndex(const std::string &attributeName);
 
   private:
@@ -146,8 +150,8 @@ class FragmentShader : public Shader
 
     ~FragmentShader();
 
-    GLenum getType();
-    void compile();
+    virtual GLenum getType();
+    virtual void compile();
 
   private:
     DISALLOW_COPY_AND_ASSIGN(FragmentShader);

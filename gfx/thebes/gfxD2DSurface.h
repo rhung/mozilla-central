@@ -59,12 +59,20 @@ public:
 
     gfxD2DSurface(cairo_surface_t *csurf);
 
+    void MovePixels(const nsIntRect& aSourceRect,
+                    const nsIntPoint& aDestTopLeft)
+    {
+        FastMovePixels(aSourceRect, aDestTopLeft);
+    }
+
     virtual ~gfxD2DSurface();
 
     void Present();
     void Scroll(const nsIntPoint &aDelta, const nsIntRect &aClip);
 
-    HDC GetDC(PRBool aRetainContents);
+    ID3D10Texture2D *GetTexture();
+
+    HDC GetDC(bool aRetainContents);
     void ReleaseDC(const nsIntRect *aUpdatedRect);
 };
 

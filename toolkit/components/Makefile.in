@@ -56,22 +56,25 @@ PARALLEL_DIRS += \
   console \
   contentprefs \
   cookie \
+  downloads \
   exthelper \
   filepicker \
   find \
+  intl \
   microformats \
   parentalcontrols \
   passwordmgr \
   perf \
   places \
   prompts \
+  reflect \
   startup \
   statusfilter \
+  telemetry \
   typeaheadfind \
   urlformatter \
   viewconfig \
   viewsource \
-  webapps \
   $(NULL)
 
 ifdef BUILD_CTYPES
@@ -109,19 +112,8 @@ ifdef MOZ_TOOLKIT_SEARCH
 PARALLEL_DIRS += search
 endif
 
-ifdef MOZ_RDF
-PARALLEL_DIRS += \
-  downloads \
-  intl \
-  $(NULL)
-endif
-
 ifdef MOZ_URL_CLASSIFIER
 PARALLEL_DIRS += url-classifier
-endif
-
-ifdef MOZ_FASTSTART
-PARALLEL_DIRS += faststart
 endif
 
 DIRS += \

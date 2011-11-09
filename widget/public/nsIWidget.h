@@ -47,6 +47,7 @@
 #include "nsStringGlue.h"
 
 #include "prthread.h"
+#include "Layers.h"
 #include "nsEvent.h"
 #include "nsCOMPtr.h"
 #include "nsITheme.h"
@@ -56,14 +57,11 @@
 #include "nsXULAppAPI.h"
 
 // forward declarations
-class   nsIAppShell;
-class   nsIToolkit;
 class   nsFontMetrics;
 class   nsRenderingContext;
-class   nsIDeviceContext;
+class   nsDeviceContext;
 struct  nsFont;
 class   nsIRollupListener;
-class   nsIMenuRollup;
 class   nsGUIEvent;
 class   imgIContainer;
 class   gfxASurface;
@@ -71,11 +69,11 @@ class   nsIContent;
 class   ViewWrapper;
 
 namespace mozilla {
-namespace layers {
-class LayerManager;
-}
 namespace dom {
 class PBrowserChild;
+}
+namespace layers {
+class PLayersChild;
 }
 }
 
@@ -106,6 +104,9 @@ typedef nsEventStatus (* EVENT_CALLBACK)(nsGUIEvent *event);
 #define NS_NATIVE_PLUGIN_PORT 8
 #define NS_NATIVE_SCREEN      9
 #define NS_NATIVE_SHELLWIDGET 10      // Get the shell GtkWidget
+// Has to match to NPNVnetscapeWindow, and shareable across processes
+// HWND on Windows and XID on X11
+#define NS_NATIVE_SHAREABLE_WINDOW 11
 #ifdef XP_MACOSX
 #define NS_NATIVE_PLUGIN_PORT_QD    100
 #define NS_NATIVE_PLUGIN_PORT_CG    101
@@ -117,8 +118,8 @@ typedef nsEventStatus (* EVENT_CALLBACK)(nsGUIEvent *event);
 #endif
 
 #define NS_IWIDGET_IID \
-  { 0xe5c2efd1, 0xfbae, 0x4a74, \
-    { 0xb2, 0xeb, 0xf3, 0x49, 0xf5, 0x72, 0xca, 0x71 } }
+  { 0x32966f95, 0x89e0, 0x447a, \
+    { 0x91, 0x8d, 0x58, 0x53, 0xd6, 0x99, 0x4a, 0x72 } }
 
 /*
  * Window shadow styles
@@ -214,15 +215,15 @@ enum nsTopLevelWidgetZPlacement { // for PlaceBehind()
 struct nsIMEUpdatePreference {
 
   nsIMEUpdatePreference()
-    : mWantUpdates(PR_FALSE), mWantHints(PR_FALSE)
+    : mWantUpdates(false), mWantHints(false)
   {
   }
-  nsIMEUpdatePreference(PRBool aWantUpdates, PRBool aWantHints)
+  nsIMEUpdatePreference(bool aWantUpdates, bool aWantHints)
     : mWantUpdates(aWantUpdates), mWantHints(aWantHints)
   {
   }
-  PRPackedBool mWantUpdates;
-  PRPackedBool mWantHints;
+  bool mWantUpdates;
+  bool mWantHints;
 };
 
 
@@ -232,6 +233,29 @@ struct nsIMEUpdatePreference {
  */
 struct IMEContext {
   PRUint32 mStatus;
+
+  /* Does the change come from a trusted source */
+  enum {
+    FOCUS_REMOVED       = 0x0001,
+    FOCUS_MOVED_UNKNOWN = 0x0002,
+    FOCUS_MOVED_BY_MOVEFOCUS = 0x0004,
+    FOCUS_MOVED_BY_MOUSE = 0x0008,
+    FOCUS_MOVED_BY_KEY = 0x0010,
+    FOCUS_MOVED_TO_MENU = 0x0020,
+    FOCUS_MOVED_FROM_MENU = 0x0040,
+    EDITOR_STATE_MODIFIED = 0x0080,
+    FOCUS_FROM_CONTENT_PROCESS = 0x0100
+  };
+
+  bool FocusMovedByUser() const {
+    return (mReason & FOCUS_MOVED_BY_MOUSE) || (mReason & FOCUS_MOVED_BY_KEY);
+  };
+
+  bool FocusMovedInContentProcess() const {
+    return (mReason & FOCUS_FROM_CONTENT_PROCESS);
+  };
+
+  PRUint32 mReason;
 
   /* The type of the input if the input is a html input field */
   nsString mHTMLInputType;
@@ -251,6 +275,8 @@ class nsIWidget : public nsISupports {
 
   public:
     typedef mozilla::layers::LayerManager LayerManager;
+    typedef LayerManager::LayersBackend LayersBackend;
+    typedef mozilla::layers::PLayersChild PLayersChild;
 
     // Used in UpdateThemeGeometries.
     struct ThemeGeometry {
@@ -297,9 +323,6 @@ class nsIWidget : public nsISupports {
      * @param     aRect         the widget dimension
      * @param     aHandleEventFunction the event handler callback function
      * @param     aContext
-     * @param     aAppShell     the parent application shell. If nsnull,
-     *                          the parent window's application shell will be used.
-     * @param     aToolkit
      * @param     aInitData     data that is used for widget initialization
      *
      */
@@ -307,9 +330,7 @@ class nsIWidget : public nsISupports {
                       nsNativeWidget   aNativeParent,
                       const nsIntRect  &aRect,
                       EVENT_CALLBACK   aHandleEventFunction,
-                      nsIDeviceContext *aContext,
-                      nsIAppShell      *aAppShell = nsnull,
-                      nsIToolkit       *aToolkit = nsnull,
+                      nsDeviceContext *aContext,
                       nsWidgetInitData *aInitData = nsnull) = 0;
 
     /**
@@ -331,11 +352,9 @@ class nsIWidget : public nsISupports {
     virtual already_AddRefed<nsIWidget>
     CreateChild(const nsIntRect  &aRect,
                 EVENT_CALLBACK   aHandleEventFunction,
-                nsIDeviceContext *aContext,
-                nsIAppShell      *aAppShell = nsnull,
-                nsIToolkit       *aToolkit = nsnull,
+                nsDeviceContext  *aContext,
                 nsWidgetInitData *aInitData = nsnull,
-                PRBool           aForceUseIWidgetParent = PR_FALSE) = 0;
+                bool             aForceUseIWidgetParent = false) = 0;
 
     /**
      * Attach to a top level widget. 
@@ -350,7 +369,7 @@ class nsIWidget : public nsISupports {
      * aContext The new device context for the view
      */
     NS_IMETHOD AttachViewToTopLevel(EVENT_CALLBACK aViewEventFunction,
-                                    nsIDeviceContext *aContext) = 0;
+                                    nsDeviceContext *aContext) = 0;
 
     /**
      * Accessor functions to get and set secondary client data. Used by
@@ -475,22 +494,22 @@ class nsIWidget : public nsISupports {
     /**
      * Show or hide this widget
      *
-     * @param aState PR_TRUE to show the Widget, PR_FALSE to hide it
+     * @param aState true to show the Widget, false to hide it
      *
      */
-    NS_IMETHOD Show(PRBool aState) = 0;
+    NS_IMETHOD Show(bool aState) = 0;
 
     /**
      * Make the window modal
      *
      */
-    NS_IMETHOD SetModal(PRBool aModal) = 0;
+    NS_IMETHOD SetModal(bool aModal) = 0;
 
     /**
      * Returns whether the window is visible
      *
      */
-    NS_IMETHOD IsVisible(PRBool & aState) = 0;
+    NS_IMETHOD IsVisible(bool & aState) = 0;
 
     /**
      * Perform platform-dependent sanity check on a potential window position.
@@ -507,7 +526,7 @@ class nsIWidget : public nsISupports {
      * @return vapid success indication. but see also the parameters.
      *
      **/
-    NS_IMETHOD ConstrainPosition(PRBool aAllowSlop,
+    NS_IMETHOD ConstrainPosition(bool aAllowSlop,
                                  PRInt32 *aX,
                                  PRInt32 *aY) = 0;
 
@@ -533,7 +552,7 @@ class nsIWidget : public nsISupports {
      */
     NS_IMETHOD Resize(PRInt32 aWidth,
                       PRInt32 aHeight,
-                      PRBool   aRepaint) = 0;
+                      bool     aRepaint) = 0;
 
     /**
      * Move or resize this widget.
@@ -549,7 +568,7 @@ class nsIWidget : public nsISupports {
                       PRInt32 aY,
                       PRInt32 aWidth,
                       PRInt32 aHeight,
-                      PRBool   aRepaint) = 0;
+                      bool     aRepaint) = 0;
 
     /**
      * Resize and reposition the inner client area of the widget.
@@ -565,7 +584,7 @@ class nsIWidget : public nsISupports {
                             PRInt32 aY,
                             PRInt32 aWidth,
                             PRInt32 aHeight,
-                            PRBool  aRepaint) = 0;
+                            bool    aRepaint) = 0;
 
     /**
      * Sets the widget's z-index.
@@ -589,7 +608,7 @@ class nsIWidget : public nsISupports {
      * @param aActivate  true to activate the widget after placing it
      */
     NS_IMETHOD PlaceBehind(nsTopLevelWidgetZPlacement aPlacement,
-                           nsIWidget *aWidget, PRBool aActivate) = 0;
+                           nsIWidget *aWidget, bool aActivate) = 0;
 
     /**
      * Minimize, maximize or normalize the window size.
@@ -606,29 +625,29 @@ class nsIWidget : public nsISupports {
     /**
      * Enable or disable this Widget
      *
-     * @param aState PR_TRUE to enable the Widget, PR_FALSE to disable it.
+     * @param aState true to enable the Widget, false to disable it.
      *
      */
-    NS_IMETHOD Enable(PRBool aState) = 0;
+    NS_IMETHOD Enable(bool aState) = 0;
 
     /**
      * Ask whether the widget is enabled
-     * @param aState returns PR_TRUE if the widget is enabled
+     * @param aState returns true if the widget is enabled
      */
-    NS_IMETHOD IsEnabled(PRBool *aState) = 0;
+    NS_IMETHOD IsEnabled(bool *aState) = 0;
 
     /**
      * Request activation of this window or give focus to this widget.
      *
-     * @param aRaise If PR_TRUE, this function requests activation of this
+     * @param aRaise If true, this function requests activation of this
      *               widget's toplevel window.
-     *               If PR_FALSE, the appropriate toplevel window (which in
+     *               If false, the appropriate toplevel window (which in
      *               the case of popups may not be this widget's toplevel
      *               window) is already active, and this function indicates
      *               that keyboard events should be reported through the
      *               aHandleEventFunction provided to this->Create().
      */
-    NS_IMETHOD SetFocus(PRBool aRaise = PR_FALSE) = 0;
+    NS_IMETHOD SetFocus(bool aRaise = false) = 0;
 
     /**
      * Get this widget's outside dimensions relative to its parent widget. For
@@ -830,28 +849,28 @@ class nsIWidget : public nsISupports {
      *
      * Ignored on child widgets and on non-Mac platforms.
      */
-    virtual void SetShowsToolbarButton(PRBool aShow) = 0;
+    virtual void SetShowsToolbarButton(bool aShow) = 0;
 
     /** 
      * Hide window chrome (borders, buttons) for this widget.
      *
      */
-    NS_IMETHOD HideWindowChrome(PRBool aShouldHide) = 0;
+    NS_IMETHOD HideWindowChrome(bool aShouldHide) = 0;
 
     /**
      * Put the toplevel window into or out of fullscreen mode.
      *
      */
-    NS_IMETHOD MakeFullScreen(PRBool aFullScreen) = 0;
+    NS_IMETHOD MakeFullScreen(bool aFullScreen) = 0;
 
     /**
      * Invalidate a specified rect for a widget and repaints it.
      *
-     * @param aIsSynchronouse PR_TRUE then repaint synchronously. If PR_FALSE repaint later.
+     * @param aIsSynchronouse true then repaint synchronously. If false repaint later.
      * @see #Update()
      */
 
-    NS_IMETHOD Invalidate(const nsIntRect & aRect, PRBool aIsSynchronous) = 0;
+    NS_IMETHOD Invalidate(const nsIntRect & aRect, bool aIsSynchronous) = 0;
 
     /**
      * Force a synchronous repaint of the window if there are dirty rects.
@@ -861,15 +880,11 @@ class nsIWidget : public nsISupports {
 
      NS_IMETHOD Update() = 0;
 
-    /**
-     * Return the widget's toolkit
-     *
-     * An AddRef has NOT been done for the caller.
-     *
-     * @return the toolkit this widget was created in. See nsToolkit.
-     */
-
-    virtual nsIToolkit* GetToolkit() = 0;    
+    enum LayerManagerPersistence
+    {
+      LAYER_MANAGER_CURRENT = 0,
+      LAYER_MANAGER_PERSISTENT
+    };
 
     /**
      * Return the widget's LayerManager. The layer tree for that
@@ -880,17 +895,25 @@ class nsIWidget : public nsISupports {
      */
     inline LayerManager* GetLayerManager(bool* aAllowRetaining = nsnull)
     {
-        return GetLayerManager(LAYER_MANAGER_CURRENT, aAllowRetaining);
+        return GetLayerManager(nsnull, LayerManager::LAYERS_NONE,
+                               LAYER_MANAGER_CURRENT, aAllowRetaining);
     }
 
-
-    enum LayerManagerPersistence
+    inline LayerManager* GetLayerManager(LayerManagerPersistence aPersistence,
+                                         bool* aAllowRetaining = nsnull)
     {
-      LAYER_MANAGER_CURRENT = 0,
-      LAYER_MANAGER_PERSISTENT
-    };
+        return GetLayerManager(nsnull, LayerManager::LAYERS_NONE,
+                               aPersistence, aAllowRetaining);
+    }
 
-    virtual LayerManager *GetLayerManager(LayerManagerPersistence aPersistence,
+    /**
+     * Like GetLayerManager(), but prefers creating a layer manager of
+     * type |aBackendHint| instead of what would normally be created.
+     * LAYERS_NONE means "no hint".
+     */
+    virtual LayerManager* GetLayerManager(PLayersChild* aShadowManager,
+                                          LayersBackend aBackendHint,
+                                          LayerManagerPersistence aPersistence = LAYER_MANAGER_CURRENT,
                                           bool* aAllowRetaining = nsnull) = 0;
 
     /**
@@ -916,14 +939,11 @@ class nsIWidget : public nsISupports {
     virtual void UpdateThemeGeometries(const nsTArray<ThemeGeometry>& aThemeGeometries) = 0;
 
     /**
-     * Informs the widget about the region of the window that is partially
-     * transparent. Widgets should assume that the initial transparent
-     * region is empty.
+     * Informs the widget about the region of the window that is opaque.
      *
-     * @param aTransparentRegion the region of the window that is partially
-     * transparent.
+     * @param aOpaqueRegion the region of the window that is opaque.
      */
-    virtual void UpdateTransparentRegion(const nsIntRegion &aTransparentRegion) {};
+    virtual void UpdateOpaqueRegion(const nsIntRegion &aOpaqueRegion) {};
 
     /** 
      * Internal methods
@@ -936,7 +956,7 @@ class nsIWidget : public nsISupports {
     virtual void FreeNativeData(void * data, PRUint32 aDataType) = 0;//~~~
 
     // GetDeviceContext returns a weak pointer to this widget's device context
-    virtual nsIDeviceContext* GetDeviceContext() = 0;
+    virtual nsDeviceContext* GetDeviceContext() = 0;
 
     //@}
 
@@ -985,14 +1005,14 @@ class nsIWidget : public nsISupports {
      * Enables the dropping of files to a widget (XXX this is temporary)
      *
      */
-    NS_IMETHOD EnableDragDrop(PRBool aEnable) = 0;
+    NS_IMETHOD EnableDragDrop(bool aEnable) = 0;
    
     /**
      * Enables/Disables system mouse capture.
-     * @param aCapture PR_TRUE enables mouse capture, PR_FALSE disables mouse capture 
+     * @param aCapture true enables mouse capture, false disables mouse capture 
      *
      */
-    NS_IMETHOD CaptureMouse(PRBool aCapture) = 0;
+    NS_IMETHOD CaptureMouse(bool aCapture) = 0;
 
     /**
      * Classify the window for the window manager. Mostly for X11.
@@ -1003,12 +1023,12 @@ class nsIWidget : public nsISupports {
      * Enables/Disables system capture of any and all events that would cause a
      * dropdown to be rolled up, This method ignores the aConsumeRollupEvent 
      * parameter when aDoCapture is FALSE
-     * @param aDoCapture PR_TRUE enables capture, PR_FALSE disables capture 
-     * @param aConsumeRollupEvent PR_TRUE consumes the rollup event, PR_FALSE dispatches rollup event
+     * @param aDoCapture true enables capture, false disables capture 
+     * @param aConsumeRollupEvent true consumes the rollup event, false dispatches rollup event
      *
      */
-    NS_IMETHOD CaptureRollupEvents(nsIRollupListener * aListener, nsIMenuRollup * aMenuRollup,
-                                   PRBool aDoCapture, PRBool aConsumeRollupEvent) = 0;
+    NS_IMETHOD CaptureRollupEvents(nsIRollupListener * aListener, bool aDoCapture,
+                                   bool aConsumeRollupEvent) = 0;
 
     /**
      * Bring this window to the user's attention.  This is intended to be a more
@@ -1027,7 +1047,7 @@ class nsIWidget : public nsISupports {
      * Ask whether there user input events pending.  All input events are
      * included, including those not targeted at this nsIwidget instance.
      */
-    virtual PRBool HasPendingInputEvent() = 0;
+    virtual bool HasPendingInputEvent() = 0;
 
     /**
      * Called when when we need to begin secure keyboard input, such as when a password field
@@ -1063,7 +1083,7 @@ class nsIWidget : public nsISupports {
      * @param aActive Whether the color should be applied to active or inactive
      *                windows.
      */
-    NS_IMETHOD SetWindowTitlebarColor(nscolor aColor, PRBool aActive) = 0;
+    NS_IMETHOD SetWindowTitlebarColor(nscolor aColor, bool aActive) = 0;
 
     /**
      * If set to true, the window will draw its contents into the titlebar
@@ -1076,7 +1096,7 @@ class nsIWidget : public nsISupports {
      *
      * @param aState Whether drawing into the titlebar should be activated.
      */
-    virtual void SetDrawsInTitlebar(PRBool aState) = 0;
+    virtual void SetDrawsInTitlebar(bool aState) = 0;
 
     /*
      * Determine whether the widget shows a resize widget. If it does,
@@ -1087,7 +1107,7 @@ class nsIWidget : public nsISupports {
      * @param aResizerRect The resizer's rect in device pixels.
      * @return Whether a resize widget is shown.
      */
-    virtual PRBool ShowsResizeIndicator(nsIntRect* aResizerRect) = 0;
+    virtual bool ShowsResizeIndicator(nsIntRect* aResizerRect) = 0;
 
     /**
      * Get the Thebes surface associated with this widget.
@@ -1223,14 +1243,14 @@ class nsIWidget : public nsISupports {
      * If aState is TRUE, IME open state is set to 'Opened'.
      * If aState is FALSE, set to 'Closed'.
      */
-    NS_IMETHOD SetIMEOpenState(PRBool aState) = 0;
+    NS_IMETHOD SetIMEOpenState(bool aState) = 0;
 
     /*
      * Get IME is 'Opened' or 'Closed'.
-     * If IME is 'Opened', aState is set PR_TRUE.
-     * If IME is 'Closed', aState is set PR_FALSE.
+     * If IME is 'Opened', aState is set true.
+     * If IME is 'Closed', aState is set false.
      */
-    NS_IMETHOD GetIMEOpenState(PRBool* aState) = 0;
+    NS_IMETHOD GetIMEOpenState(bool* aState) = 0;
 
     /*
      * IME enabled states, the aState value of SetIMEEnabled/GetIMEEnabled
@@ -1298,7 +1318,7 @@ class nsIWidget : public nsISupports {
     /**
      * Set accelerated rendering to 'True' or 'False'
      */
-    NS_IMETHOD SetAcceleratedRendering(PRBool aEnabled) = 0;
+    NS_IMETHOD SetAcceleratedRendering(bool aEnabled) = 0;
 
     /*
      * Get toggled key states.
@@ -1309,7 +1329,7 @@ class nsIWidget : public nsISupports {
      * If the platform doesn't support the LED state (or we cannot get the
      * state), this method returns NS_ERROR_NOT_IMPLEMENTED.
      */
-    NS_IMETHOD GetToggledKeyState(PRUint32 aKeyCode, PRBool* aLEDState) = 0;
+    NS_IMETHOD GetToggledKeyState(PRUint32 aKeyCode, bool* aLEDState) = 0;
 
     /*
      * An editable node (i.e. input/textarea/design mode document)
@@ -1318,12 +1338,12 @@ class nsIWidget : public nsISupports {
      * aFocus is false if node is giving up focus (blur)
      *
      * If this returns NS_ERROR_*, OnIMETextChange and OnIMESelectionChange
-     * and OnIMEFocusChange(PR_FALSE) will be never called.
+     * and OnIMEFocusChange(false) will be never called.
      *
-     * If this returns NS_SUCCESS_IME_NO_UPDATES, OnIMEFocusChange(PR_FALSE)
+     * If this returns NS_SUCCESS_IME_NO_UPDATES, OnIMEFocusChange(false)
      * will be called but OnIMETextChange and OnIMESelectionChange will NOT.
      */
-    NS_IMETHOD OnIMEFocusChange(PRBool aFocus) = 0;
+    NS_IMETHOD OnIMEFocusChange(bool aFocus) = 0;
 
     /*
      * Text content of the focused node has changed
@@ -1371,7 +1391,7 @@ class nsIWidget : public nsISupports {
      *                         may be same as aOriginalDelta.
      */
     NS_IMETHOD OverrideSystemMouseScrollSpeed(PRInt32 aOriginalDelta,
-                                              PRBool aIsHorizontal,
+                                              bool aIsHorizontal,
                                               PRInt32 &aOverriddenDelta) = 0;
 
     /**

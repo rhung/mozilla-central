@@ -46,8 +46,10 @@
 #include "nsIIDBFactory.h"
 
 #include "nsIWeakReferenceUtils.h"
+#include "nsXULAppAPI.h"
 
 class nsPIDOMWindow;
+class nsIAtom;
 
 BEGIN_INDEXEDDB_NAMESPACE
 
@@ -67,11 +69,15 @@ public:
   static already_AddRefed<mozIStorageConnection>
   GetConnection(const nsAString& aDatabaseFilePath);
 
-  static bool
-  SetCurrentDatabase(IDBDatabase* aDatabase);
+  // Called when a process uses an IndexedDB factory. We only allow
+  // a single process type to use IndexedDB - the chrome/single process
+  // in Firefox, and the child process in Fennec - so access by more
+  // than one process type is a very serious error.
+  static void
+  NoteUsedByProcessType(GeckoProcessType aProcessType);
 
-  static PRUint32
-  GetIndexedDBQuota();
+  static nsresult
+  GetDirectory(nsIFile** aDirectory);
 
   static nsresult
   GetDirectoryForOrigin(const nsACString& aASCIIOrigin,
@@ -79,18 +85,24 @@ public:
 
   static nsresult
   LoadDatabaseInformation(mozIStorageConnection* aConnection,
-                          PRUint32 aDatabaseId,
-                          nsAString& aVersion,
+                          nsIAtom* aDatabaseId,
+                          PRUint64* aVersion,
                           ObjectStoreInfoArray& aObjectStores);
 
   static nsresult
   UpdateDatabaseMetadata(DatabaseInfo* aDatabaseInfo,
-                         const nsAString& aVersion,
+                         PRUint64 aVersion,
                          ObjectStoreInfoArray& aObjectStores);
 
 private:
-  IDBFactory() { }
+  IDBFactory();
   ~IDBFactory() { }
+
+  nsresult
+  OpenCommon(const nsAString& aName,
+             PRInt64 aVersion,
+             bool aDeleting,
+             nsIIDBOpenDBRequest** _retval);
 
   nsCOMPtr<nsIWeakReference> mWindow;
 };

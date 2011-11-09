@@ -37,29 +37,30 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+#include "mozilla/Util.h"
+
 #include "GfxInfoBase.h"
 
 #include "GfxInfoWebGL.h"
 #include "GfxDriverInfo.h"
-#include "nsIPrefBranch2.h"
-#include "nsIPrefService.h"
 #include "nsCOMPtr.h"
 #include "nsCOMArray.h"
 #include "nsAutoPtr.h"
 #include "nsString.h"
-#include "nsServiceManagerUtils.h"
 #include "mozilla/Services.h"
 #include "nsIObserver.h"
 #include "nsIObserverService.h"
 #include "nsIDOMElement.h"
 #include "nsIDOMNode.h"
-#include "nsIDOM3Node.h"
 #include "nsIDOMNodeList.h"
 #include "nsTArray.h"
+#include "mozilla/Preferences.h"
 
-#if defined(MOZ_CRASHREPORTER) && defined(MOZ_ENABLE_LIBXUL)
+#if defined(MOZ_CRASHREPORTER)
 #include "nsExceptionHandler.h"
 #endif
+
+using namespace mozilla;
 
 extern "C" {
   void StoreSpline(int ax, int ay, int bx, int by, int cx, int cy, int dx, int dy);
@@ -89,7 +90,7 @@ StoreSpline(int ax, int ay, int bx, int by, int cx, int cy, int dx, int dy) {
 
 void
 CrashSpline(double tolerance, int ax, int ay, int bx, int by, int cx, int cy, int dx, int dy) {
-#if defined(MOZ_CRASHREPORTER) && defined(MOZ_ENABLE_LIBXUL)
+#if defined(MOZ_CRASHREPORTER)
   static bool annotated;
 
   if (!annotated) {
@@ -122,6 +123,7 @@ CrashSpline(double tolerance, int ax, int ay, int bx, int by, int cx, int cy, in
 
 
 using namespace mozilla::widget;
+using namespace mozilla;
 
 NS_IMPL_ISUPPORTS3(GfxInfoBase, nsIGfxInfo, nsIObserver, nsISupportsWeakReference)
 
@@ -155,6 +157,9 @@ GetPrefNameForFeature(PRInt32 aFeature)
     case nsIGfxInfo::FEATURE_WEBGL_ANGLE:
       name = BLACKLIST_PREF_BRANCH "webgl.angle";
       break;
+    case nsIGfxInfo::FEATURE_WEBGL_MSAA:
+      name = BLACKLIST_PREF_BRANCH "webgl.msaa";
+      break;
     default:
       break;
   };
@@ -171,16 +176,8 @@ GetPrefValueForFeature(PRInt32 aFeature, PRInt32& aValue)
   if (!prefname)
     return false;
 
-  nsCOMPtr<nsIPrefBranch2> prefs = do_GetService(NS_PREFSERVICE_CONTRACTID);
-  if (prefs) {
-    PRInt32 val;
-    if (NS_SUCCEEDED(prefs->GetIntPref(prefname, &val))) {
-      aValue = val;
-      return true;
-    }
-  }
-
-  return false;
+  aValue = false;
+  return NS_SUCCEEDED(Preferences::GetInt(prefname, &aValue));
 }
 
 static void
@@ -190,10 +187,7 @@ SetPrefValueForFeature(PRInt32 aFeature, PRInt32 aValue)
   if (!prefname)
     return;
 
-  nsCOMPtr<nsIPrefBranch2> prefs = do_GetService(NS_PREFSERVICE_CONTRACTID);
-  if (prefs) {
-    prefs->SetIntPref(prefname, aValue);
-  }
+  Preferences::SetInt(prefname, aValue);
 }
 
 static void
@@ -203,58 +197,34 @@ RemovePrefForFeature(PRInt32 aFeature)
   if (!prefname)
     return;
 
-  nsCOMPtr<nsIPrefBranch2> prefs = do_GetService(NS_PREFSERVICE_CONTRACTID);
-  if (prefs) {
-    prefs->ClearUserPref(prefname);
-  }
+  Preferences::ClearUser(prefname);
 }
 
 static bool
-GetPrefValueForDriverVersion(nsACString& aVersion)
+GetPrefValueForDriverVersion(nsCString& aVersion)
 {
-  nsCOMPtr<nsIPrefBranch2> prefs = do_GetService(NS_PREFSERVICE_CONTRACTID);
-  if (prefs) {
-    nsXPIDLCString version;
-    if (NS_SUCCEEDED(prefs->GetCharPref(SUGGESTED_VERSION_PREF,
-                                        getter_Copies(version)))) {
-      aVersion = version;
-      return true;
-    }
-  }
-
-  return false;
+  return NS_SUCCEEDED(Preferences::GetCString(SUGGESTED_VERSION_PREF,
+                                              &aVersion));
 }
 
 static void
 SetPrefValueForDriverVersion(const nsAString& aVersion)
 {
-  nsCOMPtr<nsIPrefBranch2> prefs = do_GetService(NS_PREFSERVICE_CONTRACTID);
-  if (prefs) {
-    nsCAutoString ver = NS_LossyConvertUTF16toASCII(aVersion);
-    prefs->SetCharPref(SUGGESTED_VERSION_PREF,
-                       PromiseFlatCString(ver).get());
-  }
+  Preferences::SetString(SUGGESTED_VERSION_PREF, aVersion);
 }
 
 static void
 RemovePrefForDriverVersion()
 {
-  nsCOMPtr<nsIPrefBranch2> prefs = do_GetService(NS_PREFSERVICE_CONTRACTID);
-  if (prefs) {
-    prefs->ClearUserPref(SUGGESTED_VERSION_PREF);
-  }
+  Preferences::ClearUser(SUGGESTED_VERSION_PREF);
 }
 
 // <foo>Hello</foo> - "Hello" is stored as a child text node of the foo node.
 static bool
 BlacklistNodeToTextValue(nsIDOMNode *aBlacklistNode, nsAString& aValue)
 {
-  nsCOMPtr<nsIDOM3Node> dom3 = do_QueryInterface(aBlacklistNode);
-  if (!dom3)
-    return false;
-
   nsAutoString value;
-  if (NS_FAILED(dom3->GetTextContent(value)))
+  if (NS_FAILED(aBlacklistNode->GetTextContent(value)))
     return false;
 
   value.Trim(" \t\r\n");
@@ -282,6 +252,10 @@ BlacklistOSToOperatingSystem(const nsAString& os)
     return DRIVER_OS_OS_X_10_5;
   else if (os == NS_LITERAL_STRING("Darwin 10"))
     return DRIVER_OS_OS_X_10_6;
+  else if (os == NS_LITERAL_STRING("Darwin 11"))
+    return DRIVER_OS_OS_X_10_7;
+  else if (os == NS_LITERAL_STRING("Android"))
+    return DRIVER_OS_ANDROID;
   else if (os == NS_LITERAL_STRING("All"))
     return DRIVER_OS_ALL;
 
@@ -344,6 +318,8 @@ BlacklistFeatureToGfxFeature(const nsAString& aFeature)
     return nsIGfxInfo::FEATURE_WEBGL_OPENGL;
   else if (aFeature == NS_LITERAL_STRING("WEBGL_ANGLE"))
     return nsIGfxInfo::FEATURE_WEBGL_ANGLE;
+  else if (aFeature == NS_LITERAL_STRING("WEBGL_MSAA"))
+    return nsIGfxInfo::FEATURE_WEBGL_MSAA;
 
   return 0;
 }
@@ -576,11 +552,17 @@ GfxInfoBase::Init()
 {
   nsCOMPtr<nsIObserverService> os = mozilla::services::GetObserverService();
   if (os) {
-    os->AddObserver(this, "blocklist-data-gfxItems", PR_TRUE);
+    os->AddObserver(this, "blocklist-data-gfxItems", true);
   }
 
   return NS_OK;
 }
+
+static const GfxDriverInfo gDriverInfo[] = {
+  // No combinations that cause a crash on every OS.
+  GfxDriverInfo()
+};
+
 
 NS_IMETHODIMP
 GfxInfoBase::GetFeatureStatus(PRInt32 aFeature, PRInt32* aStatus NS_OUTPARAM)
@@ -590,6 +572,171 @@ GfxInfoBase::GetFeatureStatus(PRInt32 aFeature, PRInt32* aStatus NS_OUTPARAM)
 
   nsString version;
   return GetFeatureStatusImpl(aFeature, aStatus, version);
+}
+
+nsresult
+GfxInfoBase::GetFeatureStatusImpl(PRInt32 aFeature,
+                                  PRInt32* aStatus,
+                                  nsAString& aVersion,
+                                  GfxDriverInfo* aDriverInfo /* = nsnull */,
+                                  OperatingSystem* aOS /* = nsnull */)
+{
+  if (*aStatus != nsIGfxInfo::FEATURE_NO_INFO) {
+    // Terminate now with the status determined by the derived type (OS-specific
+    // code).
+    return NS_OK;
+  }
+
+  OperatingSystem os = DRIVER_OS_UNKNOWN;
+  if (aOS)
+    os = *aOS;
+
+  PRUint32 adapterVendorID = 0;
+  PRUint32 adapterDeviceID = 0;
+  nsAutoString adapterDriverVersionString;
+  if (NS_FAILED(GetAdapterVendorID(&adapterVendorID)) ||
+      NS_FAILED(GetAdapterDeviceID(&adapterDeviceID)) ||
+      NS_FAILED(GetAdapterDriverVersion(adapterDriverVersionString)))
+  {
+    return NS_OK;
+  }
+
+  PRUint64 driverVersion;
+  ParseDriverVersion(adapterDriverVersionString, &driverVersion);
+
+  // special-case the WinXP test slaves: they have out-of-date drivers, but we still want to
+  // whitelist them, actually we do know that this combination of device and driver version
+  // works well.
+  if (os == DRIVER_OS_WINDOWS_XP &&
+      adapterVendorID == GfxDriverInfo::vendorNVIDIA &&
+      adapterDeviceID == 0x0861 && // GeForce 9400
+      driverVersion == V(6,14,11,7756))
+  {
+    return NS_OK;
+  }
+
+  PRInt32 status = *aStatus;
+  const GfxDriverInfo* info = aDriverInfo ? aDriverInfo : &gDriverInfo[0];
+  // This code will operate in two modes:
+  // It first loops over the driver tuples stored locally in gDriverInfo,
+  // then loops over it a second time for the OS's specific list to check for
+  // all combinations that can lead to disabling a feature.
+  bool loopingOverOS = false;
+  while (true) {
+    if (!info->mOperatingSystem) {
+      if (loopingOverOS)
+        break;
+      else
+      {
+        // Mark us as looping over the OS driver tuples.
+        loopingOverOS = true;
+        // Get the GfxDriverInfo table from the OS subclass.
+       info = GetGfxDriverInfo();
+      }
+    }
+
+    if (info->mOperatingSystem != DRIVER_OS_ALL &&
+        info->mOperatingSystem != os)
+    {
+      info++;
+      continue;
+    }
+
+    if (info->mAdapterVendor != GfxDriverInfo::allAdapterVendors &&
+        info->mAdapterVendor != adapterVendorID) {
+      info++;
+      continue;
+    }
+
+    if (info->mDevices != GfxDriverInfo::allDevices) {
+        bool deviceMatches = false;
+        for (const PRUint32 *devices = info->mDevices; *devices; ++devices) {
+            if (*devices == adapterDeviceID) {
+                deviceMatches = true;
+                break;
+            }
+        }
+
+        if (!deviceMatches) {
+            info++;
+            continue;
+        }
+    }
+
+    bool match = false;
+
+#if !defined(XP_MACOSX)
+    switch (info->mComparisonOp) {
+    case DRIVER_LESS_THAN:
+      match = driverVersion < info->mDriverVersion;
+      break;
+    case DRIVER_LESS_THAN_OR_EQUAL:
+      match = driverVersion <= info->mDriverVersion;
+      break;
+    case DRIVER_GREATER_THAN:
+      match = driverVersion > info->mDriverVersion;
+      break;
+    case DRIVER_GREATER_THAN_OR_EQUAL:
+      match = driverVersion >= info->mDriverVersion;
+      break;
+    case DRIVER_EQUAL:
+      match = driverVersion == info->mDriverVersion;
+      break;
+    case DRIVER_NOT_EQUAL:
+      match = driverVersion != info->mDriverVersion;
+      break;
+    case DRIVER_BETWEEN_EXCLUSIVE:
+      match = driverVersion > info->mDriverVersion && driverVersion < info->mDriverVersionMax;
+      break;
+    case DRIVER_BETWEEN_INCLUSIVE:
+      match = driverVersion >= info->mDriverVersion && driverVersion <= info->mDriverVersionMax;
+      break;
+    case DRIVER_BETWEEN_INCLUSIVE_START:
+      match = driverVersion >= info->mDriverVersion && driverVersion < info->mDriverVersionMax;
+      break;
+    default:
+      NS_WARNING("Bogus op in GfxDriverInfo");
+      break;
+    }
+#else
+    // We don't care what driver version it was. We only check OS version and if
+    // the device matches.
+    match = true;
+#endif
+
+    if (match) {
+      if (info->mFeature == GfxDriverInfo::allFeatures ||
+          info->mFeature == aFeature)
+      {
+        status = info->mFeatureStatus;
+        break;
+      }
+    }
+
+    info++;
+  }
+ 
+  *aStatus = status;
+
+  // Depends on Windows driver versioning. We don't pass a GfxDriverInfo object
+  // back to the Windows handler, so we must handle this here.
+#if defined(XP_WIN)
+  if (status == FEATURE_BLOCKED_DRIVER_VERSION) {
+    if (info->mSuggestedVersion) {
+        aVersion.AppendPrintf("%s", info->mSuggestedVersion);
+    } else if (info->mComparisonOp == DRIVER_LESS_THAN &&
+               info->mDriverVersion != GfxDriverInfo::allDriverVersions)
+    {
+        aVersion.AppendPrintf("%lld.%lld.%lld.%lld",
+                             (info->mDriverVersion & 0xffff000000000000) >> 48,
+                             (info->mDriverVersion & 0x0000ffff00000000) >> 32,
+                             (info->mDriverVersion & 0x00000000ffff0000) >> 16,
+                             (info->mDriverVersion & 0x000000000000ffff));
+    }
+  }
+#endif
+
+  return NS_OK;
 }
 
 NS_IMETHODIMP
@@ -625,6 +772,7 @@ GfxInfoBase::EvaluateDownloadedBlacklist(nsTArray<GfxDriverInfo>& aDriverInfo)
     nsIGfxInfo::FEATURE_OPENGL_LAYERS,
     nsIGfxInfo::FEATURE_WEBGL_OPENGL,
     nsIGfxInfo::FEATURE_WEBGL_ANGLE,
+    nsIGfxInfo::FEATURE_WEBGL_MSAA,
     0
   };
 
@@ -673,11 +821,11 @@ NS_IMETHODIMP_(void)
 GfxInfoBase::LogFailure(const nsACString &failure)
 {
   /* We only keep the first 9 failures */
-  if (mFailureCount < NS_ARRAY_LENGTH(mFailures)) {
+  if (mFailureCount < ArrayLength(mFailures)) {
     mFailures[mFailureCount++] = failure;
 
     /* record it in the crash notes too */
-#if defined(MOZ_CRASHREPORTER) && defined(MOZ_ENABLE_LIBXUL)
+#if defined(MOZ_CRASHREPORTER)
     CrashReporter::AppendAppNotesToCrashReport(failure);
 #endif
   }
@@ -702,7 +850,7 @@ NS_IMETHODIMP GfxInfoBase::GetFailures(PRUint32 *failureCount NS_OUTPARAM, char 
 
     /* copy over the failure messages into the array we just allocated */
     for (PRUint32 i = 0; i < *failureCount; i++) {
-      nsPromiseFlatCString flattenedFailureMessage(mFailures[i]);
+      nsCString& flattenedFailureMessage(mFailures[i]);
       (*failures)[i] = (char*)nsMemory::Clone(flattenedFailureMessage.get(), flattenedFailureMessage.Length() + 1);
 
       if (!(*failures)[i]) {

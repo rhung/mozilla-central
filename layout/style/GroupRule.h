@@ -43,7 +43,7 @@
 #ifndef mozilla_css_GroupRule_h__
 #define mozilla_css_GroupRule_h__
 
-#include "Rule.h"
+#include "mozilla/css/Rule.h"
 #include "nsCOMArray.h"
 #include "nsAutoPtr.h"
 
@@ -65,7 +65,7 @@ protected:
   virtual ~GroupRule();
 public:
 
-  // implement part of nsIStyleRule and nsICSSRule
+  // implement part of nsIStyleRule and Rule
   DECL_STYLE_RULE_INHERIT_NO_DOMRULE
   virtual void SetStyleSheet(nsCSSStyleSheet* aSheet);
 
@@ -75,13 +75,13 @@ public:
 #endif
 
 public:
-  void AppendStyleRule(nsICSSRule* aRule);
+  void AppendStyleRule(Rule* aRule);
 
   PRInt32 StyleRuleCount() const { return mRules.Count(); }
-  nsICSSRule* GetStyleRuleAt(PRInt32 aIndex) const;
+  Rule* GetStyleRuleAt(PRInt32 aIndex) const;
 
-  typedef nsCOMArray<nsICSSRule>::nsCOMArrayEnumFunc RuleEnumFunc;
-  PRBool EnumerateRulesForwards(RuleEnumFunc aFunc, void * aData) const;
+  typedef nsCOMArray<Rule>::nsCOMArrayEnumFunc RuleEnumFunc;
+  bool EnumerateRulesForwards(RuleEnumFunc aFunc, void * aData) const;
 
   /*
    * The next three methods should never be called unless you have first
@@ -90,26 +90,24 @@ public:
    */
   nsresult DeleteStyleRuleAt(PRUint32 aIndex);
   nsresult InsertStyleRulesAt(PRUint32 aIndex,
-                              nsCOMArray<nsICSSRule>& aRules);
-  nsresult ReplaceStyleRule(nsICSSRule *aOld, nsICSSRule *aNew);
+                              nsCOMArray<Rule>& aRules);
+  nsresult ReplaceStyleRule(Rule *aOld, Rule *aNew);
 
-  virtual PRBool UseForPresentation(nsPresContext* aPresContext,
+  virtual bool UseForPresentation(nsPresContext* aPresContext,
                                     nsMediaQueryResultCacheKey& aKey) = 0;
 
 protected:
   // to help implement nsIDOMCSSRule
   nsresult AppendRulesToCssText(nsAString& aCssText);
-  // to implement methods on nsIDOMCSSRule
-  nsresult GetParentRule(nsIDOMCSSRule** aParentRule);
 
   // to implement common methods on nsIDOMCSSMediaRule and
   // nsIDOMCSSMozDocumentRule
-  nsIDOMCSSRuleList* GetCssRules();
+  nsresult GetCssRules(nsIDOMCSSRuleList* *aRuleList);
   nsresult InsertRule(const nsAString & aRule, PRUint32 aIndex,
                       PRUint32* _retval);
   nsresult DeleteRule(PRUint32 aIndex);
 
-  nsCOMArray<nsICSSRule> mRules;
+  nsCOMArray<Rule> mRules;
   nsRefPtr<GroupRuleRuleList> mRuleCollection; // lazily constructed
 };
 

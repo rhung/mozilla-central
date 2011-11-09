@@ -37,7 +37,7 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
-/* $Id: sslcon.c,v 1.40 2010/04/25 23:37:38 nelson%bolyard.com Exp $ */
+/* $Id: sslcon.c,v 1.42 2011/08/01 07:08:09 kaie%kuix.de Exp $ */
 
 #include "nssrenam.h"
 #include "cert.h"
@@ -3125,11 +3125,11 @@ ssl2_BeginClientHandshake(sslSocket *ss)
 	/* ssl3_SendClientHello will override this if it succeeds. */
 	ss->version       = SSL_LIBRARY_VERSION_3_0;
 
-	ssl_GetXmitBufLock(ss);    /***************************************/
 	ssl_GetSSL3HandshakeLock(ss);
+	ssl_GetXmitBufLock(ss);
 	rv =  ssl3_SendClientHello(ss);
+	ssl_ReleaseXmitBufLock(ss);
 	ssl_ReleaseSSL3HandshakeLock(ss);
-	ssl_ReleaseXmitBufLock(ss); /***************************************/
 
 	return rv;
     }
@@ -3851,4 +3851,10 @@ NSSSSL_VersionCheck(const char *importedVersion)
 
     c = __nss_ssl_rcsid[0] + __nss_ssl_sccsid[0]; 
     return NSS_VersionCheck(importedVersion);
+}
+
+const char *
+NSSSSL_GetVersion(void)
+{
+    return NSS_VERSION;
 }

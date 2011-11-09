@@ -37,7 +37,7 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
-/* $Id: sslsecur.c,v 1.43.2.2 2010/08/26 18:06:55 wtc%google.com Exp $ */
+/* $Id: sslsecur.c,v 1.49 2011/04/08 05:37:44 wtc%google.com Exp $ */
 #include "cert.h"
 #include "secitem.h"
 #include "keyhi.h"
@@ -84,7 +84,8 @@
  *
  * 3.   SECWouldBlock was returned by one of the callback functions, via
  *	one of these paths:
- * -	ssl2_HandleMessage() -> ssl2_HandleRequestCertificate() -> ss->getClientAuthData()
+ * -	ssl2_HandleMessage() -> ssl2_HandleRequestCertificate() ->
+ *	ss->getClientAuthData()
  *
  * -	ssl2_HandleServerHelloMessage() -> ss->handleBadCert()
  *
@@ -117,6 +118,7 @@ ssl_Do1stHandshake(sslSocket *ss)
 	PORT_Assert(ss->opt.noLocks ||  ssl_Have1stHandshakeLock(ss) );
 	PORT_Assert(ss->opt.noLocks || !ssl_HaveRecvBufLock(ss));
 	PORT_Assert(ss->opt.noLocks || !ssl_HaveXmitBufLock(ss));
+	PORT_Assert(ss->opt.noLocks || !ssl_HaveSSL3HandshakeLock(ss));
 
 	if (ss->handshake == 0) {
 	    /* Previous handshake finished. Switch to next one */
@@ -157,6 +159,7 @@ ssl_Do1stHandshake(sslSocket *ss)
 
     PORT_Assert(ss->opt.noLocks || !ssl_HaveRecvBufLock(ss));
     PORT_Assert(ss->opt.noLocks || !ssl_HaveXmitBufLock(ss));
+    PORT_Assert(ss->opt.noLocks || !ssl_HaveSSL3HandshakeLock(ss));
 
     if (rv == SECWouldBlock) {
 	PORT_SetError(PR_WOULD_BLOCK_ERROR);
@@ -235,7 +238,6 @@ SSL_ResetHandshake(PRFileDesc *s, PRBool asServer)
 
     /* Reset handshake state */
     ssl_Get1stHandshakeLock(ss);
-    ssl_GetSSL3HandshakeLock(ss);
 
     ss->firstHsDone = PR_FALSE;
     if ( asServer ) {
@@ -251,6 +253,8 @@ SSL_ResetHandshake(PRFileDesc *s, PRBool asServer)
     ssl_GetRecvBufLock(ss);
     status = ssl_InitGather(&ss->gs);
     ssl_ReleaseRecvBufLock(ss);
+
+    ssl_GetSSL3HandshakeLock(ss);
 
     /*
     ** Blow away old security state and get a fresh setup.
@@ -674,7 +678,7 @@ static PRStatus serverCAListSetup(void *arg)
 
 SECStatus
 ssl_ConfigSecureServer(sslSocket *ss, CERTCertificate *cert,
-                       CERTCertificateList *certChain,
+                       const CERTCertificateList *certChain,
                        ssl3KeyPair *keyPair, SSLKEAType kea)
 {
     CERTCertificateList *localCertChain = NULL;
@@ -752,6 +756,15 @@ SECStatus
 SSL_ConfigSecureServer(PRFileDesc *fd, CERTCertificate *cert,
 		       SECKEYPrivateKey *key, SSL3KEAType kea)
 {
+
+    return SSL_ConfigSecureServerWithCertChain(fd, cert, NULL, key, kea);
+}
+
+SECStatus
+SSL_ConfigSecureServerWithCertChain(PRFileDesc *fd, CERTCertificate *cert,
+                                    const CERTCertificateList *certChainOpt,
+                                    SECKEYPrivateKey *key, SSL3KEAType kea)
+{
     sslSocket *ss;
     SECKEYPublicKey *pubKey = NULL;
     ssl3KeyPair *keyPair = NULL;
@@ -822,7 +835,7 @@ SSL_ConfigSecureServer(PRFileDesc *fd, CERTCertificate *cert,
         }
 	pubKey = NULL; /* adopted by serverKeyPair */
     }
-    if (ssl_ConfigSecureServer(ss, cert, NULL,
+    if (ssl_ConfigSecureServer(ss, cert, certChainOpt,
                                keyPair, kea) == SECFailure) {
         goto loser;
     }
@@ -1201,12 +1214,15 @@ ssl_SecureSend(sslSocket *ss, const unsigned char *buf, int len, int flags)
     if (!ss->firstHsDone) {
 	PRBool canFalseStart = PR_FALSE;
 	ssl_Get1stHandshakeLock(ss);
-	if (ss->version >= SSL_LIBRARY_VERSION_3_0 &&
-	    (ss->ssl3.hs.ws == wait_change_cipher ||
-	     ss->ssl3.hs.ws == wait_finished ||
-	     ss->ssl3.hs.ws == wait_new_session_ticket) &&
-	    ssl3_CanFalseStart(ss)) {
-	    canFalseStart = PR_TRUE;
+	if (ss->version >= SSL_LIBRARY_VERSION_3_0) {
+	    ssl_GetSSL3HandshakeLock(ss);
+	    if ((ss->ssl3.hs.ws == wait_change_cipher ||
+		ss->ssl3.hs.ws == wait_finished ||
+		ss->ssl3.hs.ws == wait_new_session_ticket) &&
+		ssl3_CanFalseStart(ss)) {
+		canFalseStart = PR_TRUE;
+	    }
+	    ssl_ReleaseSSL3HandshakeLock(ss);
 	}
 	if (!canFalseStart &&
 	    (ss->handshake || ss->nextHandshake || ss->securityHandshake)) {

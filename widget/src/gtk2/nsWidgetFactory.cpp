@@ -55,6 +55,7 @@
 #include "nsBidiKeyboard.h"
 #include "nsNativeKeyBindings.h"
 #include "nsScreenManagerGtk.h"
+#include "nsGTKToolkit.h"
 
 #ifdef NS_PRINTING
 #include "nsPrintOptionsGTK.h"
@@ -62,13 +63,14 @@
 #include "nsDeviceContextSpecG.h"
 #endif
 
-#include "nsIPrefService.h"
-#include "nsIPrefBranch.h"
+#include "mozilla/Preferences.h"
+
 #include "nsImageToPixbuf.h"
 #include "nsPrintDialogGTK.h"
 
 #if defined(MOZ_X11)
 #include "nsIdleServiceGTK.h"
+#include "GfxInfoX11.h"
 #endif
 
 #ifdef NATIVE_THEME_SUPPORT
@@ -80,6 +82,8 @@
 #include "nsAutoPtr.h"
 #include <gtk/gtk.h>
 
+using namespace mozilla;
+
 /* from nsFilePicker.js */
 #define XULFILEPICKER_CID \
   { 0x54ae32f8, 0x1dd2, 0x11b2, \
@@ -89,7 +93,6 @@ static NS_DEFINE_CID(kNativeFilePickerCID, NS_FILEPICKER_CID);
 
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsWindow)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsChildWindow)
-NS_GENERIC_FACTORY_CONSTRUCTOR(nsLookAndFeel)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsTransferable)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsBidiKeyboard)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsHTMLFormatConverter)
@@ -105,7 +108,7 @@ NS_GENERIC_FACTORY_CONSTRUCTOR(nsImageToPixbuf)
 
 #ifdef NATIVE_THEME_SUPPORT
 // from nsWindow.cpp
-extern PRBool gDisableNativeTheme;
+extern bool gDisableNativeTheme;
 
 static nsresult
 nsNativeThemeGTKConstructor(nsISupports *aOuter, REFNSIID aIID,
@@ -138,6 +141,12 @@ nsNativeThemeGTKConstructor(nsISupports *aOuter, REFNSIID aIID,
 
 #if defined(MOZ_X11)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsIdleServiceGTK)
+namespace mozilla {
+namespace widget {
+// This constructor should really be shared with all platforms.
+NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(GfxInfo, Init)
+}
+}
 #endif
 
 #ifdef NS_PRINTING
@@ -157,17 +166,9 @@ nsFilePickerConstructor(nsISupports *aOuter, REFNSIID aIID,
     return NS_ERROR_NO_AGGREGATION;
   }
 
-  PRBool allowPlatformPicker = PR_TRUE;
-  nsCOMPtr<nsIPrefBranch> prefs = do_GetService(NS_PREFSERVICE_CONTRACTID);
-  if (prefs) {
-    PRBool prefAllow;
-    nsresult rv = prefs->GetBoolPref("ui.allow_platform_file_picker",
-                                     &prefAllow);
-    if (NS_SUCCEEDED(rv)) {
-        allowPlatformPicker = prefAllow;
-    }
-  }
-  
+  bool allowPlatformPicker =
+      Preferences::GetBool("ui.allow_platform_file_picker", true);
+
   nsCOMPtr<nsIFilePicker> picker;
   if (allowPlatformPicker && gtk_check_version(2,6,3) == NULL) {
       picker = new nsFilePicker;
@@ -229,7 +230,6 @@ nsNativeKeyBindingsTextAreaConstructor(nsISupports *aOuter, REFNSIID aIID,
 NS_DEFINE_NAMED_CID(NS_WINDOW_CID);
 NS_DEFINE_NAMED_CID(NS_CHILD_CID);
 NS_DEFINE_NAMED_CID(NS_APPSHELL_CID);
-NS_DEFINE_NAMED_CID(NS_LOOKANDFEEL_CID);
 NS_DEFINE_NAMED_CID(NS_FILEPICKER_CID);
 NS_DEFINE_NAMED_CID(NS_SOUND_CID);
 NS_DEFINE_NAMED_CID(NS_TRANSFERABLE_CID);
@@ -257,6 +257,7 @@ NS_DEFINE_NAMED_CID(NS_PRINTDIALOGSERVICE_CID);
 NS_DEFINE_NAMED_CID(NS_IMAGE_TO_PIXBUF_CID);
 #if defined(MOZ_X11)
 NS_DEFINE_NAMED_CID(NS_IDLE_SERVICE_CID);
+NS_DEFINE_NAMED_CID(NS_GFXINFO_CID);
 #endif
 
 
@@ -264,7 +265,6 @@ static const mozilla::Module::CIDEntry kWidgetCIDs[] = {
     { &kNS_WINDOW_CID, false, NULL, nsWindowConstructor },
     { &kNS_CHILD_CID, false, NULL, nsChildWindowConstructor },
     { &kNS_APPSHELL_CID, false, NULL, nsAppShellConstructor },
-    { &kNS_LOOKANDFEEL_CID, false, NULL, nsLookAndFeelConstructor },
     { &kNS_FILEPICKER_CID, false, NULL, nsFilePickerConstructor },
     { &kNS_SOUND_CID, false, NULL, nsSoundConstructor },
     { &kNS_TRANSFERABLE_CID, false, NULL, nsTransferableConstructor },
@@ -292,6 +292,7 @@ static const mozilla::Module::CIDEntry kWidgetCIDs[] = {
     { &kNS_IMAGE_TO_PIXBUF_CID, false, NULL, nsImageToPixbufConstructor },
 #if defined(MOZ_X11)
     { &kNS_IDLE_SERVICE_CID, false, NULL, nsIdleServiceGTKConstructor },
+    { &kNS_GFXINFO_CID, false, NULL, mozilla::widget::GfxInfoConstructor },
 #endif
     { NULL }
 };
@@ -300,7 +301,6 @@ static const mozilla::Module::ContractIDEntry kWidgetContracts[] = {
     { "@mozilla.org/widget/window/gtk;1", &kNS_WINDOW_CID },
     { "@mozilla.org/widgets/child_window/gtk;1", &kNS_CHILD_CID },
     { "@mozilla.org/widget/appshell/gtk;1", &kNS_APPSHELL_CID },
-    { "@mozilla.org/widget/lookandfeel;1", &kNS_LOOKANDFEEL_CID },
     { "@mozilla.org/filepicker;1", &kNS_FILEPICKER_CID },
     { "@mozilla.org/sound;1", &kNS_SOUND_CID },
     { "@mozilla.org/widget/transferable;1", &kNS_TRANSFERABLE_CID },
@@ -328,6 +328,7 @@ static const mozilla::Module::ContractIDEntry kWidgetContracts[] = {
     { "@mozilla.org/widget/image-to-gdk-pixbuf;1", &kNS_IMAGE_TO_PIXBUF_CID },
 #if defined(MOZ_X11)
     { "@mozilla.org/widget/idleservice;1", &kNS_IDLE_SERVICE_CID },
+    { "@mozilla.org/gfx/info;1", &kNS_GFXINFO_CID },
 #endif
     { NULL }
 };
@@ -335,9 +336,11 @@ static const mozilla::Module::ContractIDEntry kWidgetContracts[] = {
 static void
 nsWidgetGtk2ModuleDtor()
 {
+  nsLookAndFeel::Shutdown();
   nsFilePicker::Shutdown();
   nsSound::Shutdown();
   nsWindow::ReleaseGlobals();
+  nsGTKToolkit::Shutdown();
   nsAppShellShutdown();
 }
 

@@ -127,7 +127,7 @@ typedef enum nsCharType nsCharType;
    *        IBMBIDI_NUMERAL_HINDICONTEXT: convert numbers in Arabic text to Hindi, otherwise to Arabic
    * @return the converted Unichar
    */
-  PRUnichar HandleNumberInChar(PRUnichar aChar, PRBool aPrevCharArabic, PRUint32 aNumFlag);
+  PRUnichar HandleNumberInChar(PRUnichar aChar, bool aPrevCharArabic, PRUint32 aNumFlag);
 
   /**
    * Scan a Unichar string, converting numbers to Arabic or Hindi forms in place
@@ -148,16 +148,16 @@ typedef enum nsCharType nsCharType;
 
   /**
    * Give a UTF-32 codepoint
-   * return PR_TRUE if the codepoint is a Bidi control character (LRE, RLE, PDF, LRO, RLO, LRM, RLM)
-   * return PR_FALSE, otherwise
+   * return true if the codepoint is a Bidi control character (LRE, RLE, PDF, LRO, RLO, LRM, RLM)
+   * return false, otherwise
    */
-  PRBool IsBidiControl(PRUint32 aChar);
+  bool IsBidiControl(PRUint32 aChar);
 
   /**
    * Give an nsString.
-   * @return PR_TRUE if the string contains right-to-left characters
+   * @return true if the string contains right-to-left characters
    */
-  PRBool HasRTLChars(const nsAString& aString);
+  bool HasRTLChars(const nsAString& aString);
 
 // --------------------------------------------------
 // IBMBIDI 
@@ -174,13 +174,11 @@ typedef enum nsCharType nsCharType;
 #define IBMBIDI_TEXTTYPE_STR            "bidi.texttype"
 #define IBMBIDI_NUMERAL_STR             "bidi.numeral"
 #define IBMBIDI_SUPPORTMODE_STR         "bidi.support"
-#define IBMBIDI_CHARSET_STR             "bidi.characterset"
 
 #define IBMBIDI_TEXTDIRECTION       1
 #define IBMBIDI_TEXTTYPE            2
 #define IBMBIDI_NUMERAL             4
 #define IBMBIDI_SUPPORTMODE         5
-#define IBMBIDI_CHARSET             6
 
 //  ------------------
 //  Text Direction
@@ -213,32 +211,22 @@ typedef enum nsCharType nsCharType;
 #define IBMBIDI_SUPPORTMODE_MOZILLA     1 //  1 = mozillaBidisupport *
 #define IBMBIDI_SUPPORTMODE_OSBIDI      2 //  2 = OsBidisupport
 #define IBMBIDI_SUPPORTMODE_DISABLE     3 //  3 = disableBidisupport
-//  ------------------
-//  Charset Mode
-//  ------------------
-//  bidi.characterset
-#define IBMBIDI_CHARSET_BIDI        1 //  1 = doccharactersetBidi *
-#define IBMBIDI_CHARSET_DEFAULT     2 //  2 = defaultcharactersetBidi
 
 #define IBMBIDI_DEFAULT_BIDI_OPTIONS              \
         ((IBMBIDI_TEXTDIRECTION_LTR<<0)         | \
          (IBMBIDI_TEXTTYPE_CHARSET<<4)          | \
          (IBMBIDI_NUMERAL_NOMINAL<<8)          | \
-         (IBMBIDI_SUPPORTMODE_MOZILLA<<12)      | \
-         (IBMBIDI_CHARSET_BIDI<<16))
-
+         (IBMBIDI_SUPPORTMODE_MOZILLA<<12))
 
 #define GET_BIDI_OPTION_DIRECTION(bo) (((bo)>>0) & 0x0000000F) /* 4 bits for DIRECTION */
 #define GET_BIDI_OPTION_TEXTTYPE(bo) (((bo)>>4) & 0x0000000F) /* 4 bits for TEXTTYPE */
 #define GET_BIDI_OPTION_NUMERAL(bo) (((bo)>>8) & 0x0000000F) /* 4 bits for NUMERAL */
 #define GET_BIDI_OPTION_SUPPORT(bo) (((bo)>>12) & 0x0000000F) /* 4 bits for SUPPORT */
-#define GET_BIDI_OPTION_CHARACTERSET(bo) (((bo)>>16) & 0x0000000F) /* 4 bits for CHARACTERSET */
 
 #define SET_BIDI_OPTION_DIRECTION(bo, dir) {(bo)=((bo) & 0xFFFFFFF0)|(((dir)& 0x0000000F)<<0);}
 #define SET_BIDI_OPTION_TEXTTYPE(bo, tt) {(bo)=((bo) & 0xFFFFFF0F)|(((tt)& 0x0000000F)<<4);}
 #define SET_BIDI_OPTION_NUMERAL(bo, num) {(bo)=((bo) & 0xFFFFF0FF)|(((num)& 0x0000000F)<<8);}
 #define SET_BIDI_OPTION_SUPPORT(bo, sup) {(bo)=((bo) & 0xFFFF0FFF)|(((sup)& 0x0000000F)<<12);}
-#define SET_BIDI_OPTION_CHARACTERSET(bo, cs) {(bo)=((bo) & 0xFFF0FFFF)|(((cs)& 0x0000000F)<<16);}
 
 /* Constants related to the position of numerics in the codepage */
 #define START_HINDI_DIGITS              0x0660

@@ -179,10 +179,14 @@ private:
    *
    * @param aURISpec
    *        The spec of the URI to prepare for searching.
+   * @param aMatchBehavior
+   *        The matching behavior to use defined by one of the
+   *        mozIPlacesAutoComplete::MATCH_* values.
    * @param _fixedSpec
    *        An out parameter that is the fixed up string.
    */
-  static void fixupURISpec(const nsCString &aURISpec, nsCString &_fixedSpec);
+  static void fixupURISpec(const nsCString &aURISpec, PRInt32 aMatchBehavior,
+                           nsCString &_fixedSpec);
 };
 
 
@@ -229,6 +233,29 @@ public:
  * @return a guid for the item.
  */
 class GenerateGUIDFunction : public mozIStorageFunction
+{
+public:
+  NS_DECL_ISUPPORTS
+  NS_DECL_MOZISTORAGEFUNCTION
+
+  /**
+   * Registers the function with the specified database connection.
+   *
+   * @param aDBConn
+   *        The database connection to register with.
+   */
+  static nsresult create(mozIStorageConnection *aDBConn);
+};
+
+/**
+ * SQL function to unreverse the rev_host of a page.
+ *
+ * @param rev_host
+ *        The rev_host value of the page.
+ *
+ * @return the unreversed host of the page.
+ */
+class GetUnreversedHostFunction : public mozIStorageFunction
 {
 public:
   NS_DECL_ISUPPORTS

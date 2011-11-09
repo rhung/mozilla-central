@@ -163,13 +163,19 @@ public:
 
     enum {
         DRAW_ERROR = 0,
-        DRAW_GLES_2 = 1
+        DRAW_GLES_2 = 1,
+        DRAW_2D = 2,
+        DRAW_DISABLED = 3
     };
 
     int BeginDrawing();
+    jobject GetSoftwareDrawBitmap();
     jobject GetSoftwareDrawBuffer();
     void EndDrawing();
+    void Draw2D(jobject bitmap, int width, int height);
     void Draw2D(jobject buffer, int stride);
+
+    jobject GetSurface();
 
     // must have a JNI local frame when calling this,
     // and you'd better know what you're doing
@@ -179,8 +185,11 @@ protected:
     static jclass jGeckoSurfaceViewClass;
     static jmethodID jBeginDrawingMethod;
     static jmethodID jEndDrawingMethod;
-    static jmethodID jDraw2DMethod;
+    static jmethodID jDraw2DBitmapMethod;
+    static jmethodID jDraw2DBufferMethod;
+    static jmethodID jGetSoftwareDrawBitmapMethod;
     static jmethodID jGetSoftwareDrawBufferMethod;
+    static jmethodID jGetSurfaceMethod;
     static jmethodID jGetHolderMethod;
 };
 
@@ -382,19 +391,26 @@ public:
     AndroidGeckoEvent(JNIEnv *jenv, jobject jobj) {
         Init(jenv, jobj);
     }
+    AndroidGeckoEvent(AndroidGeckoEvent *aResizeEvent) {
+        Init(aResizeEvent);
+    }
 
     void Init(JNIEnv *jenv, jobject jobj);
     void Init(int aType);
     void Init(int x1, int y1, int x2, int y2);
+    void Init(AndroidGeckoEvent *aResizeEvent);
 
     int Action() { return mAction; }
     int Type() { return mType; }
     int64_t Time() { return mTime; }
     const nsIntPoint& P0() { return mP0; }
     const nsIntPoint& P1() { return mP1; }
-    float X() { return mX; }
-    float Y() { return mY; }
-    float Z() { return mZ; }
+    double Alpha() { return mAlpha; }
+    double Beta() { return mBeta; }
+    double Gamma() { return mGamma; }
+    double X() { return mX; }
+    double Y() { return mY; }
+    double Z() { return mZ; }
     const nsIntRect& Rect() { return mRect; }
     nsAString& Characters() { return mCharacters; }
     int KeyCode() { return mKeyCode; }
@@ -422,7 +438,8 @@ protected:
     int mOffset, mCount;
     int mRangeType, mRangeStyles;
     int mRangeForeColor, mRangeBackColor;
-    float mX, mY, mZ;
+    double mAlpha, mBeta, mGamma;
+    double mX, mY, mZ;
     nsString mCharacters;
     nsRefPtr<nsGeoPosition> mGeoPosition;
     nsRefPtr<nsGeoPositionAddress> mGeoAddress;
@@ -438,6 +455,9 @@ protected:
     static jfieldID jTimeField;
     static jfieldID jP0Field;
     static jfieldID jP1Field;
+    static jfieldID jAlphaField;
+    static jfieldID jBetaField;
+    static jfieldID jGammaField;
     static jfieldID jXField;
     static jfieldID jYField;
     static jfieldID jZField;
@@ -463,18 +483,21 @@ public:
         NATIVE_POKE = 0,
         KEY_EVENT = 1,
         MOTION_EVENT = 2,
-        SENSOR_EVENT = 3,
-        LOCATION_EVENT = 4,
-        IME_EVENT = 5,
-        DRAW = 6,
-        SIZE_CHANGED = 7,
-        ACTIVITY_STOPPING = 8,
-        ACTIVITY_PAUSING = 9,
-        ACTIVITY_SHUTDOWN = 10,
-        LOAD_URI = 11,
-        SURFACE_CREATED = 12,
-        SURFACE_DESTROYED = 13,
-        GECKO_EVENT_SYNC = 14,
+        ORIENTATION_EVENT = 3,
+        ACCELERATION_EVENT = 4,
+        LOCATION_EVENT = 5,
+        IME_EVENT = 6,
+        DRAW = 7,
+        SIZE_CHANGED = 8,
+        ACTIVITY_STOPPING = 9,
+        ACTIVITY_PAUSING = 10,
+        ACTIVITY_SHUTDOWN = 11,
+        LOAD_URI = 12,
+        SURFACE_CREATED = 13,
+        SURFACE_DESTROYED = 14,
+        GECKO_EVENT_SYNC = 15,
+        FORCED_RESIZE = 16,
+        ACTIVITY_START = 17,
         dummy_java_enum_list_end
     };
 

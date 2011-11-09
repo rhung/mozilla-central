@@ -37,20 +37,20 @@
 function test() {
   let tab1 = gBrowser.addTab("about:robots");
   let tab2 = gBrowser.addTab("about:mozilla");
-  tab1.addEventListener("load", mainPart, true);
+  tab1.linkedBrowser.addEventListener("load", mainPart, true);
   waitForExplicitFinish();
 
   function mainPart() {
+    tab1.linkedBrowser.removeEventListener("load", mainPart, true);
+
     // Tell the session storer that the tab is pinned
     let newTabState = '{"entries":[{"url":"about:robots"}],"pinned":true,"userTypedValue":"Hello World!"}';
-    let ss = Cc["@mozilla.org/browser/sessionstore;1"]
-               .getService(Ci.nsISessionStore);
     ss.setTabState(tab1, newTabState);
 
     // Undo pinning
     gBrowser.unpinTab(tab1);
 
-    is(tab1.linkedBrowser.__SS_data._tabStillLoading, true, 
+    is(tab1.linkedBrowser.__SS_tabStillLoading, true,
        "_tabStillLoading should be true.");
 
     // Close and restore tab

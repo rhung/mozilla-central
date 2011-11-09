@@ -40,7 +40,7 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
-/* $Id: sslsock.c,v 1.67.2.1 2010/07/31 04:33:52 wtc%google.com Exp $ */
+/* $Id: sslsock.c,v 1.75 2011/10/22 16:45:40 emaldona%redhat.com Exp $ */
 #include "seccomon.h"
 #include "cert.h"
 #include "keyhi.h"
@@ -169,12 +169,12 @@ static sslOptions ssl_defaults = {
     2,	        /* requireCertificate */
     PR_FALSE,	/* handshakeAsClient  */
     PR_FALSE,	/* handshakeAsServer  */
-    PR_TRUE,	/* enableSSL2         */
+    PR_FALSE,	/* enableSSL2         */ /* now defaults to off in NSS 3.13 */
     PR_TRUE,	/* enableSSL3         */
     PR_TRUE, 	/* enableTLS          */ /* now defaults to on in NSS 3.0 */
     PR_FALSE,	/* noCache            */
     PR_FALSE,	/* fdx                */
-    PR_TRUE,	/* v2CompatibleHello  */
+    PR_FALSE,	/* v2CompatibleHello  */ /* now defaults to off in NSS 3.13 */
     PR_TRUE,	/* detectRollBack     */
     PR_FALSE,   /* noStepDown         */
     PR_FALSE,   /* bypassPKCS11       */
@@ -184,6 +184,7 @@ static sslOptions ssl_defaults = {
     2,          /* enableRenegotiation (default: requires extension) */
     PR_FALSE,   /* requireSafeNegotiation */
     PR_FALSE,   /* enableFalseStart   */
+    PR_TRUE     /* cbcRandomIV        */
 };
 
 sslSessionIDLookupFunc  ssl_sid_lookup;
@@ -206,6 +207,7 @@ char lockStatus[] = "Locks are ENABLED.  ";
 /* forward declarations. */
 static sslSocket *ssl_NewSocket(PRBool makeLocks);
 static SECStatus  ssl_MakeLocks(sslSocket *ss);
+static void       ssl_SetDefaultsFromEnvironment(void);
 static PRStatus   ssl_PushIOLayer(sslSocket *ns, PRFileDesc *stack, 
                                   PRDescIdentity id);
 
@@ -733,6 +735,10 @@ SSL_OptionSet(PRFileDesc *fd, PRInt32 which, PRBool on)
 	ss->opt.enableFalseStart = on;
 	break;
 
+      case SSL_CBC_RANDOM_IV:
+	ss->opt.cbcRandomIV = on;
+	break;
+
       default:
 	PORT_SetError(SEC_ERROR_INVALID_ARGS);
 	rv = SECFailure;
@@ -797,6 +803,7 @@ SSL_OptionGet(PRFileDesc *fd, PRInt32 which, PRBool *pOn)
     case SSL_REQUIRE_SAFE_NEGOTIATION: 
                                   on = ss->opt.requireSafeNegotiation; break;
     case SSL_ENABLE_FALSE_START:  on = ss->opt.enableFalseStart;   break;
+    case SSL_CBC_RANDOM_IV:       on = ss->opt.cbcRandomIV;        break;
 
     default:
 	PORT_SetError(SEC_ERROR_INVALID_ARGS);
@@ -820,6 +827,8 @@ SSL_OptionGetDefault(PRInt32 which, PRBool *pOn)
 	PORT_SetError(SEC_ERROR_INVALID_ARGS);
 	return SECFailure;
     }
+
+    ssl_SetDefaultsFromEnvironment();
 
     switch (which) {
     case SSL_SOCKS:               on = PR_FALSE;                        break;
@@ -848,6 +857,7 @@ SSL_OptionGetDefault(PRInt32 which, PRBool *pOn)
                                   on = ssl_defaults.requireSafeNegotiation; 
 				  break;
     case SSL_ENABLE_FALSE_START:  on = ssl_defaults.enableFalseStart;   break;
+    case SSL_CBC_RANDOM_IV:       on = ssl_defaults.cbcRandomIV;        break;
 
     default:
 	PORT_SetError(SEC_ERROR_INVALID_ARGS);
@@ -868,6 +878,14 @@ SSL_EnableDefault(int which, PRBool on)
 SECStatus
 SSL_OptionSetDefault(PRInt32 which, PRBool on)
 {
+    SECStatus status = ssl_Init();
+
+    if (status != SECSuccess) {
+	return status;
+    }
+
+    ssl_SetDefaultsFromEnvironment();
+
     switch (which) {
       case SSL_SOCKS:
 	ssl_defaults.useSocks = PR_FALSE;
@@ -995,6 +1013,10 @@ SSL_OptionSetDefault(PRInt32 which, PRBool on)
 	ssl_defaults.enableFalseStart = on;
 	break;
 
+      case SSL_CBC_RANDOM_IV:
+	ssl_defaults.cbcRandomIV = on;
+	break;
+
       default:
 	PORT_SetError(SEC_ERROR_INVALID_ARGS);
 	return SECFailure;
@@ -1038,7 +1060,11 @@ SSL_SetPolicy(long which, int policy)
 SECStatus
 SSL_CipherPolicySet(PRInt32 which, PRInt32 policy)
 {
-    SECStatus rv;
+    SECStatus rv = ssl_Init();
+
+    if (rv != SECSuccess) {
+	return rv;
+    }
 
     if (ssl_IsRemovedCipherSuite(which)) {
     	rv = SECSuccess;
@@ -1093,7 +1119,11 @@ SSL_EnableCipher(long which, PRBool enabled)
 SECStatus
 SSL_CipherPrefSetDefault(PRInt32 which, PRBool enabled)
 {
-    SECStatus rv;
+    SECStatus rv = ssl_Init();
+
+    if (rv != SECSuccess) {
+	return rv;
+    }
 
     if (ssl_IsRemovedCipherSuite(which))
     	return SECSuccess;
@@ -1234,6 +1264,11 @@ SSL_ImportFD(PRFileDesc *model, PRFileDesc *fd)
     sslSocket * ns = NULL;
     PRStatus    rv;
     PRNetAddr   addr;
+    SECStatus	status = ssl_Init();
+
+    if (status != SECSuccess) {
+	return NULL;
+    }
 
     if (model == NULL) {
 	/* Just create a default socket if we're given NULL for the model */
@@ -1271,8 +1306,8 @@ SSL_ReconfigFD(PRFileDesc *model, PRFileDesc *fd)
 {
     sslSocket * sm = NULL, *ss = NULL;
     int i;
-    sslServerCerts * mc = sm->serverCerts;
-    sslServerCerts * sc = ss->serverCerts;
+    sslServerCerts * mc = NULL;
+    sslServerCerts * sc = NULL;
 
     if (model == NULL) {
         PR_SetError(SEC_ERROR_INVALID_ARGS, 0);
@@ -1301,7 +1336,9 @@ SSL_ReconfigFD(PRFileDesc *model, PRFileDesc *fd)
     /* This int should be SSLKEAType, but CC on Irix complains,
      * during the for loop.
      */
-    for (i=kt_null; i < kt_kea_size; i++, mc++, sc++) {
+    for (i=kt_null; i < kt_kea_size; i++) {
+        mc = &(sm->serverCerts[i]);
+        sc = &(ss->serverCerts[i]);
         if (mc->serverCert && mc->serverCertChain) {
             if (sc->serverCert) {
                 CERT_DestroyCertificate(sc->serverCert);
@@ -2172,7 +2209,9 @@ ssl_PushIOLayer(sslSocket *ns, PRFileDesc *stack, PRDescIdentity id)
     PRStatus    status;
 
     if (!ssl_inited) {
-	PR_CallOnce(&initIoLayerOnce, &ssl_InitIOLayer);
+	status = PR_CallOnce(&initIoLayerOnce, &ssl_InitIOLayer);
+	if (status != PR_SUCCESS)
+	    goto loser;
     }
 
     if (ns == NULL)
@@ -2248,13 +2287,9 @@ loser:
 
 #define LOWER(x) (x | 0x20)  /* cheap ToLower function ignores LOCALE */
 
-/*
-** Create a newsocket structure for a file descriptor.
-*/
-static sslSocket *
-ssl_NewSocket(PRBool makeLocks)
+static void
+ssl_SetDefaultsFromEnvironment(void)
 {
-    sslSocket *ss;
 #if defined( NSS_HAVE_GETENV )
     static int firsttime = 1;
 
@@ -2323,8 +2358,25 @@ ssl_NewSocket(PRBool makeLocks)
 	    SSL_TRACE(("SSL: requireSafeNegotiation set to %d", 
 	                PR_TRUE));
 	}
+	ev = getenv("NSS_SSL_CBC_RANDOM_IV");
+	if (ev && ev[0] == '0') {
+	    ssl_defaults.cbcRandomIV = PR_FALSE;
+	    SSL_TRACE(("SSL: cbcRandomIV set to 0"));
+	}
     }
 #endif /* NSS_HAVE_GETENV */
+}
+
+/*
+** Create a newsocket structure for a file descriptor.
+*/
+static sslSocket *
+ssl_NewSocket(PRBool makeLocks)
+{
+    sslSocket *ss;
+
+    ssl_SetDefaultsFromEnvironment();
+
     if (ssl_force_locks)
 	makeLocks = PR_TRUE;
 
