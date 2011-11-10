@@ -165,25 +165,6 @@ diff --git a/content/events/public/nsIPrivateDOMEvent.h b/content/events/public/
 diff --git a/content/events/src/Makefile.in b/content/events/src/Makefile.in
 --- a/content/events/src/Makefile.in
 +++ b/content/events/src/Makefile.in
-@@ -45,17 +45,17 @@
- MODULE		= content
- LIBRARY_NAME	= gkconevents_s
- LIBXUL_LIBRARY  = 1
- 
- EXPORTS		= \
- 		nsEventStateManager.h \
- 		nsEventListenerManager.h \
- 		$(NULL)
--		
-+
- CPPSRCS		= \
- 		nsEventListenerManager.cpp \
- 		nsEventStateManager.cpp \
- 		nsDOMEvent.cpp \
- 		nsDOMDataContainerEvent.cpp \
- 		nsDOMUIEvent.cpp \
- 		nsDOMKeyboardEvent.cpp \
- 		nsDOMTextEvent.cpp \
 @@ -93,16 +93,25 @@
  		nsDOMPopStateEvent.cpp \
  		nsDOMHashChangeEvent.cpp \
@@ -199,7 +180,7 @@ diff --git a/content/events/src/Makefile.in b/content/events/src/Makefile.in
 +  nsDOMGamepadButtonEvent.cpp \
 +  nsDOMGamepadAxisMoveEvent.cpp \
 +  nsDOMGamepadConnectionEvent.cpp \
-+  $(NULL) 
++  $(NULL)
 +endif
 +
  # we don't want the shared lib, but we want to force the creation of a static lib.
@@ -213,30 +194,6 @@ diff --git a/content/events/src/Makefile.in b/content/events/src/Makefile.in
 diff --git a/content/events/src/nsDOMEvent.cpp b/content/events/src/nsDOMEvent.cpp
 --- a/content/events/src/nsDOMEvent.cpp
 +++ b/content/events/src/nsDOMEvent.cpp
-@@ -89,16 +89,23 @@
-   "beginEvent", "endEvent", "repeatEvent",
- #endif // MOZ_SMIL
- #ifdef MOZ_MEDIA
-   "loadstart", "progress", "suspend", "emptied", "stalled", "play", "pause",
-   "loadedmetadata", "loadeddata", "waiting", "playing", "canplay",
-   "canplaythrough", "seeking", "seeked", "timeupdate", "ended", "ratechange",
-   "durationchange", "volumechange", "MozAudioAvailable",
- #endif // MOZ_MEDIA
-+#ifdef MOZ_GAMEPAD
-+  "MozGamepadButtonDown",
-+  "MozGamepadButtonUp",
-+  "MozGamepadAxisMove",
-+  "MozGamepadConnected",
-+  "MozGamepadDisconnected",
-+#endif
-   "MozAfterPaint",
-   "MozBeforePaint",
-   "MozBeforeResize",
-   "mozfullscreenchange",
-   "MozSwipeGesture",
-   "MozMagnifyGestureStart",
-   "MozMagnifyGestureUpdate",
-   "MozMagnifyGesture",
 @@ -1333,16 +1340,28 @@
      return sEventNames[eDOMEvents_ratechange];
    case NS_DURATIONCHANGE:
@@ -266,33 +223,6 @@ diff --git a/content/events/src/nsDOMEvent.cpp b/content/events/src/nsDOMEvent.c
      return sEventNames[eDOMEvents_beforeresize];
    case NS_SIMPLE_GESTURE_SWIPE:
      return sEventNames[eDOMEvents_MozSwipeGesture];
-diff --git a/content/events/src/nsDOMEvent.h b/content/events/src/nsDOMEvent.h
---- a/content/events/src/nsDOMEvent.h
-+++ b/content/events/src/nsDOMEvent.h
-@@ -172,16 +172,23 @@
-     eDOMEvents_seeked,
-     eDOMEvents_timeupdate,
-     eDOMEvents_ended,
-     eDOMEvents_ratechange,
-     eDOMEvents_durationchange,
-     eDOMEvents_volumechange,
-     eDOMEvents_mozaudioavailable,
- #endif
-+#ifdef MOZ_GAMEPAD
-+    eDOMEvents_mozgamepadbuttondown,
-+    eDOMEvents_mozgamepadbuttonup,
-+    eDOMEvents_mozgamepadaxismove,
-+    eDOMEvents_mozgamepadconnected,
-+    eDOMEvents_mozgamepaddisconnected,
-+#endif
-     eDOMEvents_afterpaint,
-     eDOMEvents_beforepaint,
-     eDOMEvents_beforeresize,
-     eDOMEvents_mozfullscreenchange,
-     eDOMEvents_MozSwipeGesture,
-     eDOMEvents_MozMagnifyGestureStart,
-     eDOMEvents_MozMagnifyGestureUpdate,
-     eDOMEvents_MozMagnifyGesture,
 diff --git a/content/events/src/nsDOMGamepad.cpp b/content/events/src/nsDOMGamepad.cpp
 new file mode 100644
 --- /dev/null
@@ -438,7 +368,7 @@ new file mode 100644
 +  if (NS_FAILED(rv))
 +    return rv;
 +
-+  
++
 +  return CallQueryInterface(out, aButtons);
 +}
 +
@@ -667,7 +597,7 @@ new file mode 100644
 +{
 +  nsresult rv = nsDOMEvent::InitEvent(typeArg, canBubbleArg, cancelableArg);
 +  NS_ENSURE_SUCCESS(rv, rv);
-+  
++
 +  mGamepad = aGamepad;
 +  mAxis = aAxis;
 +  mValue = aValue;
@@ -861,7 +791,7 @@ new file mode 100644
 +{
 +  nsresult rv = nsDOMEvent::InitEvent(typeArg, canBubbleArg, cancelableArg);
 +  NS_ENSURE_SUCCESS(rv, rv);
-+  
++
 +  mGamepad = aGamepad;
 +  mButton = aButton;
 +
@@ -1041,7 +971,7 @@ new file mode 100644
 +{
 +  nsresult rv = nsDOMEvent::InitEvent(typeArg, canBubbleArg, cancelableArg);
 +  NS_ENSURE_SUCCESS(rv, rv);
-+  
++
 +  mGamepad = aGamepad;
 +
 +  return NS_OK;
@@ -1534,7 +1464,7 @@ diff --git a/dom/base/nsPIDOMWindow.h b/dom/base/nsPIDOMWindow.h
     * Tell this window that we remove an orientation listener
     */
    virtual void RemoveOrientationEventListener() = 0;
-+  
++
 +  /**
 +   * Tell this window that there is an observer for gamepad input
 +   */
@@ -1703,7 +1633,7 @@ new file mode 100644
 +   * The device that generated this event.
 +   */
 +  readonly attribute nsIDOMGamepad gamepad;
-+  
++
 +  [noscript]
 +  void initGamepadAxisMoveEvent(in DOMString typeArg,
 +                                in boolean canBubbleArg,
@@ -2521,35 +2451,3 @@ diff --git a/js/xpconnect/src/dom_quickstubs.qsconf b/js/xpconnect/src/dom_quick
      'nsIIDBIndex.*',
      'nsIIDBKeyRange.*',
      'nsIIDBObjectStore.*',
-diff --git a/widget/public/nsGUIEvent.h b/widget/public/nsGUIEvent.h
---- a/widget/public/nsGUIEvent.h
-+++ b/widget/public/nsGUIEvent.h
-@@ -543,16 +543,28 @@
- #define NS_DEVICE_MOTION             (NS_DEVICE_ORIENTATION_START+1)
- 
- #define NS_SHOW_EVENT                5000
- 
- // Fullscreen DOM API
- #define NS_FULL_SCREEN_START         5100
- #define NS_FULLSCREENCHANGE          (NS_FULL_SCREEN_START)
- 
-+#ifdef MOZ_GAMEPAD
-+// Gamepad input events
-+#define NS_MOZGAMEPAD_START         6000
-+#define NS_MOZGAMEPAD_BUTTONDOWN    (NS_MOZGAMEPAD_START)
-+#define NS_MOZGAMEPAD_BUTTONUP      (NS_MOZGAMEPAD_START+1)
-+#define NS_MOZGAMEPAD_AXISMOVE      (NS_MOZGAMEPAD_START+2)
-+#define NS_MOZGAMEPAD_CONNECTED     (NS_MOZGAMEPAD_START+3)
-+#define NS_MOZGAMEPAD_DISCONNECTED  (NS_MOZGAMEPAD_START+4)
-+// Keep this defined to the same value as the event above
-+#define NS_MOZGAMEPAD_END           (NS_MOZGAMEPAD_START+4)
-+#endif
-+
- /**
-  * Return status for event processors, nsEventStatus, is defined in
-  * nsEvent.h.
-  */
- 
- /**
-  * different types of (top-level) window z-level positioning
-  */

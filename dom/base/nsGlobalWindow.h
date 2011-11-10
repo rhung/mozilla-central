@@ -397,6 +397,8 @@ public:
   virtual NS_HIDDEN_(void) UpdateTouchState();
   virtual NS_HIDDEN_(bool) DispatchCustomEvent(const char *aEventName);
 
+  virtual NS_HIDDEN_(void) SetHasGamepadEventListener();
+
   // nsIDOMStorageIndexedDB
   NS_DECL_NSIDOMSTORAGEINDEXEDDB
 
@@ -579,6 +581,10 @@ private:
 
   // Disables updates for the accelerometer.
   void DisableDeviceMotionUpdates();
+
+  // Enable/disable updates for gamepad input.
+  void EnableGamepadUpdates();
+  void DisableGamepadUpdates();
 
 protected:
   friend class HashchangeCallback;
@@ -894,6 +900,9 @@ protected:
 
   // Indicates whether this window is getting device motion change events
   bool                   mHasDeviceMotion : 1;
+
+  // Indicates whether this window is getting gamepad input events
+  bool                   mHasGamepad : 1;
 
   // whether we've sent the destroy notification for our window id
   bool                   mNotifiedIDDestroyed : 1;

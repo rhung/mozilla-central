@@ -246,6 +246,10 @@
 
 #include "mozilla/dom/StructuredCloneTags.h"
 
+#ifdef MOZ_GAMEPAD
+#include "mozilla/dom/GamepadService.h"
+#endif
+
 #include "nsRefreshDriver.h"
 #include "mozAutoDocUpdate.h"
 
@@ -845,6 +849,7 @@ nsGlobalWindow::nsGlobalWindow(nsGlobalWindow *aOuterWindow)
     mShowFocusRingForContent(false),
     mFocusByKeyOccurred(false),
     mHasDeviceMotion(false),
+    mHasGamepad(false),
     mNotifiedIDDestroyed(false),
     mTimeoutInsertionPoint(nsnull),
     mTimeoutPublicIdCounter(1),
@@ -1182,6 +1187,9 @@ nsGlobalWindow::CleanUp(bool aIgnoreModalDialog)
   if (inner) {
     inner->CleanUp(aIgnoreModalDialog);
   }
+
+  DisableGamepadUpdates();
+  mHasGamepad = PR_FALSE;
 
   if (mCleanMessageManager) {
     NS_ABORT_IF_FALSE(mIsChrome, "only chrome should have msg manager cleaned");
@@ -7664,6 +7672,28 @@ nsGlobalWindow::DisableDeviceMotionUpdates()
 }
 
 void
+nsGlobalWindow::EnableGamepadUpdates()
+{
+  if (mHasGamepad) {
+#ifdef MOZ_GAMEPAD
+    GamepadService* gamepadsvc = GamepadService::GetService();
+    gamepadsvc->AddListener(this);
+#endif
+  }
+}
+
+void
+nsGlobalWindow::DisableGamepadUpdates()
+{
+  if (mHasGamepad) {
+#ifdef MOZ_GAMEPAD
+    GamepadService* gamepadsvc = GamepadService::GetService();
+    gamepadsvc->RemoveListener(this);
+#endif
+  }
+}
+
+void
 nsGlobalWindow::SetChromeEventHandler(nsIDOMEventTarget* aChromeEventHandler)
 {
   SetChromeEventHandlerInternal(aChromeEventHandler);
@@ -10043,6 +10073,7 @@ nsGlobalWindow::SuspendTimeouts(PRUint32 aIncrease,
 
   if (!suspended) {
     DisableDeviceMotionUpdates();
+    DisableGamepadUpdates();
 
     // Suspend all of the workers for this window.
     nsIScriptContext *scx = GetContextInternal();
@@ -10119,6 +10150,7 @@ nsGlobalWindow::ResumeTimeouts(bool aThawChildren)
 
   if (shouldResume) {
     EnableDeviceMotionUpdates();
+    EnableGamepadUpdates();
 
     // Resume all of the workers for this window.
     nsIScriptContext *scx = GetContextInternal();
@@ -10225,6 +10257,13 @@ nsGlobalWindow::SetHasOrientationEventListener()
 {
   mHasDeviceMotion = true;
   EnableDeviceMotionUpdates();
+}
+
+void
+nsGlobalWindow::SetHasGamepadEventListener()
+{
+  mHasGamepad = PR_TRUE;
+  EnableGamepadUpdates();
 }
 
 void
