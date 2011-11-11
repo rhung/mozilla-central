@@ -1647,6 +1647,16 @@ extern JS_PUBLIC_DATA(jsid) JSID_EMPTY;
 # define JSID_EMPTY ((jsid)JSID_TYPE_OBJECT)
 #endif
 
+/*
+ * Returns true iff the given jsval is immune to GC and can be used across
+ * multiple JSRuntimes without requiring any conversion API.
+ */
+static JS_ALWAYS_INLINE JSBool
+JSVAL_IS_UNIVERSAL(jsval v)
+{
+    return !JSVAL_IS_GCTHING(v);
+}
+
 /************************************************************************/
 
 /* Lock and unlock the GC thing held by a jsval. */
@@ -2167,11 +2177,12 @@ JS_StringToVersion(const char *string);
 #define JSOPTION_PCCOUNT        JS_BIT(17)      /* Collect per-op execution counts */
 
 #define JSOPTION_TYPE_INFERENCE JS_BIT(18)      /* Perform type inference. */
+#define JSOPTION_SOFTEN         JS_BIT(19)      /* Disable JIT hardening. */
 
 /* Options which reflect compile-time properties of scripts. */
 #define JSCOMPILEOPTION_MASK    (JSOPTION_XML)
 
-#define JSRUNOPTION_MASK        (JS_BITMASK(19) & ~JSCOMPILEOPTION_MASK)
+#define JSRUNOPTION_MASK        (JS_BITMASK(20) & ~JSCOMPILEOPTION_MASK)
 #define JSALLOPTION_MASK        (JSCOMPILEOPTION_MASK | JSRUNOPTION_MASK)
 
 extern JS_PUBLIC_API(uint32)
@@ -4808,6 +4819,51 @@ JS_SetContextThread(JSContext *cx);
 
 extern JS_PUBLIC_API(jsword)
 JS_ClearContextThread(JSContext *cx);
+
+/*
+ * A JS runtime always has an "owner thread". The owner thread is set when the
+ * runtime is created (to the current thread) and practically all entry points
+ * into the JS engine check that a runtime (or anything contained in the
+ * runtime: context, compartment, object, etc) is only touched by its owner
+ * thread. Embeddings may check this invariant outside the JS engine by calling
+ * JS_AbortIfWrongThread (which will abort if not on the owner thread, even for
+ * non-debug builds).
+ *
+ * It is possible to "move" a runtime between threads. This is accomplished by
+ * calling JS_ClearRuntimeThread on a runtime's owner thread and then calling
+ * JS_SetRuntimeThread on the new owner thread. The runtime must not be
+ * accessed between JS_ClearRuntimeThread and JS_SetRuntimeThread. Also, the
+ * caller is responsible for synchronizing the calls to Set/Clear.
+ */
+
+extern JS_PUBLIC_API(void)
+JS_AbortIfWrongThread(JSRuntime *rt);
+
+extern JS_PUBLIC_API(void)
+JS_ClearRuntimeThread(JSRuntime *rt);
+
+extern JS_PUBLIC_API(void)
+JS_SetRuntimeThread(JSRuntime *rt);
+
+#ifdef __cplusplus
+JS_END_EXTERN_C
+
+class JSAutoSetRuntimeThread
+{
+    JSRuntime *runtime;
+
+  public:
+    JSAutoSetRuntimeThread(JSRuntime *runtime) : runtime(runtime) {
+        JS_SetRuntimeThread(runtime);
+    }
+
+    ~JSAutoSetRuntimeThread() {
+        JS_ClearRuntimeThread(runtime);
+    }
+};
+
+JS_BEGIN_EXTERN_C
+#endif
 
 /************************************************************************/
 

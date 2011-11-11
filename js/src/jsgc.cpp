@@ -547,7 +547,7 @@ Chunk::allocate(JSRuntime *rt)
     Chunk *chunk = static_cast<Chunk *>(AllocChunk());
     if (!chunk)
         return NULL;
-    chunk->init();
+    chunk->init(rt);
     rt->gcStats.count(gcstats::STAT_NEW_CHUNK);
     return chunk;
 }
@@ -561,7 +561,7 @@ Chunk::release(JSRuntime *rt, Chunk *chunk)
 }
 
 void
-Chunk::init()
+Chunk::init(JSRuntime *rt)
 {
     JS_POISON(this, JS_FREE_PATTERN, ChunkSize);
 
@@ -580,6 +580,7 @@ Chunk::init()
     info.numArenasFree = ArenasPerChunk;
     info.numArenasFreeCommitted = ArenasPerChunk;
     info.age = 0;
+    rt->gcNumFreeArenas += ArenasPerChunk;
 
     /* Initialize the arena header state. */
     for (jsuint i = 0; i < ArenasPerChunk; i++) {
@@ -668,7 +669,7 @@ Chunk::fetchNextDecommittedArena()
 }
 
 inline ArenaHeader *
-Chunk::fetchNextFreeArena()
+Chunk::fetchNextFreeArena(JSRuntime *rt)
 {
     JS_ASSERT(info.numArenasFreeCommitted > 0);
 
@@ -676,6 +677,7 @@ Chunk::fetchNextFreeArena()
     info.freeArenasHead = aheader->next;
     --info.numArenasFreeCommitted;
     --info.numArenasFree;
+    --rt->gcNumFreeArenas;
 
     return aheader;
 }
@@ -685,14 +687,15 @@ Chunk::allocateArena(JSCompartment *comp, AllocKind thingKind)
 {
     JS_ASSERT(!noAvailableArenas());
 
+    JSRuntime *rt = comp->rt;
+
     ArenaHeader *aheader = JS_LIKELY(info.numArenasFreeCommitted > 0)
-                           ? fetchNextFreeArena()
+                           ? fetchNextFreeArena(rt)
                            : fetchNextDecommittedArena();
     aheader->init(comp, thingKind);
     if (JS_UNLIKELY(noAvailableArenas()))
         removeFromAvailableList();
 
-    JSRuntime *rt = comp->rt;
     Probes::resizeHeap(comp, rt->gcBytes, rt->gcBytes + ArenaSize);
     JS_ATOMIC_ADD(&rt->gcBytes, ArenaSize);
     JS_ATOMIC_ADD(&comp->gcBytes, ArenaSize);
@@ -732,6 +735,7 @@ Chunk::releaseArena(ArenaHeader *aheader)
     info.freeArenasHead = aheader;
     ++info.numArenasFreeCommitted;
     ++info.numArenasFree;
+    ++rt->gcNumFreeArenas;
 
     if (info.numArenasFree == 1) {
         JS_ASSERT(!info.prevp);
@@ -2113,6 +2117,7 @@ void
 MaybeGC(JSContext *cx)
 {
     JSRuntime *rt = cx->runtime;
+    JS_ASSERT(rt->onOwnerThread());
 
     if (rt->gcZeal()) {
         js_GC(cx, NULL, GC_NORMAL, gcstats::MAYBEGC);
@@ -2136,7 +2141,7 @@ MaybeGC(JSContext *cx)
      */
     int64 now = PRMJ_Now();
     if (rt->gcNextFullGCTime && rt->gcNextFullGCTime <= now) {
-        if (rt->gcChunkAllocationSinceLastGC)
+        if (rt->gcChunkAllocationSinceLastGC || rt->gcNumFreeArenas > MaxFreeCommittedArenas)
             js_GC(cx, NULL, GC_SHRINK, gcstats::MAYBEGC);
         else
             rt->gcNextFullGCTime = now + GC_IDLE_FULL_SPAN;
@@ -2403,6 +2408,7 @@ DecommitFreePages(JSContext *cx)
                 size_t arenaOffset = Chunk::arenaIndex(reinterpret_cast<uintptr_t>(aheader));
                 chunk->decommittedArenas.set(arenaOffset);
                 --chunk->info.numArenasFreeCommitted;
+                --rt->gcNumFreeArenas;
 
                 aheader = next;
             }
@@ -2629,8 +2635,11 @@ SweepPhase(JSContext *cx, GCMarker *gcmarker, JSGCInvocationKind gckind)
             DecommitFreePages(cx);
     }
 
-    if (rt->gcCallback)
-        (void) rt->gcCallback(cx, JSGC_FINALIZE_END);
+    {
+        gcstats::AutoPhase ap(rt->gcStats, gcstats::PHASE_XPCONNECT);
+        if (rt->gcCallback)
+            (void) rt->gcCallback(cx, JSGC_FINALIZE_END);
+    }
 }
 
 /*
@@ -2909,6 +2918,9 @@ GCCycle(JSContext *cx, JSCompartment *comp, JSGCInvocationKind gckind)
 
     MarkAndSweep(cx, gckind);
 
+    if (!comp)
+        js_PurgeThreads_PostGlobalSweep(cx);
+
 #ifdef JS_THREADSAFE
     if (gckind != GC_LAST_CONTEXT && rt->state != JSRTS_LANDING) {
         JS_ASSERT(cx->gcBackgroundFree == &rt->gcHelperThread);
@@ -2933,6 +2945,7 @@ void
 js_GC(JSContext *cx, JSCompartment *comp, JSGCInvocationKind gckind, gcstats::Reason reason)
 {
     JSRuntime *rt = cx->runtime;
+    JS_AbortIfWrongThread(rt);
 
     /*
      * Don't collect garbage if the runtime isn't up, and cx is not the last
@@ -3163,6 +3176,8 @@ JSCompartment *
 NewCompartment(JSContext *cx, JSPrincipals *principals)
 {
     JSRuntime *rt = cx->runtime;
+    JS_AbortIfWrongThread(rt);
+
     JSCompartment *compartment = cx->new_<JSCompartment>(rt);
     if (compartment && compartment->init(cx)) {
         // Any compartment with the trusted principals -- and there can be
