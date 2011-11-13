@@ -97,7 +97,7 @@
  * consuming events.
  */
 
-[scriptable, uuid(cb68e879-f710-415d-a871-9a550860df01)]
+[scriptable, uuid(e9bdcc53-1bc0-4cae-9eb3-b215b6be7f70)]
 interface nsIDOMSimpleGestureEvent : nsIDOMMouseEvent
 {
   /* Swipe direction constants */
@@ -148,7 +148,7 @@ interface nsIDOMSimpleGestureEvent : nsIDOMMouseEvent
   void initSimpleGestureEvent(in DOMString typeArg,
                               in boolean canBubbleArg,
                               in boolean cancelableArg,
-                              in nsIDOMAbstractView viewArg,
+                              in nsIDOMWindow viewArg,
                               in long detailArg,
                               in long screenXArg,
                               in long screenYArg,

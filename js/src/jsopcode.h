@@ -46,11 +46,6 @@
 #include "jsprvtd.h"
 #include "jspubtd.h"
 #include "jsutil.h"
-#include "jsarena.h"
-
-#ifdef __cplusplus
-# include "jsvalue.h"
-#endif
 
 JS_BEGIN_EXTERN_C
 
@@ -65,13 +60,14 @@ typedef enum JSOp {
     JSOP_LIMIT,
 
     /*
-     * These pseudo-ops help js_DecompileValueGenerator decompile JSOP_SETNAME,
-     * JSOP_SETPROP, and JSOP_SETELEM, respectively.  They are never stored in
-     * bytecode, so they don't preempt valid opcodes.
+     * These pseudo-ops help js_DecompileValueGenerator decompile JSOP_SETPROP,
+     * JSOP_SETELEM, and comprehension-tails, respectively.  They are never
+     * stored in bytecode, so they don't preempt valid opcodes.
      */
     JSOP_GETPROP2 = JSOP_LIMIT,
     JSOP_GETELEM2 = JSOP_LIMIT + 1,
-    JSOP_FAKE_LIMIT = JSOP_GETELEM2
+    JSOP_FORLOCAL = JSOP_LIMIT + 2,
+    JSOP_FAKE_LIMIT = JSOP_FORLOCAL
 } JSOp;
 
 /*
@@ -99,7 +95,6 @@ typedef enum JSOp {
 #define JOF_INT8          18      /* int8 immediate operand */
 #define JOF_ATOMOBJECT    19      /* uint16 constant index + object index */
 #define JOF_UINT16PAIR    20      /* pair of uint16 immediates */
-#define JOF_GLOBAL        21      /* uint16 global array index */
 #define JOF_TYPEMASK      0x001f  /* mask for above immediate types */
 
 #define JOF_NAME          (1U<<5) /* name operation */
@@ -139,8 +134,12 @@ typedef enum JSOp {
 
 #define JOF_SHARPSLOT    (1U<<24) /* first immediate is uint16 stack slot no.
                                      that needs fixup when in global code (see
-                                     Compiler::compileScript) */
+                                     js::frontend::CompileScript) */
 #define JOF_GNAME        (1U<<25) /* predicted global name */
+#define JOF_TYPESET      (1U<<26) /* has an entry in a script's type sets */
+#define JOF_DECOMPOSE    (1U<<27) /* followed by an equivalent decomposed
+                                   * version of the opcode */
+#define JOF_ARITH        (1U<<28) /* unary or binary arithmetic opcode */
 
 /* Shorthands for type from format and type from opcode. */
 #define JOF_TYPE(fmt)   ((fmt) & JOF_TYPEMASK)
@@ -179,7 +178,8 @@ typedef enum JSOp {
  * When a short jump won't hold a relative offset, its 2-byte immediate offset
  * operand is an unsigned index of a span-dependency record, maintained until
  * code generation finishes -- after which some (but we hope not nearly all)
- * span-dependent jumps must be extended (see OptimizeSpanDeps in jsemit.c).
+ * span-dependent jumps must be extended (see js::frontend::OptimizeSpanDeps in
+ * frontend/BytecodeEmitter.cpp).
  *
  * If the span-dependency record index overflows SPANDEP_INDEX_MAX, the jump
  * offset will contain SPANDEP_INDEX_HUGE, indicating that the record must be
@@ -220,7 +220,8 @@ typedef enum JSOp {
 #define GET_INDEX(pc)           GET_UINT16(pc)
 #define SET_INDEX(pc,i)         ((pc)[1] = INDEX_HI(i), (pc)[2] = INDEX_LO(i))
 
-#define GET_INDEXBASE(pc)       (JS_ASSERT(*(pc) == JSOP_INDEXBASE),          \
+#define GET_INDEXBASE(pc)       (JS_ASSERT(*(pc) == JSOP_INDEXBASE            \
+                                           || *(pc) == JSOP_TRAP),            \
                                  ((uintN)((pc)[1])) << 16)
 #define INDEXBASE_LEN           1
 
@@ -245,7 +246,7 @@ typedef enum JSOp {
                                  (pc)[3] = (jsbytecode)((uint32)(i) >> 8),    \
                                  (pc)[4] = (jsbytecode)(uint32)(i))
 
-/* Index limit is determined by SN_3BYTE_OFFSET_FLAG, see jsemit.h. */
+/* Index limit is determined by SN_3BYTE_OFFSET_FLAG, see frontend/BytecodeEmitter.h. */
 #define INDEX_LIMIT_LOG2        23
 #define INDEX_LIMIT             ((uint32)1 << INDEX_LIMIT_LOG2)
 
@@ -382,12 +383,6 @@ js_GetIndexFromBytecode(JSContext *cx, JSScript *script, jsbytecode *pc,
     JS_END_MACRO
 
 /*
- * Get the length of variable-length bytecode like JSOP_TABLESWITCH.
- */
-extern uintN
-js_GetVariableBytecodeLength(jsbytecode *pc);
-
-/*
  * Find the number of stack slots used by a variadic opcode such as JSOP_CALL
  * (for such ops, JSCodeSpec.nuses is -1).
  */
@@ -467,17 +462,43 @@ extern char *
 js_DecompileValueGenerator(JSContext *cx, intN spindex, jsval v,
                            JSString *fallback);
 
+/*
+ * Given bytecode address pc in script's main program code, return the operand
+ * stack depth just before (JSOp) *pc executes.
+ */
+extern uintN
+js_ReconstructStackDepth(JSContext *cx, JSScript *script, jsbytecode *pc);
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
+
+JS_END_EXTERN_C
+
 #define JSDVG_IGNORE_STACK      0
 #define JSDVG_SEARCH_STACK      1
 
 #ifdef __cplusplus
+/*
+ * Get the length of variable-length bytecode like JSOP_TABLESWITCH.
+ */
+extern size_t
+js_GetVariableBytecodeLength(JSOp op, jsbytecode *pc);
+
+inline size_t
+js_GetVariableBytecodeLength(jsbytecode *pc)
+{
+    JS_ASSERT(*pc != JSOP_TRAP);
+    return js_GetVariableBytecodeLength(JSOp(*pc), pc);
+}
+
 namespace js {
 
 static inline char *
 DecompileValueGenerator(JSContext *cx, intN spindex, const Value &v,
                         JSString *fallback)
 {
-    return js_DecompileValueGenerator(cx, spindex, Jsvalify(v), fallback);
+    return js_DecompileValueGenerator(cx, spindex, v, fallback);
 }
 
 /*
@@ -485,7 +506,7 @@ DecompileValueGenerator(JSContext *cx, intN spindex, const Value &v,
  */
 struct Sprinter {
     JSContext       *context;       /* context executing the decompiler */
-    JSArenaPool     *pool;          /* string allocation pool */
+    LifoAlloc       *pool;          /* string allocation pool */
     char            *base;          /* base address of buffer in pool */
     size_t          size;           /* size of buffer allocated at base */
     ptrdiff_t       offset;         /* offset of next free char in buffer */
@@ -519,35 +540,191 @@ Sprint(Sprinter *sp, const char *format, ...);
 extern bool
 CallResultEscapes(jsbytecode *pc);
 
+static inline uintN
+GetDecomposeLength(jsbytecode *pc, size_t len)
+{
+    /*
+     * The last byte of a DECOMPOSE op stores the decomposed length. This can
+     * vary across different instances of an opcode due to INDEXBASE ops.
+     */
+    JS_ASSERT_IF(JSOp(*pc) != JSOP_TRAP, size_t(js_CodeSpec[*pc].length) == len);
+    return (uintN) pc[len - 1];
 }
+
+extern size_t
+GetBytecodeLength(JSContext *cx, JSScript *script, jsbytecode *pc);
+
+extern bool
+IsValidBytecodeOffset(JSContext *cx, JSScript *script, size_t offset);
+
+inline bool
+FlowsIntoNext(JSOp op)
+{
+    /* JSOP_YIELD is considered to flow into the next instruction, like JSOP_CALL. */
+    return op != JSOP_STOP && op != JSOP_RETURN && op != JSOP_RETRVAL && op != JSOP_THROW &&
+           op != JSOP_GOTO && op != JSOP_GOTOX && op != JSOP_RETSUB;
+}
+
+/*
+ * AutoScriptUntrapper mutates the given script in place to replace JSOP_TRAP
+ * opcodes with the original opcode they replaced. The destructor mutates the
+ * script back into its original state.
+ */
+class AutoScriptUntrapper
+{
+    JSContext *cx;
+    JSScript *origScript;
+    jsbytecode *origCode;
+    size_t nbytes;
+    bool saveOriginal(JSScript *script);
+  public:
+    AutoScriptUntrapper();
+    bool untrap(JSContext *cx, JSScript *script);
+    ~AutoScriptUntrapper();
+};
+
+/*
+ * Counts accumulated for a single opcode in a script. The counts tracked vary
+ * between opcodes, and this structure ensures that counts are accessed in
+ * a coherent fashion.
+ */
+class OpcodeCounts
+{
+    friend struct ::JSScript;
+    double *counts;
+#ifdef DEBUG
+    size_t capacity;
 #endif
 
-#ifdef DEBUG
-#ifdef __cplusplus
+ public:
+
+    enum BaseCounts {
+        BASE_INTERP = 0,
+        BASE_METHODJIT,
+
+        BASE_METHODJIT_STUBS,
+        BASE_METHODJIT_CODE,
+        BASE_METHODJIT_PICS,
+
+        BASE_COUNT
+    };
+
+    enum AccessCounts {
+        ACCESS_MONOMORPHIC = BASE_COUNT,
+        ACCESS_DIMORPHIC,
+        ACCESS_POLYMORPHIC,
+
+        ACCESS_BARRIER,
+        ACCESS_NOBARRIER,
+
+        ACCESS_UNDEFINED,
+        ACCESS_NULL,
+        ACCESS_BOOLEAN,
+        ACCESS_INT32,
+        ACCESS_DOUBLE,
+        ACCESS_STRING,
+        ACCESS_OBJECT,
+
+        ACCESS_COUNT
+    };
+
+    static bool accessOp(JSOp op) {
+        /*
+         * Access ops include all name, element and property reads, as well as
+         * SETELEM and SETPROP (for ElementCounts/PropertyCounts alignment).
+         */
+        JS_ASSERT(op != JSOP_TRAP);
+        if (op == JSOP_SETELEM || op == JSOP_SETPROP || op == JSOP_SETMETHOD)
+            return true;
+        int format = js_CodeSpec[op].format;
+        return !!(format & (JOF_NAME | JOF_GNAME | JOF_ELEM | JOF_PROP))
+            && !(format & (JOF_SET | JOF_INCDEC));
+    }
+
+    enum ElementCounts {
+        ELEM_ID_INT = ACCESS_COUNT,
+        ELEM_ID_DOUBLE,
+        ELEM_ID_OTHER,
+        ELEM_ID_UNKNOWN,
+
+        ELEM_OBJECT_TYPED,
+        ELEM_OBJECT_PACKED,
+        ELEM_OBJECT_DENSE,
+        ELEM_OBJECT_OTHER,
+
+        ELEM_COUNT
+    };
+
+    static bool elementOp(JSOp op) {
+        return accessOp(op) && !!(js_CodeSpec[op].format & JOF_ELEM);
+    }
+
+    enum PropertyCounts {
+        PROP_STATIC = ACCESS_COUNT,
+        PROP_DEFINITE,
+        PROP_OTHER,
+
+        PROP_COUNT
+    };
+
+    static bool propertyOp(JSOp op) {
+        return accessOp(op) && !!(js_CodeSpec[op].format & JOF_PROP);
+    }
+
+    enum ArithCounts {
+        ARITH_INT = BASE_COUNT,
+        ARITH_DOUBLE,
+        ARITH_OTHER,
+        ARITH_UNKNOWN,
+
+        ARITH_COUNT
+    };
+
+    static bool arithOp(JSOp op) {
+        JS_ASSERT(op != JSOP_TRAP);
+        return !!(js_CodeSpec[op].format & (JOF_INCDEC | JOF_ARITH));
+    }
+
+    static size_t numCounts(JSOp op)
+    {
+        if (accessOp(op)) {
+            if (elementOp(op))
+                return ELEM_COUNT;
+            if (propertyOp(op))
+                return PROP_COUNT;
+            return ACCESS_COUNT;
+        }
+        if (arithOp(op))
+            return ARITH_COUNT;
+        return BASE_COUNT;
+    }
+
+    static const char *countName(JSOp op, size_t which);
+
+    double *rawCounts() { return counts; }
+
+    double& get(size_t which) {
+        JS_ASSERT(which < capacity);
+        return counts[which];
+    }
+};
+
+} /* namespace js */
+#endif /* __cplusplus */
+
+#if defined(DEBUG) && defined(__cplusplus)
 /*
  * Disassemblers, for debugging only.
  */
-#include <stdio.h>
 extern JS_FRIEND_API(JSBool)
 js_Disassemble(JSContext *cx, JSScript *script, JSBool lines, js::Sprinter *sp);
 
 extern JS_FRIEND_API(uintN)
 js_Disassemble1(JSContext *cx, JSScript *script, jsbytecode *pc, uintN loc,
                 JSBool lines, js::Sprinter *sp);
-#endif /* __cplusplus */
-#endif /* DEBUG */
 
-/*
- * Given bytecode address pc in script's main program code, return the operand
- * stack depth just before (JSOp) *pc executes.
- */
-extern uintN
-js_ReconstructStackDepth(JSContext *cx, JSScript *script, jsbytecode *pc);
-
-#ifdef _MSC_VER
-#pragma warning(pop)
+extern JS_FRIEND_API(void)
+js_DumpPCCounts(JSContext *cx, JSScript *script, js::Sprinter *sp);
 #endif
-
-JS_END_EXTERN_C
 
 #endif /* jsopcode_h___ */

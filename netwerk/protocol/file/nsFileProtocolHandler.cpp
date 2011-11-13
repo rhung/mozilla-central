@@ -51,13 +51,8 @@
 
 // URL file handling, copied and modified from xpfe/components/bookmarks/src/nsBookmarksService.cpp
 #ifdef XP_WIN
-#ifndef WINCE
-// Windows mobile does not support internet shortcuts including
-// CLSID_InternetShortcut and IUniformResourceLocator used in
-// this file
 #include <shlobj.h>
 #include <intshcut.h>
-#endif
 #include "nsIFileURL.h"
 #ifdef CompareString
 #undef CompareString
@@ -102,7 +97,7 @@ NS_IMETHODIMP
 nsFileProtocolHandler::ReadURLFile(nsIFile* aFile, nsIURI** aURI)
 {
 // IUniformResourceLocator isn't supported by VC5 (bless its little heart)
-#if _MSC_VER < 1200 || defined (WINCE)
+#if _MSC_VER < 1200
     return NS_ERROR_NOT_AVAILABLE;
 #else
     nsAutoString path;
@@ -145,7 +140,7 @@ nsFileProtocolHandler::ReadURLFile(nsIFile* aFile, nsIURI** aURI)
     }
     return rv;
 
-#endif //_MSC_VER < 1200 || defined (WINCE)
+#endif //_MSC_VER < 1200
 }
 
 #elif defined(XP_OS2)
@@ -159,7 +154,7 @@ nsFileProtocolHandler::ReadURLFile(nsIFile* aFile, nsIURI** aURI)
         return NS_ERROR_NOT_AVAILABLE;
 
     // see if this file is a WPS UrlObject
-    PRBool isUrl;
+    bool isUrl;
     rv = os2File->IsFileType(NS_LITERAL_CSTRING("UniformResourceLocator"),
                              &isUrl);
     if (NS_FAILED(rv) || !isUrl)
@@ -192,7 +187,7 @@ nsFileProtocolHandler::ReadURLFile(nsIFile* aFile, nsIURI** aURI)
     return rv;
 }
 
-#elif defined(XP_UNIX) && !defined(__SYMBIAN32__)
+#elif defined(XP_UNIX)
 NS_IMETHODIMP
 nsFileProtocolHandler::ReadURLFile(nsIFile* aFile, nsIURI** aURI)
 {
@@ -261,7 +256,7 @@ nsFileProtocolHandler::NewURI(const nsACString &spec,
                               nsIURI *baseURI,
                               nsIURI **result)
 {
-    nsCOMPtr<nsIStandardURL> url = new nsStandardURL(PR_TRUE);
+    nsCOMPtr<nsIStandardURL> url = new nsStandardURL(true);
     if (!url)
         return NS_ERROR_OUT_OF_MEMORY;
 
@@ -299,10 +294,10 @@ nsFileProtocolHandler::NewChannel(nsIURI *uri, nsIChannel **result)
 }
 
 NS_IMETHODIMP 
-nsFileProtocolHandler::AllowPort(PRInt32 port, const char *scheme, PRBool *result)
+nsFileProtocolHandler::AllowPort(PRInt32 port, const char *scheme, bool *result)
 {
     // don't override anything.  
-    *result = PR_FALSE;
+    *result = false;
     return NS_OK;
 }
 
@@ -315,7 +310,7 @@ nsFileProtocolHandler::NewFileURI(nsIFile *file, nsIURI **result)
     NS_ENSURE_ARG_POINTER(file);
     nsresult rv;
 
-    nsCOMPtr<nsIFileURL> url = new nsStandardURL(PR_TRUE);
+    nsCOMPtr<nsIFileURL> url = new nsStandardURL(true);
     if (!url)
         return NS_ERROR_OUT_OF_MEMORY;
 

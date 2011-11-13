@@ -378,11 +378,23 @@ var PlacesCommandHook = {
   bookmarkLink: function PCH_bookmarkLink(aParent, aURL, aTitle) {
     var linkURI = makeURI(aURL);
     var itemId = PlacesUtils.getMostRecentBookmarkForURI(linkURI);
-    if (itemId == -1)
-      PlacesUIUtils.showMinimalAddBookmarkUI(linkURI, aTitle);
+    if (itemId == -1) {
+      PlacesUIUtils.showBookmarkDialog({ action: "add"
+                                       , type: "bookmark"
+                                       , uri: linkURI
+                                       , title: aTitle
+                                       , hiddenRows: [ "description"
+                                                     , "location"
+                                                     , "loadInSidebar"
+                                                     , "folderPicker"
+                                                     , "keyword" ]
+                                       }, window);
+    }
     else {
-      PlacesUIUtils.showItemProperties(itemId,
-                                       PlacesUtils.bookmarks.TYPE_BOOKMARK);
+      PlacesUIUtils.showBookmarkDialog({ action: "edit"
+                                       , type: "bookmark"
+                                       , itemId: itemId
+                                       }, window);
     }
   },
 
@@ -411,7 +423,11 @@ var PlacesCommandHook = {
   bookmarkCurrentPages: function PCH_bookmarkCurrentPages() {
     let pages = this.uniqueCurrentPages;
     if (pages.length > 1) {
-      PlacesUIUtils.showMinimalAddMultiBookmarkUI(pages);
+    PlacesUIUtils.showBookmarkDialog({ action: "add"
+                                     , type: "folder"
+                                     , URIList: pages
+                                     , hiddenRows: [ "description" ]
+                                     }, window);
     }
   },
 
@@ -451,10 +467,18 @@ var PlacesCommandHook = {
     else
       description = PlacesUIUtils.getDescriptionFromDocument(doc);
 
-    var toolbarIP =
-      new InsertionPoint(PlacesUtils.bookmarks.toolbarFolder, -1);
-    PlacesUIUtils.showMinimalAddLivemarkUI(feedURI, gBrowser.currentURI,
-                                           title, description, toolbarIP, true);
+    var toolbarIP = new InsertionPoint(PlacesUtils.toolbarFolderId, -1);
+    PlacesUIUtils.showBookmarkDialog({ action: "add"
+                                     , type: "livemark"
+                                     , feedURI: feedURI
+                                     , siteURI: gBrowser.currentURI
+                                     , title: title
+                                     , description: description
+                                     , defaultInsertionPoint: toolbarIP
+                                     , hiddenRows: [ "feedLocation"
+                                                   , "siteLocation"
+                                                   , "description" ]
+                                     }, window);
   },
 
   /**
@@ -489,7 +513,7 @@ function HistoryMenu(aPopupShowingEvent) {
                                      "@mozilla.org/browser/sessionstore;1",
                                      "nsISessionStore");
   PlacesMenu.call(this, aPopupShowingEvent,
-                  "place:redirectsMode=2&sort=4&maxResults=10");
+                  "place:redirectsMode=2&sort=4&maxResults=15");
 }
 
 HistoryMenu.prototype = {
@@ -659,8 +683,11 @@ HistoryMenu.prototype = {
   toggleTabsFromOtherComputers: function PHM_toggleTabsFromOtherComputers() {
     // This is a no-op if MOZ_SERVICES_SYNC isn't defined
 #ifdef MOZ_SERVICES_SYNC
-    // enable/disable the Tabs From Other Computers menu
-    let menuitem = document.getElementById("sync-tabs-menuitem");
+    // Enable/disable the Tabs From Other Computers menu. Some of the menus handled
+    // by HistoryMenu do not have this menuitem.
+    let menuitem = this._rootElt.getElementsByClassName("syncTabsMenuItem")[0];
+    if (!menuitem)
+      return;
 
     // If Sync isn't configured yet, then don't show the menuitem.
     if (Weave.Status.checkSetup() == Weave.CLIENT_NOT_CONFIGURED ||
@@ -840,6 +867,7 @@ var BookmarksEventHandler = {
 var PlacesMenuDNDHandler = {
   _springLoadDelay: 350, // milliseconds
   _loadTimer: null,
+  _closerTimer: null,
 
   /**
    * Called when the user enters the <menu> element during a drag.
@@ -875,8 +903,9 @@ var PlacesMenuDNDHandler = {
       this._loadTimer.cancel();
       this._loadTimer = null;
     }
-    let closeTimer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
-    closeTimer.initWithCallback(function() {
+    this._closeTimer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
+    this._closeTimer.initWithCallback(function() {
+      this._closeTimer = null;
       let node = PlacesControllerDragHelper.currentDropTarget;
       let inHierarchy = false;
       while (node && !inHierarchy) {
@@ -942,7 +971,7 @@ var PlacesStarButton = {
   uninit: function PSB_uninit()
   {
     if (this._hasBookmarksObserver) {
-      PlacesUtils.bookmarks.removeObserver(this);
+      PlacesUtils.removeLazyBookmarkObserver(this);
     }
     if (this._pendingStmt) {
       this._pendingStmt.cancel();
@@ -1006,7 +1035,7 @@ var PlacesStarButton = {
       // Start observing bookmarks if needed.
       if (!this._hasBookmarksObserver) {
         try {
-          PlacesUtils.bookmarks.addObserver(this, false);
+          PlacesUtils.addLazyBookmarkObserver(this);
           this._hasBookmarksObserver = true;
         } catch(ex) {
           Components.utils.reportError("PlacesStarButton failed adding a bookmarks observer: " + ex);

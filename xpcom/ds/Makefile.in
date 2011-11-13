@@ -71,13 +71,14 @@ CPPSRCS		= \
 		nsSupportsArray.cpp \
 		nsSupportsArrayEnumerator.cpp \
 		nsSupportsPrimitives.cpp \
-		nsTimelineService.cpp \
 		nsUnicharBuffer.cpp \
 		nsVariant.cpp \
 		$(NULL)
 
 ifdef HAVE_CLOCK_MONOTONIC
 CPPSRCS += TimeStamp_posix.cpp
+else ifeq ($(OS_ARCH),Darwin)
+CPPSRCS += TimeStamp_darwin.cpp
 else
 CPPSRCS += TimeStamp.cpp
 endif
@@ -85,6 +86,7 @@ endif
 EXPORTS_NAMESPACES = mozilla
 
 EXPORTS_mozilla = \
+  CharTokenizer.h \
   TimeStamp.h \
   $(NULL)
 
@@ -107,7 +109,6 @@ EXPORTS		= \
 		nsStaticAtom.h \
 		nsSupportsArray.h \
 		nsSupportsPrimitives.h \
-		nsTime.h \
 		nsVariant.h \
 		nsStringEnumerator.h \
 		nsHashPropertyBag.h \
@@ -134,7 +135,6 @@ XPIDLSRCS	= \
 		nsIStringEnumerator.idl \
 		nsISupportsArray.idl \
 		nsISupportsIterators.idl \
-		nsITimelineService.idl \
 		$(NULL)
 
 SDK_XPIDLSRCS   = \
@@ -148,7 +148,7 @@ SDK_XPIDLSRCS   = \
 		nsISupportsPrimitives.idl  \
 		$(NULL)
 
-ifneq (,$(filter WINNT WINCE,$(OS_ARCH)))
+ifeq ($(OS_ARCH),WINNT)
 CPPSRCS += nsWindowsRegKey.cpp
 XPIDLSRCS += nsIWindowsRegKey.idl
 EXPORTS += nsWindowsRegKey.h
@@ -162,8 +162,6 @@ EXTRA_COMPONENTS = \
 # we don't want the shared lib, but we want to force the creation of a static lib.
 FORCE_STATIC_LIB = 1
 
-# Force use of PIC
-FORCE_USE_PIC	= 1
 
 include $(topsrcdir)/config/rules.mk
 

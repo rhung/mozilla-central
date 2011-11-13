@@ -41,10 +41,8 @@
 #define TRANSFRMX_XPATHRESULTCOMPARATOR_H
 
 #include "txCore.h"
-#ifndef TX_EXE
 #include "nsCOMPtr.h"
 #include "nsICollation.h"
-#endif
 #include "nsString.h"
 
 class Expr;
@@ -79,36 +77,30 @@ public:
 class txResultStringComparator : public txXPathResultComparator
 {
 public:
-    txResultStringComparator(MBool aAscending, MBool aUpperFirst,
+    txResultStringComparator(bool aAscending, bool aUpperFirst,
                              const nsAFlatString& aLanguage);
 
     int compareValues(TxObject* aVal1, TxObject* aVal2);
     nsresult createSortableValue(Expr *aExpr, txIEvalContext *aContext,
                                  TxObject *&aResult);
 private:
-#ifndef TX_EXE
     nsCOMPtr<nsICollation> mCollation;
     nsresult init(const nsAFlatString& aLanguage);
     nsresult createRawSortKey(const PRInt32 aStrength,
                               const nsString& aString,
                               PRUint8** aKey,
                               PRUint32* aLength);
-#endif
     int mSorting;
 
     class StringValue : public TxObject
     {
     public:
-#ifdef TX_EXE
-        nsString mStr;
-#else
         StringValue();
         ~StringValue();
 
         PRUint8* mKey;
         void* mCaseKey;
         PRUint32 mLength, mCaseLength;
-#endif
     };
 };
 
@@ -118,7 +110,7 @@ private:
 class txResultNumberComparator : public txXPathResultComparator
 {
 public:
-    txResultNumberComparator(MBool aAscending);
+    txResultNumberComparator(bool aAscending);
 
     int compareValues(TxObject* aVal1, TxObject* aVal2);
     nsresult createSortableValue(Expr *aExpr, txIEvalContext *aContext,

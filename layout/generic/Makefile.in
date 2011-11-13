@@ -61,7 +61,6 @@ EXPORTS		= \
 		nsIAnonymousContentCreator.h \
 		nsIFrame.h \
 		nsIFrameUtil.h \
-		nsIImageFrame.h \
 		nsILineIterator.h \
 		nsIObjectFrame.h \
 		nsIPageSequenceFrame.h \
@@ -69,9 +68,17 @@ EXPORTS		= \
 		nsIStatefulFrame.h \
 		nsFrameSelection.h \
 		nsSubDocumentFrame.h \
+		nsObjectFrame.h \
+		$(NULL)
+
+EXPORTS_NAMESPACES = mozilla/layout
+
+EXPORTS_mozilla/layout = \
+		FrameChildList.h \
 		$(NULL)
 
 CPPSRCS		= \
+		FrameChildList.cpp \
 		nsAbsoluteContainingBlock.cpp \
 		nsBRFrame.cpp \
 		nsBlockFrame.cpp \
@@ -109,6 +116,7 @@ CPPSRCS		= \
 		nsSubDocumentFrame.cpp \
 		nsTextFrameThebes.cpp \
 		nsTextFrameUtils.cpp \
+		TextOverflow.cpp \
 		nsTextRunTransformations.cpp \
 		nsViewportFrame.cpp \
 		$(NULL)
@@ -146,7 +154,7 @@ LOCAL_INCLUDES += \
 		-I$(srcdir)/../../content/base/src \
 		-I$(srcdir)/../../content/html/content/src \
 		-I$(srcdir)/../../dom/base \
-		-I$(srcdir)/../../modules/plugin/base/src \
+		-I$(srcdir)/../../dom/plugins/base \
 		$(MOZ_CAIRO_CFLAGS) \
 		$(NULL)
 

@@ -46,7 +46,6 @@
 #include "nsICharsetConverterManager.h"
 #include "nsEncoderDecoderUtils.h"
 #include "nsIStringBundle.h"
-#include "nsUConvDll.h"
 #include "prmem.h"
 #include "nsCRT.h"
 #include "nsTArray.h"
@@ -70,9 +69,6 @@ nsCharsetConverterManager::nsCharsetConverterManager()
   : mDataBundle(NULL)
   , mTitleBundle(NULL)
 {
-#ifdef MOZ_USE_NATIVE_UCONV
-  mNativeUC = do_GetService(NS_NATIVE_UCONV_SERVICE_CONTRACT_ID);
-#endif
 }
 
 nsCharsetConverterManager::~nsCharsetConverterManager() 
@@ -255,7 +251,7 @@ nsCharsetConverterManager::GetList(const nsACString& aCategory,
   catman->EnumerateCategory(PromiseFlatCString(aCategory).get(), 
                             getter_AddRefs(enumerator));
 
-  PRBool hasMore;
+  bool hasMore;
   while (NS_SUCCEEDED(enumerator->HasMoreElements(&hasMore)) && hasMore) {
     nsCOMPtr<nsISupports> supports;
     if (NS_FAILED(enumerator->GetNext(getter_AddRefs(supports))))

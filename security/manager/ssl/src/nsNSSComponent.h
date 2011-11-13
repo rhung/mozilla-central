@@ -71,6 +71,7 @@
 
 #include "nsNSSHelper.h"
 #include "nsClientAuthRemember.h"
+#include "nsCERTValInParamWrapper.h"
 
 #define NS_NSSCOMPONENT_CID \
 {0xa277189c, 0x1dd1, 0x11b2, {0xa8, 0xc9, 0xe4, 0xe8, 0xbf, 0xb1, 0x33, 0x8e}}
@@ -105,7 +106,7 @@ enum EnsureNSSOperator
   nssEnsureOnChromeOnly = 101
 };
 
-extern PRBool EnsureNSSInitialized(EnsureNSSOperator op);
+extern bool EnsureNSSInitialized(EnsureNSSOperator op);
 
 //--------------------------------------------
 // Now we need a content listener to register 
@@ -113,10 +114,10 @@ extern PRBool EnsureNSSInitialized(EnsureNSSOperator op);
 class PSMContentDownloader : public nsIStreamListener
 {
 public:
-  PSMContentDownloader() {NS_ASSERTION(PR_FALSE, "don't use this constructor."); }
+  PSMContentDownloader() {NS_ASSERTION(false, "don't use this constructor."); }
   PSMContentDownloader(PRUint32 type);
   virtual ~PSMContentDownloader();
-  void setSilentDownload(PRBool flag);
+  void setSilentDownload(bool flag);
   void setCrlAutodownloadKey(nsAutoString key);
 
   NS_DECL_ISUPPORTS
@@ -135,15 +136,19 @@ protected:
   PRInt32 mBufferOffset;
   PRInt32 mBufferSize;
   PRUint32 mType;
-  PRBool mDoSilentDownload;
+  bool mDoSilentDownload;
   nsString mCrlAutoDownloadKey;
   nsCOMPtr<nsIURI> mURI;
   nsresult handleContentDownloadError(nsresult errCode);
 };
 
+class nsNSSComponent;
+
 class NS_NO_VTABLE nsINSSComponent : public nsISupports {
  public:
   NS_DECLARE_STATIC_IID_ACCESSOR(NS_INSSCOMPONENT_IID)
+
+  NS_IMETHOD ShowAlertFromStringBundle(const char * messageID) = 0;
 
   NS_IMETHOD GetPIPNSSBundleString(const char *name,
                                    nsAString &outString) = 0;
@@ -189,7 +194,10 @@ class NS_NO_VTABLE nsINSSComponent : public nsISupports {
 
   NS_IMETHOD EnsureIdentityInfoLoaded() = 0;
 
-  NS_IMETHOD IsNSSInitialized(PRBool *initialized) = 0;
+  NS_IMETHOD IsNSSInitialized(bool *initialized) = 0;
+
+  NS_IMETHOD GetDefaultCERTValInParam(nsRefPtr<nsCERTValInParamWrapper> &out) = 0;
+  NS_IMETHOD GetDefaultCERTValInParamLocalOnly(nsRefPtr<nsCERTValInParamWrapper> &out) = 0;
 };
 
 NS_DEFINE_STATIC_IID_ACCESSOR(nsINSSComponent, NS_INSSCOMPONENT_IID)
@@ -206,7 +214,7 @@ private:
   ~nsCryptoHash();
 
   HASHContext* mHashContext;
-  PRBool mInitialized;
+  bool mInitialized;
 
   virtual void virtualDestroyNSSReference();
   void destructorSafeDestroyNSSReference();
@@ -256,6 +264,10 @@ public:
 
   NS_METHOD Init();
 
+  static nsresult GetNewPrompter(nsIPrompt ** result);
+  static nsresult ShowAlertWithConstructedString(const nsString & message);
+  NS_IMETHOD ShowAlertFromStringBundle(const char * messageID);
+
   NS_IMETHOD GetPIPNSSBundleString(const char *name,
                                    nsAString &outString);
   NS_IMETHOD PIPBundleFormatStringFromName(const char *name,
@@ -277,7 +289,6 @@ public:
   NS_IMETHOD LogoutAuthenticatedPK11();
   NS_IMETHOD DownloadCRLDirectly(nsAutoString, nsAutoString);
   NS_IMETHOD RememberCert(CERTCertificate *cert);
-  static nsresult GetNSSCipherIDFromPrefString(const nsACString &aPrefString, PRUint16 &aCipherId);
 
   NS_IMETHOD LaunchSmartCardThread(SECMODModule *module);
   NS_IMETHOD ShutdownSmartCardThread(SECMODModule *module);
@@ -285,30 +296,25 @@ public:
   NS_IMETHOD DispatchEvent(const nsAString &eventType, const nsAString &token);
   NS_IMETHOD GetClientAuthRememberService(nsClientAuthRememberService **cars);
   NS_IMETHOD EnsureIdentityInfoLoaded();
-  NS_IMETHOD IsNSSInitialized(PRBool *initialized);
+  NS_IMETHOD IsNSSInitialized(bool *initialized);
 
+  NS_IMETHOD GetDefaultCERTValInParam(nsRefPtr<nsCERTValInParamWrapper> &out);
+  NS_IMETHOD GetDefaultCERTValInParamLocalOnly(nsRefPtr<nsCERTValInParamWrapper> &out);
 private:
 
-  nsresult InitializeNSS(PRBool showWarningBox);
+  nsresult InitializeNSS(bool showWarningBox);
   nsresult ShutdownNSS();
 
 #ifdef XP_MACOSX
   void TryCFM2MachOMigration(nsIFile *cfmPath, nsIFile *machoPath);
 #endif
   
-  enum AlertIdentifier {
-    ai_nss_init_problem, 
-    ai_sockets_still_active, 
-    ai_crypto_ui_active,
-    ai_incomplete_logout
-  };
-  
-  void ShowAlert(AlertIdentifier ai);
   void InstallLoadableRoots();
   void UnloadLoadableRoots();
   void LaunchSmartCardThreads();
   void ShutdownSmartCardThreads();
   void CleanupIdentityInfo();
+  void setValidationOptions(nsIPrefBranch * pref);
   nsresult InitializePIPNSSBundle();
   nsresult ConfigureInternalPKCS11Token();
   nsresult RegisterPSMContentListener();
@@ -335,26 +341,35 @@ private:
   nsCOMPtr<nsIURIContentListener> mPSMContentListener;
   nsCOMPtr<nsIPrefBranch> mPrefBranch;
   nsCOMPtr<nsITimer> mTimer;
-  PRBool mNSSInitialized;
-  PRBool mObserversRegistered;
+  bool mNSSInitialized;
+  bool mObserversRegistered;
   PLHashTable *hashTableCerts;
   nsAutoString mDownloadURL;
   nsAutoString mCrlUpdateKey;
   Mutex mCrlTimerLock;
   nsHashtable *crlsScheduledForDownload;
-  PRBool crlDownloadTimerOn;
-  PRBool mUpdateTimerInitialized;
+  bool crlDownloadTimerOn;
+  bool mUpdateTimerInitialized;
   static int mInstanceCount;
   nsNSSShutDownList *mShutdownObjectList;
   SmartCardThreadList *mThreadList;
-  PRBool mIsNetworkDown;
+  bool mIsNetworkDown;
+
+  void deleteBackgroundThreads();
+  void createBackgroundThreads();
   nsSSLThread *mSSLThread;
   nsCertVerificationThread *mCertVerificationThread;
+
   nsNSSHttpInterface mHttpForNSS;
   nsRefPtr<nsClientAuthRememberService> mClientAuthRememberService;
+  nsRefPtr<nsCERTValInParamWrapper> mDefaultCERTValInParam;
+  nsRefPtr<nsCERTValInParamWrapper> mDefaultCERTValInParamLocalOnly;
 
   static PRStatus PR_CALLBACK IdentityInfoInit(void);
   PRCallOnceType mIdentityInfoCallOnce;
+
+public:
+  static bool globalConstFlagUsePKIXVerification;
 };
 
 class PSMContentListener : public nsIURIContentListener,
@@ -384,10 +399,10 @@ public:
 class nsPSMInitPanic
 {
 private:
-  static PRBool isPanic;
+  static bool isPanic;
 public:
-  static void SetPanic() {isPanic = PR_TRUE;}
-  static PRBool GetPanic() {return isPanic;}
+  static void SetPanic() {isPanic = true;}
+  static bool GetPanic() {return isPanic;}
 };
 
 #endif // _nsNSSComponent_h_

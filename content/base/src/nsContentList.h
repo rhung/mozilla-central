@@ -45,7 +45,7 @@
 #define nsContentList_h___
 
 #include "nsISupports.h"
-#include "nsCOMArray.h"
+#include "nsTArray.h"
 #include "nsString.h"
 #include "nsIHTMLCollection.h"
 #include "nsIDOMNodeList.h"
@@ -56,7 +56,7 @@
 #include "nsCycleCollectionParticipant.h"
 #include "nsWrapperCache.h"
 #include "nsCRT.h"
-#include "mozilla/dom/Element.h"
+#include "nsHashKeys.h"
 
 // Magic namespace id that means "match all namespaces".  This is
 // negative so it won't collide with actual namespace constants.
@@ -66,7 +66,7 @@
 // arbitrary matching algorithm.  aContent is the content that may
 // match the list, while aNamespaceID, aAtom, and aData are whatever
 // was passed to the list's constructor.
-typedef PRBool (*nsContentListMatchFunc)(nsIContent* aContent,
+typedef bool (*nsContentListMatchFunc)(nsIContent* aContent,
                                          PRInt32 aNamespaceID,
                                          nsIAtom* aAtom,
                                          void* aData);
@@ -74,12 +74,21 @@ typedef PRBool (*nsContentListMatchFunc)(nsIContent* aContent,
 typedef void (*nsContentListDestroyFunc)(void* aData);
 
 class nsIDocument;
-class nsIDOMHTMLFormElement;
+namespace mozilla {
+namespace dom {
+class Element;
+}
+}
 
 
 class nsBaseContentList : public nsINodeList
 {
 public:
+  nsBaseContentList()
+  {
+    // Mark ourselves as a proxy
+    SetIsProxy();
+  }
   virtual ~nsBaseContentList();
 
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
@@ -88,16 +97,18 @@ public:
   NS_DECL_NSIDOMNODELIST
 
   // nsINodeList
-  virtual nsIContent* GetNodeAt(PRUint32 aIndex);
   virtual PRInt32 IndexOf(nsIContent* aContent);
   
   PRUint32 Length() const { 
-    return mElements.Count();
+    return mElements.Length();
   }
 
-  NS_DECL_CYCLE_COLLECTION_CLASS_AMBIGUOUS(nsBaseContentList, nsINodeList)
+  NS_DECL_CYCLE_COLLECTION_SCRIPT_HOLDER_CLASS(nsBaseContentList)
 
-  void AppendElement(nsIContent *aContent);
+  void AppendElement(nsIContent *aContent)
+  {
+    mElements.AppendElement(aContent);
+  }
   void MaybeAppendElement(nsIContent* aContent)
   {
     if (aContent)
@@ -110,29 +121,62 @@ public:
    * @param aContent Element to insert, must not be null
    * @param aIndex Index to insert the element at.
    */
-  void InsertElementAt(nsIContent* aContent, PRInt32 aIndex);
+  void InsertElementAt(nsIContent* aContent, PRInt32 aIndex)
+  {
+    NS_ASSERTION(aContent, "Element to insert must not be null");
+    mElements.InsertElementAt(aIndex, aContent);
+  }
 
-  void RemoveElement(nsIContent *aContent); 
+  void RemoveElement(nsIContent *aContent)
+  {
+    mElements.RemoveElement(aContent);
+  }
 
   void Reset() {
     mElements.Clear();
   }
 
+  virtual PRInt32 IndexOf(nsIContent *aContent, bool aDoFlush);
 
-  virtual PRInt32 IndexOf(nsIContent *aContent, PRBool aDoFlush);
+  virtual JSObject* WrapObject(JSContext *cx, XPCWrappedNativeScope *scope,
+                               bool *triedToWrap) = 0;
 
 protected:
-  nsCOMArray<nsIContent> mElements;
+  nsTArray< nsCOMPtr<nsIContent> > mElements;
 };
 
+
+class nsSimpleContentList : public nsBaseContentList
+{
+public:
+  nsSimpleContentList(nsINode *aRoot) : nsBaseContentList(),
+                                        mRoot(aRoot)
+  {
+  }
+
+  NS_DECL_ISUPPORTS_INHERITED
+  NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(nsSimpleContentList,
+                                           nsBaseContentList)
+
+  virtual nsINode* GetParentObject()
+  {
+    return mRoot;
+  }
+  virtual JSObject* WrapObject(JSContext *cx, XPCWrappedNativeScope *scope,
+                               bool *triedToWrap);
+
+private:
+  // This has to be a strong reference, the root might go away before the list.
+  nsCOMPtr<nsINode> mRoot;
+};
 
 // This class is used only by form element code and this is a static
 // list of elements. NOTE! This list holds strong references to
 // the elements in the list.
-class nsFormContentList : public nsBaseContentList
+class nsFormContentList : public nsSimpleContentList
 {
 public:
-  nsFormContentList(nsIDOMHTMLFormElement *aForm,
+  nsFormContentList(nsIContent *aForm,
                     nsBaseContentList& aContentList);
 };
 
@@ -197,8 +241,7 @@ struct nsContentListKey
  */
 class nsContentList : public nsBaseContentList,
                       public nsIHTMLCollection,
-                      public nsStubMutationObserver,
-                      public nsWrapperCache
+                      public nsStubMutationObserver
 {
 public:
   NS_DECL_ISUPPORTS_INHERITED
@@ -223,7 +266,7 @@ public:
                 PRInt32 aMatchNameSpaceId,
                 nsIAtom* aHTMLMatchAtom,
                 nsIAtom* aXMLMatchAtom,
-                PRBool aDeep = PR_TRUE);
+                bool aDeep = true);
 
   /**
    * @param aRootNode The node under which to limit our search.
@@ -245,31 +288,31 @@ public:
                 nsContentListMatchFunc aFunc,
                 nsContentListDestroyFunc aDestroyFunc,
                 void* aData,
-                PRBool aDeep = PR_TRUE,
+                bool aDeep = true,
                 nsIAtom* aMatchAtom = nsnull,
                 PRInt32 aMatchNameSpaceId = kNameSpaceID_None,
-                PRBool aFuncMayDependOnAttr = PR_TRUE);
+                bool aFuncMayDependOnAttr = true);
   virtual ~nsContentList();
+
+  // nsWrapperCache
+  virtual JSObject* WrapObject(JSContext *cx, XPCWrappedNativeScope *scope,
+                               bool *triedToWrap);
 
   // nsIDOMHTMLCollection
   NS_DECL_NSIDOMHTMLCOLLECTION
 
   // nsBaseContentList overrides
-  virtual PRInt32 IndexOf(nsIContent *aContent, PRBool aDoFlush);
-  virtual nsIContent* GetNodeAt(PRUint32 aIndex);
+  virtual PRInt32 IndexOf(nsIContent *aContent, bool aDoFlush);
   virtual PRInt32 IndexOf(nsIContent* aContent);
-
-  // nsIHTMLCollection
-  virtual nsIContent* GetNodeAt(PRUint32 aIndex, nsresult* aResult);
-  virtual nsISupports* GetNamedItem(const nsAString& aName,
-                                    nsWrapperCache** aCache,
-                                    nsresult* aResult);
+  virtual nsINode* GetParentObject()
+  {
+    return mRootNode;
+  }
 
   // nsContentList public methods
-  NS_HIDDEN_(nsINode*) GetParentObject() { return mRootNode; }
-  NS_HIDDEN_(PRUint32) Length(PRBool aDoFlush);
-  NS_HIDDEN_(nsIContent*) Item(PRUint32 aIndex, PRBool aDoFlush);
-  NS_HIDDEN_(nsIContent*) NamedItem(const nsAString& aName, PRBool aDoFlush);
+  NS_HIDDEN_(PRUint32) Length(bool aDoFlush);
+  NS_HIDDEN_(nsIContent*) Item(PRUint32 aIndex, bool aDoFlush);
+  NS_HIDDEN_(nsIContent*) NamedItem(const nsAString& aName, bool aDoFlush);
 
   // nsIMutationObserver
   NS_DECL_NSIMUTATIONOBSERVER_ATTRIBUTECHANGED
@@ -294,7 +337,7 @@ public:
     return static_cast<nsContentList*>(list);
   }
 
-  PRBool MatchesKey(const nsContentListKey& aKey) const
+  bool MatchesKey(const nsContentListKey& aKey) const
   {
     // The root node is most commonly the same: the document.  And the
     // most common namespace id is kNameSpaceID_Unknown.  So check the
@@ -314,7 +357,7 @@ protected:
    * @param  aElement the element to attempt to match
    * @return whether we match
    */
-  PRBool Match(mozilla::dom::Element *aElement);
+  bool Match(mozilla::dom::Element *aElement);
   /**
    * See if anything in the subtree rooted at aContent, including
    * aContent itself, matches our criterion.
@@ -322,7 +365,7 @@ protected:
    * @param  aContent the root of the subtree to match against
    * @return whether we match something in the tree rooted at aContent
    */
-  PRBool MatchSelf(nsIContent *aContent);
+  bool MatchSelf(nsIContent *aContent);
 
   /**
    * Populate our list.  Stop once we have at least aNeededLength
@@ -338,11 +381,11 @@ protected:
   /**
    * @param  aContainer a content node which must be a descendant of
    *         mRootNode
-   * @return PR_TRUE if children or descendants of aContainer could match our
+   * @return true if children or descendants of aContainer could match our
    *                 criterion.
-   *         PR_FALSE otherwise.
+   *         false otherwise.
    */
-  PRBool MayContainRelevantNodes(nsINode* aContainer)
+  bool MayContainRelevantNodes(nsINode* aContainer)
   {
     return mDeep || aContainer == mRootNode;
   }
@@ -356,7 +399,7 @@ protected:
    * If state is not LIST_UP_TO_DATE, fully populate ourselves with
    * all the nodes we can find.
    */
-  inline void BringSelfUpToDate(PRBool aDoFlush);
+  inline void BringSelfUpToDate(bool aDoFlush);
 
   /**
    * Sets the state to LIST_DIRTY and clears mElements array.
@@ -403,7 +446,7 @@ protected:
 
   // The booleans have to use PRUint8 to pack with mState, because MSVC won't
   // pack different typedefs together.  Once we no longer have to worry about
-  // flushes in XML documents, we can go back to using PRPackedBool for the
+  // flushes in XML documents, we can go back to using bool for the
   // booleans.
   
   /**
@@ -483,12 +526,12 @@ public:
 
   virtual ~nsCacheableFuncStringContentList();
 
-  PRBool Equals(const nsFuncStringCacheKey* aKey) {
+  bool Equals(const nsFuncStringCacheKey* aKey) {
     return mRootNode == aKey->mRootNode && mFunc == aKey->mFunc &&
       mString == aKey->mString;
   }
 
-  PRBool AllocatedData() const { return !!mData; }
+  bool AllocatedData() const { return !!mData; }
 protected:
   virtual void RemoveFromCaches() {
     RemoveFromFuncStringHashtable();

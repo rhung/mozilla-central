@@ -1,4 +1,4 @@
-/* -*- Mode: C; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
  *
  * ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
@@ -54,8 +54,7 @@
  * make dependency induced by this file should not prove painful.
  */
 
-#include "jspubtd.h"
-#include "jsstaticcheck.h"
+#include "jsapi.h"
 #include "jsutil.h"
 
 JS_BEGIN_EXTERN_C
@@ -71,41 +70,29 @@ static const uintN JS_GCTHING_ALIGN = 8;
 static const uintN JS_GCTHING_ZEROBITS = 3;
 
 /* Scalar typedefs. */
-typedef uint8  jsbytecode;
-typedef uint8  jssrcnote;
-typedef uint32 jsatomid;
+typedef uint8       jsbytecode;
+typedef uint8       jssrcnote;
+typedef uintptr_t   jsatomid;
 
 /* Struct typedefs. */
 typedef struct JSArgumentFormatMap  JSArgumentFormatMap;
-typedef struct JSCodeGenerator      JSCodeGenerator;
 typedef struct JSGCThing            JSGCThing;
 typedef struct JSGenerator          JSGenerator;
 typedef struct JSNativeEnumerator   JSNativeEnumerator;
-typedef struct JSFunctionBox        JSFunctionBox;
-typedef struct JSObjectBox          JSObjectBox;
-typedef struct JSParseNode          JSParseNode;
 typedef struct JSProperty           JSProperty;
-typedef struct JSScript             JSScript;
 typedef struct JSSharpObjectMap     JSSharpObjectMap;
 typedef struct JSThread             JSThread;
-typedef struct JSTreeContext        JSTreeContext;
 typedef struct JSTryNote            JSTryNote;
 
 /* Friend "Advanced API" typedefs. */
-typedef struct JSAtomList           JSAtomList;
-typedef struct JSAtomListElement    JSAtomListElement;
-typedef struct JSAtomMap            JSAtomMap;
 typedef struct JSAtomState          JSAtomState;
 typedef struct JSCodeSpec           JSCodeSpec;
 typedef struct JSPrinter            JSPrinter;
-typedef struct JSRegExpStatics      JSRegExpStatics;
 typedef struct JSStackHeader        JSStackHeader;
 typedef struct JSSubString          JSSubString;
 typedef struct JSNativeTraceInfo    JSNativeTraceInfo;
 typedef struct JSSpecializedNative  JSSpecializedNative;
 typedef struct JSXML                JSXML;
-typedef struct JSXMLArray           JSXMLArray;
-typedef struct JSXMLArrayCursor     JSXMLArrayCursor;
 
 /*
  * Template declarations.
@@ -120,43 +107,93 @@ extern "C++" {
 
 class JSDependentString;
 class JSExtensibleString;
+class JSExternalString;
 class JSLinearString;
 class JSFixedString;
 class JSStaticAtom;
 class JSRope;
 class JSAtom;
+class JSWrapper;
 
 namespace js {
 
 struct ArgumentsData;
+struct FlatClosureData;
+struct Class;
 
-class RegExp;
+class RegExpObject;
+class RegExpMatcher;
+class RegExpObjectBuilder;
 class RegExpStatics;
+class MatchPairs;
+
+namespace detail {
+
+class RegExpPrivate;
+class RegExpPrivateCode;
+
+} /* namespace detail */
+
+enum RegExpFlag
+{
+    IgnoreCaseFlag  = 0x01,
+    GlobalFlag      = 0x02,
+    MultilineFlag   = 0x04,
+    StickyFlag      = 0x08,
+
+    NoFlags         = 0x00,
+    AllFlags        = 0x0f
+};
+
+enum RegExpExecType
+{
+    RegExpExec,
+    RegExpTest
+};
+
 class AutoStringRooter;
 class ExecuteArgsGuard;
 class InvokeFrameGuard;
 class InvokeArgsGuard;
-class InvokeSessionGuard;
+class StringBuffer;
 class TraceRecorder;
 struct TraceMonitor;
-class StackSpace;
-class StackSegment;
-class FrameRegsIter;
-class StringBuffer;
 
-struct Compiler;
+class FrameRegs;
+class StackFrame;
+class StackSegment;
+class StackSpace;
+class ContextStack;
+class FrameRegsIter;
+class CallReceiver;
+class CallArgs;
+
+struct BytecodeEmitter;
+struct Definition;
+struct FunctionBox;
+struct ObjectBox;
+struct ParseNode;
 struct Parser;
 class TokenStream;
 struct Token;
 struct TokenPos;
 struct TokenPtr;
+struct TreeContext;
+class UpvarCookie;
 
-class ContextAllocPolicy;
-class SystemAllocPolicy;
+class Proxy;
+class ProxyHandler;
+class Wrapper;
+class CrossCompartmentWrapper;
+
+class TempAllocPolicy;
+class RuntimeAllocPolicy;
+
+class GlobalObject;
 
 template <class T,
           size_t MinInlineCapacity = 0,
-          class AllocPolicy = ContextAllocPolicy>
+          class AllocPolicy = TempAllocPolicy>
 class Vector;
 
 template <class>
@@ -165,13 +202,20 @@ struct DefaultHasher;
 template <class Key,
           class Value,
           class HashPolicy = DefaultHasher<Key>,
-          class AllocPolicy = ContextAllocPolicy>
+          class AllocPolicy = TempAllocPolicy>
 class HashMap;
 
 template <class T,
           class HashPolicy = DefaultHasher<T>,
-          class AllocPolicy = ContextAllocPolicy>
+          class AllocPolicy = TempAllocPolicy>
 class HashSet;
+
+template <typename K,
+          typename V,
+          size_t InlineElems>
+class InlineMap;
+
+class LifoAlloc;
 
 class PropertyCache;
 struct PropertyCacheEntry;
@@ -179,6 +223,49 @@ struct PropertyCacheEntry;
 struct Shape;
 struct EmptyShape;
 class Bindings;
+
+class MultiDeclRange;
+class ParseMapPool;
+class DefnOrHeader;
+typedef InlineMap<JSAtom *, Definition *, 24> AtomDefnMap;
+typedef InlineMap<JSAtom *, jsatomid, 24> AtomIndexMap;
+typedef InlineMap<JSAtom *, DefnOrHeader, 24> AtomDOHMap;
+typedef Vector<UpvarCookie, 8> UpvarCookies;
+
+class Breakpoint;
+class BreakpointSite;
+typedef HashMap<jsbytecode *, BreakpointSite *, DefaultHasher<jsbytecode *>, RuntimeAllocPolicy>
+    BreakpointSiteMap;
+class Debugger;
+class WatchpointMap;
+
+typedef HashMap<JSAtom *, detail::RegExpPrivate *, DefaultHasher<JSAtom *>, RuntimeAllocPolicy>
+    RegExpPrivateCache;
+
+typedef JSNative             Native;
+typedef JSPropertyOp         PropertyOp;
+typedef JSStrictPropertyOp   StrictPropertyOp;
+typedef JSPropertyDescriptor PropertyDescriptor;
+
+namespace analyze {
+
+struct LifetimeVariable;
+class LoopAnalysis;
+class ScriptAnalysis;
+class SlotValue;
+class SSAValue;
+class SSAUseChain;
+
+} /* namespace analyze */
+
+namespace types {
+
+class TypeSet;
+struct TypeCallsite;
+struct TypeObject;
+struct TypeCompartment;
+
+} /* namespace types */
 
 } /* namespace js */
 
@@ -235,7 +322,7 @@ typedef void
                         void      *callerdata);
 
 typedef void
-(* JSSourceHandler)(const char *filename, uintN lineno, jschar *str,
+(* JSSourceHandler)(const char *filename, uintN lineno, const jschar *str,
                     size_t length, void **listenerTSData, void *closure);
 
 /*
@@ -304,11 +391,6 @@ typedef struct JSDebugHooks {
  * If JSLookupPropOp succeeds and returns with *propp non-null, that pointer
  * may be passed as the prop parameter to a JSAttributesOp, as a short-cut
  * that bypasses id re-lookup.
- *
- * NB: successful return with non-null *propp means the implementation may
- * have locked *objp and added a reference count associated with *propp, so
- * callers should not risk deadlock by nesting or interleaving other lookups
- * or any obj-bearing ops before dropping *propp.
  */
 typedef JSBool
 (* JSLookupPropOp)(JSContext *cx, JSObject *obj, jsid id, JSObject **objp,
@@ -344,13 +426,6 @@ typedef JSObject *
 #else
 extern JSBool js_CStringsAreUTF8;
 #endif
-
-/*
- * Hack to expose obj->getOps()->outer to the C implementation of the debugger
- * interface.
- */
-extern JS_FRIEND_API(JSObject *)
-js_ObjectToOuterObject(JSContext *cx, JSObject *obj);
 
 JS_END_EXTERN_C
 

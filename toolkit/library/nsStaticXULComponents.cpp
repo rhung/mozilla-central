@@ -65,8 +65,6 @@
 #define UNIVERSALCHARDET_MODULE
 #endif
 
-#define GFX_MODULES MODULE(nsGfxModule)
-
 #ifdef XP_WIN
 #  define WIDGET_MODULES MODULE(nsWidgetModule)
 #elif defined(XP_MACOSX)
@@ -79,6 +77,8 @@
 #  define WIDGET_MODULES MODULE(nsWidgetQtModule)
 #elif defined(MOZ_WIDGET_ANDROID)
 #  define WIDGET_MODULES MODULE(nsWidgetAndroidModule)
+#elif defined(MOZ_WIDGET_GONK)
+#  define WIDGET_MODULES MODULE(nsWidgetGonkModule)
 #else
 #  error Unknown widget module.
 #endif
@@ -87,14 +87,6 @@
 #define ICON_MODULE MODULE(nsIconDecoderModule)
 #else
 #define ICON_MODULE
-#endif
-
-#ifdef MOZ_RDF
-#define RDF_MODULES \
-    MODULE(nsRDFModule) \
-    MODULE(nsWindowDataSourceModule)
-#else
-#define RDF_MODULES
 #endif
 
 #ifdef ACCESSIBILITY
@@ -134,9 +126,6 @@
 #define JETPACK_MODULES
 #endif
 
-#define PLUGINS_MODULES \
-    MODULE(nsPluginModule)
-
 #ifdef MOZ_JSDEBUGGER
 #define JSDEBUGGER_MODULES \
     MODULE(JavaScript_Debugger)
@@ -150,12 +139,6 @@
 #define FILEVIEW_MODULE
 #endif
 
-#ifdef MOZ_STORAGE
-#define STORAGE_MODULE MODULE(mozStorageModule)
-#else
-#define STORAGE_MODULE
-#endif
-
 #ifdef MOZ_ZIPWRITER
 #define ZIPWRITER_MODULE MODULE(ZipWriterModule)
 #else
@@ -167,13 +150,6 @@
     MODULE(nsPlacesModule)
 #else
 #define PLACES_MODULES
-#endif
-
-#if (defined(MOZ_MORK) && defined(MOZ_XUL))
-#define MORK_MODULES \
-    MODULE(nsMorkModule)
-#else
-#define MORK_MODULES
 #endif
 
 #ifdef MOZ_XUL
@@ -221,8 +197,6 @@
 #define JSCTYPES_MODULE
 #endif
 
-#define SERVICES_CRYPTO_MODULE MODULE(nsServicesCryptoModule)
-
 #ifndef MOZ_APP_COMPONENT_MODULES
 #if defined(MOZ_APP_COMPONENT_INCLUDE)
 #include MOZ_APP_COMPONENT_INCLUDE
@@ -244,14 +218,15 @@
     ZIPWRITER_MODULE                         \
     MODULE(StartupCacheModule)               \
     MODULE(nsPrefModule)                     \
-    RDF_MODULES                              \
+    MODULE(nsRDFModule)                      \
+    MODULE(nsWindowDataSourceModule)         \
     MODULE(nsParserModule)                   \
-    GFX_MODULES                              \
+    MODULE(nsGfxModule)                      \
     WIDGET_MODULES                           \
     MODULE(nsImageLib2Module)                \
     ICON_MODULE                              \
     JETPACK_MODULES                          \
-    PLUGINS_MODULES                          \
+    MODULE(nsPluginModule)                   \
     MODULE(nsLayoutModule)                   \
     MODULE(docshell_provider)                \
     MODULE(embedcomponents)                  \
@@ -264,9 +239,8 @@
     MODULE(Apprunner)                        \
     MODULE(CommandLineModule)                \
     FILEVIEW_MODULE                          \
-    STORAGE_MODULE                           \
+    MODULE(mozStorageModule)                 \
     PLACES_MODULES                           \
-    MORK_MODULES                             \
     XULENABLED_MODULES                       \
     MODULE(nsToolkitCompsModule)             \
     XREMOTE_MODULES                          \
@@ -280,9 +254,12 @@
     OSXPROXY_MODULE                          \
     WINDOWSPROXY_MODULE                      \
     JSCTYPES_MODULE                          \
+    MODULE(jsreflect)                        \
     MODULE(jsperf)                           \
-    SERVICES_CRYPTO_MODULE                   \
+    MODULE(nsServicesCryptoModule)           \
     MOZ_APP_COMPONENT_MODULES                \
+    MODULE(nsTelemetryModule)                \
+    MODULE(jsdebugger)                       \
     /* end of list */
 
 #define MODULE(_name) \

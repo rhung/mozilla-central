@@ -42,6 +42,8 @@ VPATH = @srcdir@
 
 include $(DEPTH)/config/autoconf.mk
 
+NO_PROFILE_GUIDED_OPTIMIZE = 1
+
 ifdef ENABLE_TESTS
 
 ifdef _MSC_VER
@@ -58,37 +60,45 @@ PROGRAM = crashinject$(BIN_SUFFIX)
 USE_STATIC_LIBS = 1
 CPPSRCS = crashinject.cpp
 
-endif
+endif # ENABLE_TESTS
+
+MOZ_UTILS_LDFLAGS =
 
 include $(topsrcdir)/config/rules.mk
 
 ifdef WIN32_REDIST_DIR
+ifndef MOZ_DEBUG
 
 ifeq (1400,$(_MSC_VER))
 REDIST_FILES = \
-	Microsoft.VC80.CRT.manifest \
-	msvcm80.dll \
-	msvcp80.dll \
-	msvcr80.dll \
-	$(NULL)
+  Microsoft.VC80.CRT.manifest \
+  msvcm80.dll \
+  msvcp80.dll \
+  msvcr80.dll \
+  $(NULL)
 endif
 
 ifeq (1500,$(_MSC_VER))
 REDIST_FILES = \
-	Microsoft.VC90.CRT.manifest \
-	msvcm90.dll \
-	msvcp90.dll \
-	msvcr90.dll \
-	$(NULL)
+  Microsoft.VC90.CRT.manifest \
+  msvcm90.dll \
+  msvcp90.dll \
+  msvcr90.dll \
+  $(NULL)
 endif
 
 ifeq (1600,$(_MSC_VER))
 REDIST_FILES = \
-	msvcp100.dll \
-	msvcr100.dll \
-	$(NULL)
+  msvcp100.dll \
+  msvcr100.dll \
+  $(NULL)
 endif
 
+ifeq (1700,$(_MSC_VER))
+REDIST_FILES = \
+  msvcp110.dll \
+  msvcr110.dll \
+  $(NULL)
 endif
 
 ifdef REDIST_FILES
@@ -97,3 +107,5 @@ libs::
 	install --preserve-timestamps $(foreach f,$(REDIST_FILES),"$(WIN32_REDIST_DIR)"/$(f)) $(FINAL_TARGET)
 endif
 
+endif # ! MOZ_DEBUG
+endif # WIN32_REDIST_DIR

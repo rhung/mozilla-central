@@ -739,15 +739,17 @@ function onToolbarDragExit(aEvent)
 
 function onToolbarDragStart(aEvent)
 {
-  var documentId = gToolboxDocument.documentElement.id;
-
   var item = aEvent.target;
-  while (item && item.localName != "toolbarpaletteitem")
+  while (item && item.localName != "toolbarpaletteitem") {
+    if (item.localName == "toolbar")
+      return;
     item = item.parentNode;
+  }
 
   item.setAttribute("dragactive", "true");
 
   var dt = aEvent.dataTransfer;
+  var documentId = gToolboxDocument.documentElement.id;
   dt.setData("text/toolbarwrapper-id/" + documentId, item.firstChild.id);
   dt.effectAllowed = "move";
 }
@@ -755,7 +757,7 @@ function onToolbarDragStart(aEvent)
 function onToolbarDragOver(aEvent)
 {
   var documentId = gToolboxDocument.documentElement.id;
-  if (!aEvent.dataTransfer.types.contains("text/toolbarwrapper-id/" + documentId))
+  if (!aEvent.dataTransfer.types.contains("text/toolbarwrapper-id/" + documentId.toLowerCase()))
     return;
 
   var toolbar = aEvent.target;
@@ -915,7 +917,7 @@ function onToolbarDrop(aEvent)
 function onPaletteDragOver(aEvent)
 {
   var documentId = gToolboxDocument.documentElement.id;
-  if (aEvent.dataTransfer.types.contains("text/toolbarwrapper-id/" + documentId))
+  if (aEvent.dataTransfer.types.contains("text/toolbarwrapper-id/" + documentId.toLowerCase()))
     aEvent.preventDefault();
 }
 

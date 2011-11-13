@@ -19,6 +19,22 @@ var gProvider;
 var gServer;
 var gAddonInstalled = false;
 
+var channel = "default";
+try {
+  channel = Services.prefs.getCharPref("app.update.channel");
+}
+catch (e) { }
+if (channel != "aurora" &&
+    channel != "beta" &&
+    channel != "release") {
+  var version = "nightly";
+}
+else {
+  version = Services.appinfo.version.replace(/^([^\.]+\.[0-9]+[a-z]*).*/gi, "$1");
+}
+
+const COMPATIBILITY_PREF = "extensions.checkCompatibility." + version;
+
 function test() {
   requestLongerTimeout(2);
   // Turn on searching for this test
@@ -212,8 +228,8 @@ function get_expected_results(aSortBy, aLocalExpected) {
   var expectedOrder = null, unknownOrder = null;
   switch (aSortBy) {
     case "relevancescore":
-      expectedOrder = [ "remote4" , "addon2", "remote1" , "remote2",
-                        "install2", "addon1", "install1", "remote3" ];
+      expectedOrder = [ "addon2"  , "remote1", "install2", "addon1",
+                        "install1", "remote2", "remote3" , "remote4" ];
       unknownOrder = [];
       break;
     case "name":
@@ -589,11 +605,30 @@ add_test(function() {
   });
 });
 
+// Tests that incompatible add-ons are shown with a warning if compatibility checking is disabled
+add_test(function() {
+  Services.prefs.setBoolPref(COMPATIBILITY_PREF, false);
+  search("incompatible", false, function() {
+    var item = get_addon_item("remote5");
+    is_element_visible(item, "Incompatible addon should be visible");
+    is(item.getAttribute("notification"), "warning", "Compatibility warning should be shown");
+
+    var item = get_addon_item("remote6");
+    is(item, null, "Addon incompatible with the product should not be visible");
+
+    Services.prefs.clearUserPref(COMPATIBILITY_PREF);
+    run_next_test();
+  });
+});
+
 // Tests that restarting the manager doesn't change search results
 add_test(function() {
   restart_manager(gManagerWindow, null, function(aWindow) {
     gManagerWindow = aWindow;
     gCategoryUtilities = new CategoryUtilities(gManagerWindow);
+
+    // We never restore to the search pane
+    is(gCategoryUtilities.selectedCategory, "discover", "View should have changed to discover");
 
     // Installed add-on is considered local on new search
     gAddonInstalled = true;

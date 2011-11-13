@@ -126,7 +126,7 @@ function viewSource(url)
 
   gBrowser.addEventListener("pagehide", onUnloadContent, true);
   gBrowser.addEventListener("pageshow", onLoadContent, true);
-  gBrowser.addEventListener("command", onCommandContent, false);
+  gBrowser.addEventListener("click", onClickContent, false);
 
   var loadFromURL = true;
 
@@ -277,11 +277,11 @@ function onUnloadContent()
 }
 
 /**
- * Handle command events bubbling up from error page content
+ * Handle click events bubbling up from error page content
  */
-function onCommandContent(event) {
+function onClickContent(event) {
   // Don't trust synthetic events
-  if (!event.isTrusted)
+  if (!event.isTrusted || event.target.localName != "button")
     return;
 
   var target = event.originalTarget;
@@ -323,9 +323,7 @@ function onCommandContent(event) {
         }
       }
     } else if (target == errorDoc.getElementById('ignoreWarningButton')) {
-      // Allow users to override and continue through to the site,
-      // but add a notify bar as a reminder, so that they don't lose
-      // track after, e.g., tab switching.
+      // Allow users to override and continue through to the site
       gBrowser.loadURIWithFlags(content.location.href,
                                 Ci.nsIWebNavigation.LOAD_FLAGS_BYPASS_CLASSIFIER,
                                 null, null, null);
@@ -375,10 +373,12 @@ function ViewSourceReload()
                            Ci.nsIWebNavigation.LOAD_FLAGS_BYPASS_CACHE);
 }
 
-// Strips the |view-source:| for saveURL()
+// Strips the |view-source:| for internalSave()
 function ViewSourceSavePage()
 {
-  saveURL(window.content.location.href.substring(12), null, "SaveLinkTitle");
+  internalSave(window.content.location.href.substring(12), 
+               null, null, null, null, null,
+               "SaveLinkTitle", null, null, null, gPageLoader);
 }
 
 var PrintPreviewListener = {
@@ -771,3 +771,39 @@ function UpdateBackForwardCommands() {
   else
     forwardBroadcaster.setAttribute("disabled", "true");
 }
+
+// FIXME copied and modified from browser.js.
+// Deduplication is part of bug 480356.
+function FillInHTMLTooltip(tipElement)
+{
+  var retVal = false;
+  var titleText = null;
+  var direction = tipElement.ownerDocument.dir;
+
+  while (!titleText && tipElement) {
+    if (tipElement.nodeType == Node.ELEMENT_NODE) {
+      titleText = tipElement.getAttribute("title");
+      var defView = tipElement.ownerDocument.defaultView;
+      // XXX Work around bug 350679:
+      // "Tooltips can be fired in documents with no view".
+      if (!defView)
+        return retVal;
+      direction = defView.getComputedStyle(tipElement, "")
+        .getPropertyValue("direction");
+    }
+    tipElement = tipElement.parentNode;
+  }
+
+  var tipNode = document.getElementById("aHTMLTooltip");
+  tipNode.style.direction = direction;
+
+  if (titleText && /\S/.test(titleText)) {
+    // Make CRLF and CR render one line break each.  
+    titleText = titleText.replace(/\r\n/g, '\n');
+    titleText = titleText.replace(/\r/g, '\n');
+    tipNode.setAttribute("label", titleText);
+    retVal = true;
+  }
+  return retVal;
+}
+

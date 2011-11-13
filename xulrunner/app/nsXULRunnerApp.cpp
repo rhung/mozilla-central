@@ -69,12 +69,12 @@
  * @param fmt
  *        printf-style format string followed by arguments.
  */
-static void Output(PRBool isError, const char *fmt, ... )
+static void Output(bool isError, const char *fmt, ... )
 {
   va_list ap;
   va_start(ap, fmt);
 
-#if (defined(XP_WIN) && !MOZ_WINCONSOLE) || defined(WINCE)
+#if (defined(XP_WIN) && !MOZ_WINCONSOLE)
   char *msg = PR_vsmprintf(fmt, ap);
   if (msg)
   {
@@ -106,7 +106,7 @@ static void Output(PRBool isError, const char *fmt, ... )
 /**
  * Return true if |arg| matches the given argument name.
  */
-static PRBool IsArg(const char* arg, const char* s)
+static bool IsArg(const char* arg, const char* s)
 {
   if (*arg == '-')
   {
@@ -120,7 +120,7 @@ static PRBool IsArg(const char* arg, const char* s)
     return !PL_strcasecmp(++arg, s);
 #endif
 
-  return PR_FALSE;
+  return false;
 }
 
 static nsresult
@@ -164,7 +164,7 @@ static void Usage(const char *argv0)
     GetGREVersion(argv0, &milestone, nsnull);
 
     // display additional information (XXX make localizable?)
-    Output(PR_FALSE,
+    Output(false,
            "Mozilla XULRunner %s\n\n"
            "Usage: " XULRUNNER_PROGNAME " [OPTIONS]\n"
            "       " XULRUNNER_PROGNAME " APP-FILE [APP-OPTIONS...]\n"
@@ -174,14 +174,6 @@ static void Usage(const char *argv0)
            "  -h, --help                 show this message\n"
            "  -v, --version              show version\n"
            "  --gre-version              print the GRE version string on stdout\n"
-           "  --register-global          register this GRE in the machine registry\n"
-           "  --register-user            register this GRE in the user registry\n"
-           "  --unregister-global        unregister this GRE formerly registered with\n"
-           "                             --register-global\n"
-           "  --unregister-user          unregister this GRE formely registered with\n"
-           "                             --register-user\n"
-           "  --find-gre <version>       Find a GRE with version <version> and print\n"
-           "                             the path on stdout\n"
            "  --install-app <application> [<destination> [<directoryname>]]\n"
            "                             Install a XUL application.\n"
            "\n"
@@ -201,13 +193,13 @@ GetXULRunnerDir(const char *argv0, nsIFile* *aResult)
   nsCOMPtr<nsILocalFile> appFile;
   rv = XRE_GetBinaryPath(argv0, getter_AddRefs(appFile));
   if (NS_FAILED(rv)) {
-    Output(PR_TRUE, "Could not find XULRunner application path.\n");
+    Output(true, "Could not find XULRunner application path.\n");
     return rv;
   }
 
   rv = appFile->GetParent(aResult);
   if (NS_FAILED(rv)) {
-    Output(PR_TRUE, "Could not find XULRunner installation dir.\n");
+    Output(true, "Could not find XULRunner installation dir.\n");
   }
   return rv;
 }
@@ -295,7 +287,7 @@ int main(int argc, char* argv[])
     nsCAutoString milestone;
     nsCAutoString version;
     GetGREVersion(argv[0], &milestone, &version);
-    Output(PR_FALSE, "Mozilla XULRunner %s - %s\n",
+    Output(false, "Mozilla XULRunner %s - %s\n",
            milestone.get(), version.get());
     return 0;
   }
@@ -378,13 +370,13 @@ int main(int argc, char* argv[])
   nsCOMPtr<nsILocalFile> appDataLF;
   nsresult rv = XRE_GetFileFromPath(appDataFile, getter_AddRefs(appDataLF));
   if (NS_FAILED(rv)) {
-    Output(PR_TRUE, "Error: unrecognized application.ini path.\n");
+    Output(true, "Error: unrecognized application.ini path.\n");
     return 2;
   }
 
   AutoAppData appData(appDataLF);
   if (!appData) {
-    Output(PR_TRUE, "Error: couldn't parse application.ini.\n");
+    Output(true, "Error: couldn't parse application.ini.\n");
     return 2;
   }
 

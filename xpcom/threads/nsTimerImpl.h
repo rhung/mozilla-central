@@ -114,6 +114,17 @@ private:
       NS_RELEASE(mCallback.o);
   }
 
+  bool IsRepeating() const {
+    PR_STATIC_ASSERT(TYPE_ONE_SHOT < TYPE_REPEATING_SLACK);
+    PR_STATIC_ASSERT(TYPE_REPEATING_SLACK < TYPE_REPEATING_PRECISE);
+    PR_STATIC_ASSERT(TYPE_REPEATING_PRECISE < TYPE_REPEATING_PRECISE_CAN_SKIP);
+    return mType >= TYPE_REPEATING_SLACK;
+  }
+
+  bool IsRepeatingPrecisely() const {
+    return mType >= TYPE_REPEATING_PRECISE;
+  }
+
   nsCOMPtr<nsIEventTarget> mEventTarget;
 
   void *                mClosure;
@@ -134,15 +145,15 @@ private:
   // These members are set by the initiating thread, when the timer's type is
   // changed and during the period where it fires on that thread.
   PRUint8               mType;
-  PRPackedBool          mFiring;
+  bool                  mFiring;
 
 
-  // Use a PRBool (int) here to isolate loads and stores of these two members
+  // Use a bool (int) here to isolate loads and stores of these two members
   // done on various threads under the protection of TimerThread::mLock, from
   // loads and stores done on the initiating/type-changing/timer-firing thread
-  // to the above PRUint8/PRPackedBool members.
-  PRBool                mArmed;
-  PRBool                mCanceled;
+  // to the above PRUint8/bool members.
+  bool                  mArmed;
+  bool                  mCanceled;
 
   // The generation number of this timer, re-generated each time the timer is
   // initialized so one-shot timers can be canceled and re-initialized by the

@@ -4,6 +4,11 @@ Cu.import("resource://services-sync/record.js");
 Cu.import("resource://services-sync/constants.js");
 btoa = Cu.import("resource://services-sync/util.js").btoa;
 
+function sha256HMAC(message, key) {
+  let h = Utils.makeHMACHasher(Ci.nsICryptoHMAC.SHA256, key);
+  return Utils.digestBytes(message, h);
+}
+
 function test_time_keyFromString(iterations) {
   let k;
   let o;
@@ -11,10 +16,10 @@ function test_time_keyFromString(iterations) {
   let d = Utils.decodeKeyBase32("ababcdefabcdefabcdefabcdef");
   b.generateRandom();
   
-  _("Running " + iterations + " iterations of hmacKeyObject + sha256HMACBytes.");
+  _("Running " + iterations + " iterations of hmacKeyObject + sha256HMAC.");
   for (let i = 0; i < iterations; ++i) {
     let k = b.hmacKeyObject;
-    o = Utils.sha256HMACBytes(d, k);
+    o = sha256HMAC(d, k);
   }
   do_check_true(!!o);
   _("Done.");
@@ -23,8 +28,8 @@ function test_time_keyFromString(iterations) {
 function test_repeated_hmac() {
   let testKey = "ababcdefabcdefabcdefabcdef";
   let k = Utils.makeHMACKey("foo");
-  let one = Utils.sha256HMACBytes(Utils.decodeKeyBase32(testKey), k);
-  let two = Utils.sha256HMACBytes(Utils.decodeKeyBase32(testKey), k);
+  let one = sha256HMAC(Utils.decodeKeyBase32(testKey), k);
+  let two = sha256HMAC(Utils.decodeKeyBase32(testKey), k);
   do_check_eq(one, two);
 }
 
@@ -45,10 +50,10 @@ function test_keymanager() {
   
   let sha256inputE = "" + HMAC_INPUT + username + "\x01";
   let key = Utils.makeHMACKey(Utils.decodeKeyBase32(testKey));
-  let encryptKey = Utils.sha256HMACBytes(sha256inputE, key);
+  let encryptKey = sha256HMAC(sha256inputE, key);
   
   let sha256inputH = encryptKey + HMAC_INPUT + username + "\x02";
-  let hmacKey = Utils.sha256HMACBytes(sha256inputH, key);
+  let hmacKey = sha256HMAC(sha256inputH, key);
   
   // Encryption key is stored in base64 for WeaveCrypto convenience.
   do_check_eq(btoa(encryptKey), new SyncKeyBundle(null, username, testKey).encryptionKey);
@@ -121,7 +126,8 @@ function test_collections_manager() {
   // Check the individual contents.
   do_check_eq(wbo.collection, "crypto");
   do_check_eq(wbo.id, "keys");
-  do_check_eq(storage_keys.modified, wbo.modified);
+  do_check_eq(undefined, wbo.modified);
+  do_check_eq(CollectionKeys.lastModified, storage_keys.modified);
   do_check_true(!!wbo.cleartext.default);
   do_check_keypair_eq(payload.default, wbo.cleartext.default);
   do_check_keypair_eq(payload.collections.bookmarks, wbo.cleartext.collections.bookmarks);
@@ -165,7 +171,7 @@ function test_collections_manager() {
   info_collections["crypto"] = 1 + (Date.now()/1000);              // Add one in case computers are fast!
   do_check_true(CollectionKeys.updateNeeded(info_collections));
   
-  CollectionKeys._lastModified = null;
+  CollectionKeys.lastModified = null;
   do_check_true(CollectionKeys.updateNeeded({}));
   
   /*

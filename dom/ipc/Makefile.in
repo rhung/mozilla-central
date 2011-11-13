@@ -47,8 +47,10 @@ LIBXUL_LIBRARY = 1
 FORCE_STATIC_LIB = 1
 EXPORT_LIBRARY = 1
 
+ifdef ENABLE_TESTS
 ifneq (cocoa,$(MOZ_WIDGET_TOOLKIT))
-DIRS = tests
+DIRS += tests
+endif
 endif
 
 EXPORTS = TabMessageUtils.h PCOMContentPermissionRequestChild.h
@@ -63,6 +65,7 @@ EXPORTS_mozilla/dom = \
   CrashReporterParent.h \
   TabParent.h \
   TabChild.h \
+  TabMessageUtils.h \
   $(NULL)
 
 CPPSRCS = \
@@ -70,6 +73,7 @@ CPPSRCS = \
   ContentParent.cpp \
   ContentChild.cpp \
   CrashReporterParent.cpp \
+  CrashReporterChild.cpp \
   TabParent.cpp \
   TabChild.cpp \
   TabMessageUtils.cpp \
@@ -86,7 +90,6 @@ CPPSRCS += \
   $(NULL)
 endif
 
-
 include $(topsrcdir)/config/config.mk
 include $(topsrcdir)/ipc/chromium/chromium-config.mk
 include $(topsrcdir)/config/rules.mk
@@ -101,7 +104,11 @@ LOCAL_INCLUDES += \
 	-I$(srcdir)/../src/base \
 	-I$(srcdir)/../src/storage \
 	-I$(srcdir)/../../xpcom/base \
+	-I$(srcdir)/../indexedDB \
 	-I$(topsrcdir)/extensions/cookie \
+	-I$(topsrcdir)/dom/base \
+	-I$(topsrcdir)/toolkit/xre \
+	-I$(topsrcdir)/hal/sandbox \
 	$(NULL)
 
 DEFINES += -DBIN_SUFFIX='"$(BIN_SUFFIX)"'

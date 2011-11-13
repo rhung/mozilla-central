@@ -5,7 +5,6 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=575672
 -->
 <head>
   <title>Test for Bug 575672</title>
-  <script type="application/javascript" src="/MochiKit/packed.js"></script>
   <script type="application/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
   <style type="text/css" id="style"></style>
   <style type="text/css">
@@ -55,6 +54,14 @@ var declarations = [
   "background-image: -moz-linear-gradient(red, yellow, blue",
   "background-image: -moz-linear-gradient(red 1px, yellow 5px, blue 10px",
   "background-image: -moz-linear-gradient(red, yellow, rgb(0, 0, 255)",
+  "background-image: -moz-linear-gradient(to",
+  "background-image: -moz-linear-gradient(to top",
+  "background-image: -moz-linear-gradient(to top left",
+  "background-image: -moz-linear-gradient(to top left,",
+  "background-image: -moz-repeating-linear-gradient(to top left, red, blue",
+  "background-image: -moz-linear-gradient(to top left, red, yellow, blue",
+  "background-image: -moz-linear-gradient(to top left, red 1px, yellow 5px, blue 10px",
+  "background-image: -moz-linear-gradient(to top left, red, yellow, rgb(0, 0, 255)",
   "background-image: -moz-repeating-linear-gradient(top left, red, blue",
   "background-image: -moz-linear-gradient(top left, red, yellow, blue",
   "background-image: -moz-linear-gradient(top left, red 1px, yellow 5px, blue 10px",

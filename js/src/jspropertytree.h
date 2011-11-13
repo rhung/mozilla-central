@@ -40,8 +40,9 @@
 #ifndef jspropertytree_h___
 #define jspropertytree_h___
 
-#include "jshashtable.h"
 #include "jsprvtd.h"
+
+#include "js/HashTable.h"
 
 namespace js {
 
@@ -117,9 +118,8 @@ class PropertyTree
     js::Shape *newShape(JSContext *cx);
     js::Shape *getChild(JSContext *cx, js::Shape *parent, const js::Shape &child);
 
-    void dumpShapeStats();
-    static void dumpShapes(JSContext *cx);
 #ifdef DEBUG
+    static void dumpShapes(JSContext *cx);
     static void meter(JSBasicStats *bs, js::Shape *node);
 #endif
 };

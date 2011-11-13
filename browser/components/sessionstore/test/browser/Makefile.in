@@ -50,6 +50,8 @@ include $(topsrcdir)/config/rules.mk
 
 _BROWSER_TEST_FILES = \
 	head.js \
+	browser_form_restore_events.js \
+	browser_form_restore_events_sample.html \
 	browser_248970_a.js \
 	browser_248970_b.js \
 	browser_248970_b_sample.html \
@@ -62,7 +64,9 @@ _BROWSER_TEST_FILES = \
 	browser_354894.js \
 	browser_367052.js \
 	browser_393716.js \
-	browser_394759.js \
+	browser_394759_basic.js \
+	browser_394759_behavior.js \
+	browser_394759_purge.js \
 	browser_394759_privatebrowsing.js \
 	browser_408470.js \
 	browser_408470_sample.html \
@@ -96,8 +100,6 @@ _BROWSER_TEST_FILES = \
 	browser_465223.js \
 	browser_466937.js \
 	browser_466937_sample.html \
-	browser_476161.js \
-	browser_476161_sample.html \
 	browser_477657.js \
 	browser_480148.js \
 	browser_480893.js \
@@ -127,6 +129,7 @@ _BROWSER_TEST_FILES = \
 	browser_589246.js \
 	browser_590268.js \
 	browser_590563.js \
+	browser_595601-restore_hidden.js \
 	browser_597315.js \
 	browser_597315_index.html \
 	browser_597315_a.html \
@@ -145,11 +148,22 @@ _BROWSER_TEST_FILES = \
 	browser_625257.js \
 	browser_628270.js \
 	browser_635418.js \
+	browser_636279.js \
+	browser_644409-scratchpads.js \
+	browser_645428.js \
+	browser_659591.js \
+	browser_662812.js \
+	browser_665702-state_session.js \
+	browser_682507.js \
+	browser_687710.js \
+	browser_687710_2.js \
+	browser_694378.js \
 	$(NULL)
 
 ifneq ($(OS_ARCH),Darwin)
 _BROWSER_TEST_FILES += \
 	browser_597071.js \
+	browser_625016.js \
 	$(NULL)
 endif
 

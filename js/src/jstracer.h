@@ -51,7 +51,6 @@
 #include "jsinterp.h"
 #include "jslock.h"
 #include "jsnum.h"
-#include "jsvector.h"
 #include "jscompartment.h"
 #include "Writer.h"
 
@@ -231,13 +230,7 @@ public:
     TreeFragment* toTreeFragment();
 };
 
-#ifdef NJ_NO_VARIADIC_MACROS
-
-#define debug_only_stmt(action)            /* */
-static void debug_only_printf(int mask, const char *fmt, ...) JS_BEGIN_MACRO JS_END_MACRO
-#define debug_only_print0(mask, str)       JS_BEGIN_MACRO JS_END_MACRO
-
-#elif defined(JS_JIT_SPEW)
+#if defined(JS_JIT_SPEW)
 
 // Top level Nanojit config object.
 extern nanojit::Config NJConfig;
@@ -286,12 +279,12 @@ extern void FragProfiling_FragFinalizer(nanojit::Fragment* f, TraceMonitor*);
 #define ORACLE_SIZE 4096
 
 class Oracle {
-    avmplus::BitSet _stackDontDemote;
-    avmplus::BitSet _globalDontDemote;
-    avmplus::BitSet _pcDontDemote;
-    avmplus::BitSet _pcSlowZeroTest;
+    nanojit::BitSet _stackDontDemote;
+    nanojit::BitSet _globalDontDemote;
+    nanojit::BitSet _pcDontDemote;
+    nanojit::BitSet _pcSlowZeroTest;
 public:
-    Oracle();
+    Oracle(VMAllocator* allocator);
 
     JS_REQUIRES_STACK void markGlobalSlotUndemotable(JSContext* cx, unsigned slot);
     JS_REQUIRES_STACK bool isGlobalSlotUndemotable(JSContext* cx, unsigned slot) const;
@@ -370,6 +363,7 @@ struct FrameInfo;
 
 struct VMSideExit : public nanojit::SideExit
 {
+    JSScript* script;
     jsbytecode* pc;
     jsbytecode* imacpc;
     intptr_t sp_adj;
@@ -415,6 +409,7 @@ public:
       : mOutOfMemory(false)
       , mSize(0)
       , mReserve(reserve)
+      , mReserveSize(reserveSize)
       , mReserveCurr(uintptr_t(reserve))
       , mReserveLimit(uintptr_t(reserve + reserveSize))
       , mRt(rt)
@@ -476,6 +471,7 @@ public:
 
     /* See nanojit::Allocator::allocChunk() for details on these. */
     char* mReserve;
+    size_t mReserveSize;
     uintptr_t mReserveCurr;
     uintptr_t mReserveLimit;
 
@@ -566,7 +562,8 @@ struct TreeFragment : public LinkableFragment
         linkedTrees(alloc),
         sideExits(alloc),
         gcthings(alloc),
-        shapes(alloc)
+        shapes(alloc),
+        visiting(false)
     { }
 
     TreeFragment* first;
@@ -597,6 +594,9 @@ struct TreeFragment : public LinkableFragment
     uintN                   execs;
     /* Gives the total number of iterations executed by the trace (up to a limit). */
     uintN                   iters;
+
+    /* Flag to detect graph cycles when navigating tree fragments. */ 
+    bool                    visiting;
 
     inline unsigned nGlobalTypes() {
         return typeMap.length() - nStackTypes;
@@ -659,7 +659,7 @@ public:
     JSScript *entryScript;
 
     /* The stack frame where we started profiling. Only valid while profiling! */
-    JSStackFrame *entryfp;
+    StackFrame *entryfp;
 
     /* The bytecode locations of the loop header and the back edge. */
     jsbytecode *top, *bottom;
@@ -722,12 +722,12 @@ public:
      * and how many iterations we execute it.
      */
     struct InnerLoop {
-        JSStackFrame *entryfp;
+        StackFrame *entryfp;
         jsbytecode *top, *bottom;
         uintN iters;
 
         InnerLoop() {}
-        InnerLoop(JSStackFrame *entryfp, jsbytecode *top, jsbytecode *bottom)
+        InnerLoop(StackFrame *entryfp, jsbytecode *top, jsbytecode *bottom)
             : entryfp(entryfp), top(top), bottom(bottom), iters(0) {}
     };
 
@@ -778,7 +778,7 @@ public:
             return StackValue(false);
     }
     
-    LoopProfile(TraceMonitor *tm, JSStackFrame *entryfp, jsbytecode *top, jsbytecode *bottom);
+    LoopProfile(TraceMonitor *tm, StackFrame *entryfp, jsbytecode *top, jsbytecode *bottom);
 
     void reset();
 
@@ -798,7 +798,7 @@ public:
     inline uintN count(OpKind kind) { return allOps[kind]; }
 
     /* Called for every back edge being profiled. */
-    MonitorResult profileLoopEdge(JSContext* cx, uintN& inlineCallCount);
+    MonitorResult profileLoopEdge(JSContext* cx);
     
     /* Called for every instruction being profiled. */
     ProfileAction profileOperation(JSContext *cx, JSOp op);
@@ -1062,14 +1062,14 @@ class TraceRecorder
     Tracker                         nativeFrameTracker;
 
     /* The start of the global object's slots we assume for the trackers. */
-    Value*                          global_slots;
+    const HeapValue*                global_slots;
 
     /* The number of interpreted calls entered (and not yet left) since recording began. */
     unsigned                        callDepth;
 
     /* The current atom table, mirroring the interpreter loop's variable of the same name. */
     JSAtom**                        atoms;
-    Value*                          consts;
+    HeapValue*                      consts;
 
     /* An instruction yielding the current script's strict mode code flag.  */
     nanojit::LIns*                  strictModeCode_ins;
@@ -1185,7 +1185,9 @@ class TraceRecorder
 
     bool isVoidPtrGlobal(const void* p) const;
     bool isGlobal(const Value* p) const;
+    bool isGlobal(const HeapValue* p) const;
     ptrdiff_t nativeGlobalSlot(const Value *p) const;
+    ptrdiff_t nativeGlobalSlot(const HeapValue *p) const;
     ptrdiff_t nativeGlobalOffset(const Value* p) const;
     JS_REQUIRES_STACK ptrdiff_t nativeStackOffsetImpl(const void* p) const;
     JS_REQUIRES_STACK ptrdiff_t nativeStackOffset(const Value* p) const;
@@ -1194,9 +1196,9 @@ class TraceRecorder
     JS_REQUIRES_STACK ptrdiff_t nativespOffsetImpl(const void* p) const;
     JS_REQUIRES_STACK ptrdiff_t nativespOffset(const Value* p) const;
     JS_REQUIRES_STACK void importImpl(tjit::Address addr, const void* p, JSValueType t,
-                                      const char *prefix, uintN index, JSStackFrame *fp);
+                                      const char *prefix, uintN index, StackFrame *fp);
     JS_REQUIRES_STACK void import(tjit::Address addr, const Value* p, JSValueType t,
-                                  const char *prefix, uintN index, JSStackFrame *fp);
+                                  const char *prefix, uintN index, StackFrame *fp);
     JS_REQUIRES_STACK void import(TreeFragment* tree, nanojit::LIns* sp, unsigned stackSlots,
                                   unsigned callDepth, unsigned ngslots, JSValueType* typeMap);
     void trackNativeStackUse(unsigned slots);
@@ -1220,14 +1222,15 @@ class TraceRecorder
 #endif
     void assertInsideLoop();
 
-    JS_REQUIRES_STACK void setImpl(void* p, nanojit::LIns* l, bool shouldDemoteToInt32 = true);
-    JS_REQUIRES_STACK void set(Value* p, nanojit::LIns* l, bool shouldDemoteToInt32 = true);
+    JS_REQUIRES_STACK void setImpl(const void* p, nanojit::LIns* l, bool shouldDemoteToInt32 = true);
+    JS_REQUIRES_STACK void set(const Value* p, nanojit::LIns* l, bool shouldDemoteToInt32 = true);
     JS_REQUIRES_STACK void setFrameObjPtr(void* p, nanojit::LIns* l,
                                           bool shouldDemoteToInt32 = true);
     nanojit::LIns* getFromTrackerImpl(const void *p);
     nanojit::LIns* getFromTracker(const Value* p);
     JS_REQUIRES_STACK nanojit::LIns* getImpl(const void* p);
     JS_REQUIRES_STACK nanojit::LIns* get(const Value* p);
+    JS_REQUIRES_STACK nanojit::LIns* get(const HeapValue* p);
     JS_REQUIRES_STACK nanojit::LIns* getFrameObjPtr(void* p);
     JS_REQUIRES_STACK nanojit::LIns* attemptImport(const Value* p);
     JS_REQUIRES_STACK nanojit::LIns* addr(Value* p);
@@ -1241,7 +1244,7 @@ class TraceRecorder
      * entries of the tracker accordingly.
      */
     JS_REQUIRES_STACK void checkForGlobalObjectReallocation() {
-        if (global_slots != globalObj->getSlots())
+        if (global_slots != globalObj->getRawSlots())
             checkForGlobalObjectReallocationHelper();
     }
     JS_REQUIRES_STACK void checkForGlobalObjectReallocationHelper();
@@ -1271,10 +1274,10 @@ class TraceRecorder
     JS_REQUIRES_STACK nanojit::LIns* scopeChain();
     JS_REQUIRES_STACK nanojit::LIns* entryScopeChain() const;
     JS_REQUIRES_STACK nanojit::LIns* entryFrameIns() const;
-    JS_REQUIRES_STACK JSStackFrame* frameIfInRange(JSObject* obj, unsigned* depthp = NULL) const;
+    JS_REQUIRES_STACK StackFrame* frameIfInRange(JSObject *obj, unsigned* depthp = NULL) const;
     JS_REQUIRES_STACK RecordingStatus traverseScopeChain(JSObject *obj, nanojit::LIns *obj_ins, JSObject *obj2, nanojit::LIns *&obj2_ins);
-    JS_REQUIRES_STACK AbortableRecordingStatus scopeChainProp(JSObject* obj, Value*& vp, nanojit::LIns*& ins, NameResult& nr, JSObject **scopeObjp = NULL);
-    JS_REQUIRES_STACK RecordingStatus callProp(JSObject* obj, JSProperty* shape, jsid id, Value*& vp, nanojit::LIns*& ins, NameResult& nr);
+    JS_REQUIRES_STACK AbortableRecordingStatus scopeChainProp(JSObject* obj, const Value*& vp, nanojit::LIns*& ins, NameResult& nr, JSObject **scopeObjp = NULL);
+    JS_REQUIRES_STACK RecordingStatus callProp(JSObject* obj, JSProperty* shape, jsid id, const Value*& vp, nanojit::LIns*& ins, NameResult& nr);
 
     JS_REQUIRES_STACK nanojit::LIns* arg(unsigned n);
     JS_REQUIRES_STACK void arg(unsigned n, nanojit::LIns* i);
@@ -1353,7 +1356,7 @@ class TraceRecorder
     nanojit::LIns* unbox_slot(JSObject *obj, nanojit::LIns *obj_ins, uint32 slot,
                               VMSideExit *exit);
 
-    JS_REQUIRES_STACK AbortableRecordingStatus name(Value*& vp, nanojit::LIns*& ins, NameResult& nr);
+    JS_REQUIRES_STACK AbortableRecordingStatus name(const Value*& vp, nanojit::LIns*& ins, NameResult& nr);
     JS_REQUIRES_STACK AbortableRecordingStatus prop(JSObject* obj, nanojit::LIns* obj_ins,
                                                     uint32 *slotp, nanojit::LIns** v_insp,
                                                     Value* outp);
@@ -1361,7 +1364,7 @@ class TraceRecorder
                                                JSObject* obj2, PCVal pcval,
                                                uint32 *slotp, nanojit::LIns** v_insp,
                                                Value* outp);
-    JS_REQUIRES_STACK RecordingStatus denseArrayElement(Value& oval, Value& idx, Value*& vp,
+    JS_REQUIRES_STACK RecordingStatus denseArrayElement(Value& oval, Value& idx, const Value*& vp,
                                                         nanojit::LIns*& v_ins,
                                                         nanojit::LIns*& addr_ins,
                                                         VMSideExit* exit);
@@ -1373,7 +1376,8 @@ class TraceRecorder
     JS_REQUIRES_STACK RecordingStatus getThis(nanojit::LIns*& this_ins);
 
     JS_REQUIRES_STACK void storeMagic(JSWhyMagic why, tjit::Address addr);
-    JS_REQUIRES_STACK AbortableRecordingStatus unboxNextValue(nanojit::LIns* &v_ins);
+    JS_REQUIRES_STACK AbortableRecordingStatus unboxNextValue(Value &iterobj_val,
+                                                              nanojit::LIns* &v_ins);
 
     JS_REQUIRES_STACK VMSideExit* enterDeepBailCall();
     JS_REQUIRES_STACK void leaveDeepBailCall();
@@ -1396,10 +1400,6 @@ class TraceRecorder
     JS_REQUIRES_STACK RecordingStatus getCharCodeAt(JSString *str,
                                                     nanojit::LIns* str_ins, nanojit::LIns* idx_ins,
                                                     nanojit::LIns** out_ins);
-    JS_REQUIRES_STACK nanojit::LIns* getUnitString(nanojit::LIns* str_ins, nanojit::LIns* idx_ins);
-    JS_REQUIRES_STACK RecordingStatus getCharAt(JSString *str,
-                                                nanojit::LIns* str_ins, nanojit::LIns* idx_ins,
-                                                JSOp mode, nanojit::LIns** out_ins);
 
     JS_REQUIRES_STACK RecordingStatus initOrSetPropertyByName(nanojit::LIns* obj_ins,
                                                               Value* idvalp, Value* rvalp,
@@ -1488,14 +1488,18 @@ class TraceRecorder
     JS_REQUIRES_STACK RecordingStatus createThis(JSObject& ctor, nanojit::LIns* ctor_ins,
                                                  nanojit::LIns** thisobj_insp);
     JS_REQUIRES_STACK RecordingStatus guardCallee(Value& callee);
-    JS_REQUIRES_STACK JSStackFrame      *guardArguments(JSObject *obj, nanojit::LIns* obj_ins,
-                                                        unsigned *depthp);
+    JS_REQUIRES_STACK StackFrame *guardArguments(JSObject *obj, nanojit::LIns* obj_ins,
+                                                 unsigned *depthp);
     JS_REQUIRES_STACK nanojit::LIns* guardArgsLengthNotAssigned(nanojit::LIns* argsobj_ins);
     JS_REQUIRES_STACK void guardNotHole(nanojit::LIns* argsobj_ins, nanojit::LIns* ids_ins);
+
     JS_REQUIRES_STACK RecordingStatus getClassPrototype(JSObject* ctor,
                                                           nanojit::LIns*& proto_ins);
-    JS_REQUIRES_STACK RecordingStatus getClassPrototype(JSProtoKey key,
-                                                          nanojit::LIns*& proto_ins);
+    JS_REQUIRES_STACK RecordingStatus getObjectPrototype(nanojit::LIns*& proto_ins);
+    JS_REQUIRES_STACK RecordingStatus getFunctionPrototype(nanojit::LIns*& proto_ins);
+    JS_REQUIRES_STACK RecordingStatus getArrayPrototype(nanojit::LIns*& proto_ins);
+    JS_REQUIRES_STACK RecordingStatus getRegExpPrototype(nanojit::LIns*& proto_ins);
+
     JS_REQUIRES_STACK RecordingStatus newArray(JSObject* ctor, uint32 argc, Value* argv,
                                                  Value* rval);
     JS_REQUIRES_STACK RecordingStatus newString(JSObject* ctor, uint32 argc, Value* argv,
@@ -1527,7 +1531,7 @@ class TraceRecorder
 
     JS_REQUIRES_STACK jsatomid getFullIndex(ptrdiff_t pcoff = 0);
 
-    JS_REQUIRES_STACK JSValueType determineSlotType(Value* vp);
+    JS_REQUIRES_STACK JSValueType determineSlotType(const Value* vp);
 
     JS_REQUIRES_STACK RecordingStatus setUpwardTrackedVar(Value* stackVp, const Value& v,
                                                           nanojit::LIns* v_ins);
@@ -1543,11 +1547,9 @@ class TraceRecorder
     JS_REQUIRES_STACK void determineGlobalTypes(JSValueType* typeMap);
     JS_REQUIRES_STACK VMSideExit* downSnapshot(FrameInfo* downFrame);
     JS_REQUIRES_STACK TreeFragment* findNestedCompatiblePeer(TreeFragment* f);
-    JS_REQUIRES_STACK AbortableRecordingStatus attemptTreeCall(TreeFragment* inner,
-                                                               uintN& inlineCallCount);
+    JS_REQUIRES_STACK AbortableRecordingStatus attemptTreeCall(TreeFragment* inner);
 
-    static JS_REQUIRES_STACK MonitorResult recordLoopEdge(JSContext* cx, TraceRecorder* r,
-                                                          uintN& inlineCallCount);
+    static JS_REQUIRES_STACK MonitorResult recordLoopEdge(JSContext* cx, TraceRecorder* r);
 
     /* Allocators associated with this recording session. */
     VMAllocator& tempAlloc() const { return *traceMonitor->tempAlloc; }
@@ -1573,27 +1575,6 @@ class TraceRecorder
     enum AbortResult { NORMAL_ABORT, JIT_RESET };
     JS_REQUIRES_STACK AbortResult finishAbort(const char* reason);
 
-#ifdef DEBUG
-    /* Debug printing functionality to emit printf() on trace. */
-    JS_REQUIRES_STACK void tprint(const char *format, int count, nanojit::LIns *insa[]);
-    JS_REQUIRES_STACK void tprint(const char *format);
-    JS_REQUIRES_STACK void tprint(const char *format, nanojit::LIns *ins);
-    JS_REQUIRES_STACK void tprint(const char *format, nanojit::LIns *ins1,
-                                  nanojit::LIns *ins2);
-    JS_REQUIRES_STACK void tprint(const char *format, nanojit::LIns *ins1,
-                                  nanojit::LIns *ins2, nanojit::LIns *ins3);
-    JS_REQUIRES_STACK void tprint(const char *format, nanojit::LIns *ins1,
-                                  nanojit::LIns *ins2, nanojit::LIns *ins3,
-                                  nanojit::LIns *ins4);
-    JS_REQUIRES_STACK void tprint(const char *format, nanojit::LIns *ins1,
-                                  nanojit::LIns *ins2, nanojit::LIns *ins3,
-                                  nanojit::LIns *ins4, nanojit::LIns *ins5);
-    JS_REQUIRES_STACK void tprint(const char *format, nanojit::LIns *ins1,
-                                  nanojit::LIns *ins2, nanojit::LIns *ins3,
-                                  nanojit::LIns *ins4, nanojit::LIns *ins5,
-                                  nanojit::LIns *ins6);
-#endif
-
     friend class ImportBoxedStackSlotVisitor;
     friend class AdjustCallerGlobalTypesVisitor;
     friend class AdjustCallerStackTypesVisitor;
@@ -1601,9 +1582,8 @@ class TraceRecorder
     friend class SlotMap;
     friend class DefaultSlotMap;
     friend class DetermineTypesVisitor;
-    friend MonitorResult RecordLoopEdge(JSContext*, TraceMonitor*, uintN&);
-    friend TracePointAction RecordTracePoint(JSContext*, TraceMonitor*, uintN &inlineCallCount,
-                                             bool *blacklist);
+    friend MonitorResult RecordLoopEdge(JSContext*, TraceMonitor*);
+    friend TracePointAction RecordTracePoint(JSContext*, TraceMonitor*, bool *blacklist);
     friend AbortResult AbortRecording(JSContext*, const char*);
     friend class BoxArg;
     friend void TraceMonitor::sweep(JSContext *cx);
@@ -1639,7 +1619,7 @@ class TraceRecorder
              * Do slot arithmetic manually to avoid getSlotRef assertions which
              * do not need to be satisfied for this purpose.
              */
-            Value *vp = globalObj->getSlots() + slot;
+            const HeapValue *vp = globalObj->getRawSlot(slot, globalObj->getRawSlots());
 
             /* If this global is definitely being tracked, then the write is unexpected. */
             if (tracker.has(vp))
@@ -1659,7 +1639,8 @@ class TraceRecorder
     }
 };
 
-#define TRACING_ENABLED(cx)       ((cx)->traceJitEnabled)
+/* :FIXME: bug 637856 disabling traceJit if inference is enabled */
+#define TRACING_ENABLED(cx)       ((cx)->traceJitEnabled && !(cx)->typeInferenceEnabled())
 #define REGEX_JIT_ENABLED(cx)     ((cx)->traceJitEnabled || (cx)->methodJitEnabled)
 
 #define JSOP_IN_RANGE(op,lo,hi)   (uintN((op) - (lo)) <= uintN((hi) - (lo)))
@@ -1689,23 +1670,23 @@ class TraceRecorder
 #define TRACE_2(x,a,b)          TRACE_ARGS(x, (a, b))
 
 extern JS_REQUIRES_STACK MonitorResult
-MonitorLoopEdge(JSContext* cx, uintN& inlineCallCount, JSInterpMode interpMode);
+MonitorLoopEdge(JSContext* cx, InterpMode interpMode);
 
 extern JS_REQUIRES_STACK TracePointAction
-RecordTracePoint(JSContext*, uintN& inlineCallCount, bool* blacklist);
+RecordTracePoint(JSContext*, bool* blacklist);
 
 extern JS_REQUIRES_STACK TracePointAction
-MonitorTracePoint(JSContext*, uintN& inlineCallCount, bool* blacklist,
-                  void** traceData, uintN *traceEpoch, uint32 *loopCounter, uint32 hits);
+MonitorTracePoint(JSContext*, bool* blacklist, void** traceData, uintN *traceEpoch,
+                  uint32 *loopCounter, uint32 hits);
 
 extern JS_REQUIRES_STACK TraceRecorder::AbortResult
 AbortRecording(JSContext* cx, const char* reason);
 
-extern bool
-InitJIT(TraceMonitor *tm, JSRuntime *rt);
+extern void
+InitJIT();
 
 extern void
-FinishJIT(TraceMonitor *tm);
+FinishJIT();
 
 extern void
 PurgeScriptFragments(TraceMonitor* tm, JSScript* script);

@@ -41,7 +41,7 @@
 #ifndef __NSCERTOVERRIDESERVICE_H__
 #define __NSCERTOVERRIDESERVICE_H__
 
-#include "mozilla/Monitor.h"
+#include "mozilla/ReentrantMonitor.h"
 #include "nsICertOverrideService.h"
 #include "nsTHashtable.h"
 #include "nsIObserver.h"
@@ -83,7 +83,7 @@ public:
 
   nsCString mAsciiHost;
   PRInt32 mPort;
-  PRBool mIsTemporary; // true: session only, false: stored on disk
+  bool mIsTemporary; // true: session only, false: stored on disk
   nsCString mFingerprint;
   nsCString mFingerprintAlgOID;
   OverrideBits mOverrideBits;
@@ -128,7 +128,7 @@ class nsCertOverrideEntry : public PLDHashEntryHdr
       return HostWithPortPtr();
     }
 
-    PRBool KeyEquals(KeyTypePointer aKey) const
+    bool KeyEquals(KeyTypePointer aKey) const
     {
       return !strcmp(HostWithPortPtr(), aKey);
     }
@@ -145,7 +145,7 @@ class nsCertOverrideEntry : public PLDHashEntryHdr
       return PL_DHashStringKey(nsnull, aKey);
     }
 
-    enum { ALLOW_MEMMOVE = PR_FALSE };
+    enum { ALLOW_MEMMOVE = false };
 
     // get methods
     inline const nsCString &HostWithPort() const { return mHostWithPort; }
@@ -190,7 +190,7 @@ public:
     static void GetHostWithPort(const nsACString & aHostName, PRInt32 aPort, nsACString& _retval);
 
 protected:
-    mozilla::Monitor monitor;
+    mozilla::ReentrantMonitor monitor;
     nsCOMPtr<nsIFile> mSettingsFile;
     nsTHashtable<nsCertOverrideEntry> mSettingsTable;
 
@@ -202,7 +202,7 @@ protected:
     nsresult Write();
     nsresult AddEntryToList(const nsACString &host, PRInt32 port,
                             nsIX509Cert *aCert,
-                            const PRBool aIsTemporary,
+                            const bool aIsTemporary,
                             const nsACString &algo_oid, 
                             const nsACString &fingerprint,
                             nsCertOverride::OverrideBits ob,

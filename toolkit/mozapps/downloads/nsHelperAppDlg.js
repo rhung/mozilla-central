@@ -29,6 +29,7 @@
 #   Dan Mosedale <dmose@mozilla.org>
 #   Jim Mathies <jmathies@mozilla.com>
 #   Ehsan Akhgari <ehsan.akhgari@gmail.com>
+#   Kailas Patil <patilkr24@gmail.com>
 #
 # Alternatively, the contents of this file may be used under the terms of
 # either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -108,7 +109,7 @@ nsUnkownContentTypeDialogProgressListener.prototype = {
   onStateChange: function( aWebProgress, aRequest, aStateFlags, aStatus ) {
   },
 
-  onLocationChange: function( aWebProgress, aRequest, aLocation ) {
+  onLocationChange: function( aWebProgress, aRequest, aLocation, aFlags ) {
   },
 
   onSecurityChange: function( aWebProgress, aRequest, state ) {
@@ -139,6 +140,7 @@ const nsITimer = Components.interfaces.nsITimer;
 Components.utils.import("resource://gre/modules/XPCOMUtils.jsm");
 Components.utils.import("resource://gre/modules/DownloadLastDir.jsm");
 Components.utils.import("resource://gre/modules/DownloadPaths.jsm");
+Components.utils.import("resource://gre/modules/DownloadUtils.jsm");
 
 /* ctor
  */
@@ -189,7 +191,7 @@ nsUnknownContentTypeDialog.prototype = {
   reallyShow: function() {
     try {
       var ir = this.mContext.QueryInterface(Components.interfaces.nsIInterfaceRequestor);
-      var dwi = ir.getInterface(Components.interfaces.nsIDOMWindowInternal);
+      var dwi = ir.getInterface(Components.interfaces.nsIDOMWindow);
       var ww = Components.classes["@mozilla.org/embedcomp/window-watcher;1"]
                          .getService(Components.interfaces.nsIWindowWatcher);
       this.mDialog = ww.openWindow(dwi,
@@ -279,7 +281,7 @@ nsUnknownContentTypeDialog.prototype = {
     var nsIFilePicker = Components.interfaces.nsIFilePicker;
     var picker = Components.classes["@mozilla.org/filepicker;1"].createInstance(nsIFilePicker);
     var windowTitle = bundle.GetStringFromName("saveDialogTitle");
-    var parent = aContext.QueryInterface(Components.interfaces.nsIInterfaceRequestor).getInterface(Components.interfaces.nsIDOMWindowInternal);
+    var parent = aContext.QueryInterface(Components.interfaces.nsIInterfaceRequestor).getInterface(Components.interfaces.nsIDOMWindow);
     picker.init(parent, windowTitle, nsIFilePicker.modeSave);
     picker.defaultString = aDefaultFile;
 
@@ -311,7 +313,7 @@ nsUnknownContentTypeDialog.prototype = {
 
     // The last directory preference may not exist, which will throw.
     try {
-      var lastDir = gDownloadLastDir.file;
+      var lastDir = gDownloadLastDir.getFile(aLauncher.source);
       if (isUsableDirectory(lastDir))
         picker.displayDirectory = lastDir;
     }
@@ -340,7 +342,7 @@ nsUnknownContentTypeDialog.prototype = {
       var newDir = result.parent.QueryInterface(Components.interfaces.nsILocalFile);
 
       // Do not store the last save directory as a pref inside the private browsing mode
-      gDownloadLastDir.file = newDir;
+      gDownloadLastDir.setFile(aLauncher.source, newDir);
 
       result = this.validateLeafName(newDir, result.leafName, null);
     }
@@ -605,8 +607,17 @@ nsUnknownContentTypeDialog.prototype = {
       else
         typeString = mimeInfo.MIMEType;
     }
-
-    type.value = typeString;
+    // When the length is unknown, contentLength would be -1
+    if (this.mLauncher.contentLength >= 0) {
+      let [size, unit] = DownloadUtils.
+                         convertByteUnits(this.mLauncher.contentLength);
+      type.value = this.dialogElement("strings")
+                       .getFormattedString("orderedFileSizeWithType", 
+                                           [typeString, size, unit]);
+    }
+    else {
+      type.value = typeString;
+    }
   },
 
   _blurred: false,

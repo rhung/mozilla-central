@@ -39,10 +39,15 @@
 #include "nsLineBreaker.h"
 #include "nsContentUtils.h"
 #include "nsILineBreaker.h"
+#include "gfxFont.h" // for the gfxTextRun::CompressedGlyph::FLAG_BREAK_TYPE_* values
+#include "nsHyphenationManager.h"
+#include "nsHyphenator.h"
 
 nsLineBreaker::nsLineBreaker()
-  : mCurrentWordContainsComplexChar(PR_FALSE),
-    mAfterBreakableSpace(PR_FALSE), mBreakHere(PR_FALSE)
+  : mCurrentWordLangGroup(nsnull),
+    mCurrentWordContainsMixedLang(false),
+    mCurrentWordContainsComplexChar(false),
+    mAfterBreakableSpace(false), mBreakHere(false)
 {
 }
 
@@ -53,19 +58,19 @@ nsLineBreaker::~nsLineBreaker()
 
 static void
 SetupCapitalization(const PRUnichar* aWord, PRUint32 aLength,
-                    PRPackedBool* aCapitalization)
+                    bool* aCapitalization)
 {
   // Capitalize the first non-punctuation character after a space or start
   // of the word.
   // The only space character a word can contain is NBSP.
-  PRBool capitalizeNextChar = PR_TRUE;
+  bool capitalizeNextChar = true;
   for (PRUint32 i = 0; i < aLength; ++i) {
     if (capitalizeNextChar && !nsContentUtils::IsPunctuationMark(aWord[i])) {
-      aCapitalization[i] = PR_TRUE;
-      capitalizeNextChar = PR_FALSE;
+      aCapitalization[i] = true;
+      capitalizeNextChar = false;
     }
     if (aWord[i] == 0xA0 /*NBSP*/) {
-      capitalizeNextChar = PR_TRUE;
+      capitalizeNextChar = true;
     }
   }
 }
@@ -74,33 +79,55 @@ nsresult
 nsLineBreaker::FlushCurrentWord()
 {
   PRUint32 length = mCurrentWord.Length();
-  nsAutoTArray<PRPackedBool,4000> breakState;
+  nsAutoTArray<PRUint8,4000> breakState;
   if (!breakState.AppendElements(length))
     return NS_ERROR_OUT_OF_MEMORY;
   
-  nsTArray<PRPackedBool> capitalizationState;
+  nsTArray<bool> capitalizationState;
 
   if (!mCurrentWordContainsComplexChar) {
     // Just set everything internal to "no break"!
-    memset(breakState.Elements(), PR_FALSE, length*sizeof(PRPackedBool));
+    memset(breakState.Elements(),
+           gfxTextRun::CompressedGlyph::FLAG_BREAK_TYPE_NONE,
+           length*sizeof(PRUint8));
   } else {
     nsContentUtils::LineBreaker()->
       GetJISx4051Breaks(mCurrentWord.Elements(), length, breakState.Elements());
   }
 
+  bool autoHyphenate = mCurrentWordLangGroup &&
+    !mCurrentWordContainsMixedLang;
   PRUint32 i;
+  for (i = 0; autoHyphenate && i < mTextItems.Length(); ++i) {
+    TextItem* ti = &mTextItems[i];
+    if (!(ti->mFlags & BREAK_USE_AUTO_HYPHENATION)) {
+      autoHyphenate = false;
+    }
+  }
+  if (autoHyphenate) {
+    nsRefPtr<nsHyphenator> hyphenator =
+      nsHyphenationManager::Instance()->GetHyphenator(mCurrentWordLangGroup);
+    if (hyphenator) {
+      FindHyphenationPoints(hyphenator,
+                            mCurrentWord.Elements(),
+                            mCurrentWord.Elements() + length,
+                            breakState.Elements());
+    }
+  }
+
   PRUint32 offset = 0;
   for (i = 0; i < mTextItems.Length(); ++i) {
     TextItem* ti = &mTextItems[i];
     NS_ASSERTION(ti->mLength > 0, "Zero length word contribution?");
 
     if ((ti->mFlags & BREAK_SUPPRESS_INITIAL) && ti->mSinkOffset == 0) {
-      breakState[offset] = PR_FALSE;
+      breakState[offset] = gfxTextRun::CompressedGlyph::FLAG_BREAK_TYPE_NONE;
     }
     if (ti->mFlags & BREAK_SUPPRESS_INSIDE) {
       PRUint32 exclude = ti->mSinkOffset == 0 ? 1 : 0;
-      memset(breakState.Elements() + offset + exclude, PR_FALSE,
-             (ti->mLength - exclude)*sizeof(PRPackedBool));
+      memset(breakState.Elements() + offset + exclude,
+             gfxTextRun::CompressedGlyph::FLAG_BREAK_TYPE_NONE,
+             (ti->mLength - exclude)*sizeof(PRUint8));
     }
 
     // Don't set the break state for the first character of the word, because
@@ -115,7 +142,7 @@ nsLineBreaker::FlushCurrentWord()
         if (capitalizationState.Length() == 0) {
           if (!capitalizationState.AppendElements(length))
             return NS_ERROR_OUT_OF_MEMORY;
-          memset(capitalizationState.Elements(), PR_FALSE, length*sizeof(PRPackedBool));
+          memset(capitalizationState.Elements(), false, length*sizeof(bool));
           SetupCapitalization(mCurrentWord.Elements(), length,
                               capitalizationState.Elements());
         }
@@ -129,7 +156,9 @@ nsLineBreaker::FlushCurrentWord()
 
   mCurrentWord.Clear();
   mTextItems.Clear();
-  mCurrentWordContainsComplexChar = PR_FALSE;
+  mCurrentWordContainsComplexChar = false;
+  mCurrentWordContainsMixedLang = false;
+  mCurrentWordLangGroup = nsnull;
   return NS_OK;
 }
 
@@ -148,8 +177,9 @@ nsLineBreaker::AppendText(nsIAtom* aLangGroup, const PRUnichar* aText, PRUint32 
     while (offset < aLength && !IsSpace(aText[offset])) {
       mCurrentWord.AppendElement(aText[offset]);
       if (!mCurrentWordContainsComplexChar && IsComplexChar(aText[offset])) {
-        mCurrentWordContainsComplexChar = PR_TRUE;
+        mCurrentWordContainsComplexChar = true;
       }
+      UpdateCurrentWordLangGroup(aLangGroup);
       ++offset;
     }
 
@@ -166,21 +196,21 @@ nsLineBreaker::AppendText(nsIAtom* aLangGroup, const PRUnichar* aText, PRUint32 
       return rv;
   }
 
-  nsAutoTArray<PRPackedBool,4000> breakState;
+  nsAutoTArray<PRUint8,4000> breakState;
   if (aSink) {
     if (!breakState.AppendElements(aLength))
       return NS_ERROR_OUT_OF_MEMORY;
   }
   
-  nsTArray<PRPackedBool> capitalizationState;
+  nsTArray<bool> capitalizationState;
   if (aSink && (aFlags & BREAK_NEED_CAPITALIZATION)) {
     if (!capitalizationState.AppendElements(aLength))
       return NS_ERROR_OUT_OF_MEMORY;
-    memset(capitalizationState.Elements(), PR_FALSE, aLength);
+    memset(capitalizationState.Elements(), false, aLength);
   }
 
   PRUint32 start = offset;
-  PRBool noBreaksNeeded = !aSink ||
+  bool noBreaksNeeded = !aSink ||
     (aFlags == (BREAK_SUPPRESS_INITIAL | BREAK_SUPPRESS_INSIDE | BREAK_SKIP_SETTING_NO_BREAKS) &&
      !mBreakHere && !mAfterBreakableSpace);
   if (noBreaksNeeded) {
@@ -196,43 +226,58 @@ nsLineBreaker::AppendText(nsIAtom* aLangGroup, const PRUnichar* aText, PRUint32 
     }
   }
   PRUint32 wordStart = offset;
-  PRBool wordHasComplexChar = PR_FALSE;
+  bool wordHasComplexChar = false;
+
+  nsRefPtr<nsHyphenator> hyphenator;
+  if ((aFlags & BREAK_USE_AUTO_HYPHENATION) && !(aFlags & BREAK_SUPPRESS_INSIDE)) {
+    hyphenator = nsHyphenationManager::Instance()->GetHyphenator(aLangGroup);
+  }
 
   for (;;) {
     PRUnichar ch = aText[offset];
-    PRBool isSpace = IsSpace(ch);
-    PRBool isBreakableSpace = isSpace && !(aFlags & BREAK_SUPPRESS_INSIDE);
+    bool isSpace = IsSpace(ch);
+    bool isBreakableSpace = isSpace && !(aFlags & BREAK_SUPPRESS_INSIDE);
 
     if (aSink) {
-      breakState[offset] = mBreakHere || (mAfterBreakableSpace && !isBreakableSpace);
+      breakState[offset] =
+        mBreakHere || (mAfterBreakableSpace && !isBreakableSpace) ?
+          gfxTextRun::CompressedGlyph::FLAG_BREAK_TYPE_NORMAL :
+          gfxTextRun::CompressedGlyph::FLAG_BREAK_TYPE_NONE;
     }
-    mBreakHere = PR_FALSE;
+    mBreakHere = false;
     mAfterBreakableSpace = isBreakableSpace;
 
     if (isSpace) {
       if (offset > wordStart && aSink) {
-        if (wordHasComplexChar && !(aFlags & BREAK_SUPPRESS_INSIDE)) {
-          // Save current start-of-word state because GetJISx4051Breaks will
-          // set it to false
-          PRPackedBool currentStart = breakState[wordStart];
-          nsContentUtils::LineBreaker()->
-            GetJISx4051Breaks(aText + wordStart, offset - wordStart,
-                              breakState.Elements() + wordStart);
-          breakState[wordStart] = currentStart;
+        if (!(aFlags & BREAK_SUPPRESS_INSIDE)) {
+          if (wordHasComplexChar) {
+            // Save current start-of-word state because GetJISx4051Breaks will
+            // set it to false
+            PRUint8 currentStart = breakState[wordStart];
+            nsContentUtils::LineBreaker()->
+              GetJISx4051Breaks(aText + wordStart, offset - wordStart,
+                                breakState.Elements() + wordStart);
+            breakState[wordStart] = currentStart;
+          }
+          if (hyphenator) {
+            FindHyphenationPoints(hyphenator,
+                                  aText + wordStart, aText + offset,
+                                  breakState.Elements() + wordStart);
+          }
         }
         if (aFlags & BREAK_NEED_CAPITALIZATION) {
           SetupCapitalization(aText + wordStart, offset - wordStart,
                               capitalizationState.Elements() + wordStart);
         }
       }
-      wordHasComplexChar = PR_FALSE;
+      wordHasComplexChar = false;
       ++offset;
       if (offset >= aLength)
         break;
       wordStart = offset;
     } else {
       if (!wordHasComplexChar && IsComplexChar(ch)) {
-        wordHasComplexChar = PR_TRUE;
+        wordHasComplexChar = true;
       }
       ++offset;
       if (offset >= aLength) {
@@ -246,6 +291,7 @@ nsLineBreaker::AppendText(nsIAtom* aLangGroup, const PRUnichar* aText, PRUint32 
         mTextItems.AppendElement(TextItem(aSink, wordStart, len, aFlags));
         // Ensure that the break-before for this word is written out
         offset = wordStart + 1;
+        UpdateCurrentWordLangGroup(aLangGroup);
         break;
       }
     }
@@ -262,17 +308,35 @@ nsLineBreaker::AppendText(nsIAtom* aLangGroup, const PRUnichar* aText, PRUint32 
   return NS_OK;
 }
 
+void
+nsLineBreaker::FindHyphenationPoints(nsHyphenator *aHyphenator,
+                                     const PRUnichar *aTextStart,
+                                     const PRUnichar *aTextLimit,
+                                     PRUint8 *aBreakState)
+{
+  nsDependentSubstring string(aTextStart, aTextLimit);
+  nsAutoTArray<bool,200> hyphens;
+  if (NS_SUCCEEDED(aHyphenator->Hyphenate(string, hyphens))) {
+    for (PRUint32 i = 0; i + 1 < string.Length(); ++i) {
+      if (hyphens[i]) {
+        aBreakState[i + 1] =
+          gfxTextRun::CompressedGlyph::FLAG_BREAK_TYPE_HYPHEN;
+      }
+    }
+  }
+}
+
 nsresult
 nsLineBreaker::AppendText(nsIAtom* aLangGroup, const PRUint8* aText, PRUint32 aLength,
                           PRUint32 aFlags, nsILineBreakSink* aSink)
 {
   NS_ASSERTION(aLength > 0, "Appending empty text...");
 
-  if (aFlags & BREAK_NEED_CAPITALIZATION) {
-    // Defer to the Unicode path if capitalization is required
+  if (aFlags & (BREAK_NEED_CAPITALIZATION | BREAK_USE_AUTO_HYPHENATION)) {
+    // Defer to the Unicode path if capitalization or hyphenation is required
     nsAutoString str;
-    CopyASCIItoUTF16(nsDependentCString(reinterpret_cast<const char*>(aText), aLength),
-                     str);
+    const char* cp = reinterpret_cast<const char*>(aText);
+    CopyASCIItoUTF16(nsDependentCSubstring(cp, cp + aLength), str);
     return AppendText(aLangGroup, str.get(), aLength, aFlags, aSink);
   }
 
@@ -286,7 +350,7 @@ nsLineBreaker::AppendText(nsIAtom* aLangGroup, const PRUint8* aText, PRUint32 aL
       mCurrentWord.AppendElement(aText[offset]);
       if (!mCurrentWordContainsComplexChar &&
           IsComplexASCIIChar(aText[offset])) {
-        mCurrentWordContainsComplexChar = PR_TRUE;
+        mCurrentWordContainsComplexChar = true;
       }
       ++offset;
     }
@@ -306,14 +370,14 @@ nsLineBreaker::AppendText(nsIAtom* aLangGroup, const PRUint8* aText, PRUint32 aL
       return rv;
   }
 
-  nsAutoTArray<PRPackedBool,4000> breakState;
+  nsAutoTArray<PRUint8,4000> breakState;
   if (aSink) {
     if (!breakState.AppendElements(aLength))
       return NS_ERROR_OUT_OF_MEMORY;
   }
 
   PRUint32 start = offset;
-  PRBool noBreaksNeeded = !aSink ||
+  bool noBreaksNeeded = !aSink ||
     (aFlags == (BREAK_SUPPRESS_INITIAL | BREAK_SUPPRESS_INSIDE | BREAK_SKIP_SETTING_NO_BREAKS) &&
      !mBreakHere && !mAfterBreakableSpace);
   if (noBreaksNeeded) {
@@ -329,17 +393,20 @@ nsLineBreaker::AppendText(nsIAtom* aLangGroup, const PRUint8* aText, PRUint32 aL
     }
   }
   PRUint32 wordStart = offset;
-  PRBool wordHasComplexChar = PR_FALSE;
+  bool wordHasComplexChar = false;
 
   for (;;) {
     PRUint8 ch = aText[offset];
-    PRBool isSpace = IsSpace(ch);
-    PRBool isBreakableSpace = isSpace && !(aFlags & BREAK_SUPPRESS_INSIDE);
+    bool isSpace = IsSpace(ch);
+    bool isBreakableSpace = isSpace && !(aFlags & BREAK_SUPPRESS_INSIDE);
 
     if (aSink) {
-      breakState[offset] = mBreakHere || (mAfterBreakableSpace && !isBreakableSpace);
+      breakState[offset] =
+        mBreakHere || (mAfterBreakableSpace && !isBreakableSpace) ?
+          gfxTextRun::CompressedGlyph::FLAG_BREAK_TYPE_NORMAL :
+          gfxTextRun::CompressedGlyph::FLAG_BREAK_TYPE_NONE;
     }
-    mBreakHere = PR_FALSE;
+    mBreakHere = false;
     mAfterBreakableSpace = isBreakableSpace;
 
     if (isSpace) {
@@ -347,13 +414,13 @@ nsLineBreaker::AppendText(nsIAtom* aLangGroup, const PRUint8* aText, PRUint32 aL
         if (aSink && !(aFlags & BREAK_SUPPRESS_INSIDE)) {
           // Save current start-of-word state because GetJISx4051Breaks will
           // set it to false
-          PRPackedBool currentStart = breakState[wordStart];
+          PRUint8 currentStart = breakState[wordStart];
           nsContentUtils::LineBreaker()->
             GetJISx4051Breaks(aText + wordStart, offset - wordStart,
                               breakState.Elements() + wordStart);
           breakState[wordStart] = currentStart;
         }
-        wordHasComplexChar = PR_FALSE;
+        wordHasComplexChar = false;
       }
 
       ++offset;
@@ -362,7 +429,7 @@ nsLineBreaker::AppendText(nsIAtom* aLangGroup, const PRUint8* aText, PRUint32 aL
       wordStart = offset;
     } else {
       if (!wordHasComplexChar && IsComplexASCIIChar(ch)) {
-        wordHasComplexChar = PR_TRUE;
+        wordHasComplexChar = true;
       }
       ++offset;
       if (offset >= aLength) {
@@ -390,6 +457,16 @@ nsLineBreaker::AppendText(nsIAtom* aLangGroup, const PRUint8* aText, PRUint32 aL
   return NS_OK;
 }
 
+void
+nsLineBreaker::UpdateCurrentWordLangGroup(nsIAtom *aLangGroup)
+{
+  if (mCurrentWordLangGroup && mCurrentWordLangGroup != aLangGroup) {
+    mCurrentWordContainsMixedLang = true;
+  } else {
+    mCurrentWordLangGroup = aLangGroup;
+  }
+}
+
 nsresult
 nsLineBreaker::AppendInvisibleWhitespace(PRUint32 aFlags)
 {
@@ -397,23 +474,23 @@ nsLineBreaker::AppendInvisibleWhitespace(PRUint32 aFlags)
   if (NS_FAILED(rv))
     return rv;
 
-  PRBool isBreakableSpace = !(aFlags & BREAK_SUPPRESS_INSIDE);
+  bool isBreakableSpace = !(aFlags & BREAK_SUPPRESS_INSIDE);
   if (mAfterBreakableSpace && !isBreakableSpace) {
-    mBreakHere = PR_TRUE;
+    mBreakHere = true;
   }
   mAfterBreakableSpace = isBreakableSpace;
   return NS_OK;
 }
 
 nsresult
-nsLineBreaker::Reset(PRBool* aTrailingBreak)
+nsLineBreaker::Reset(bool* aTrailingBreak)
 {
   nsresult rv = FlushCurrentWord();
   if (NS_FAILED(rv))
     return rv;
 
   *aTrailingBreak = mBreakHere || mAfterBreakableSpace;
-  mBreakHere = PR_FALSE;
-  mAfterBreakableSpace = PR_FALSE;
+  mBreakHere = false;
+  mAfterBreakableSpace = false;
   return NS_OK;
 }

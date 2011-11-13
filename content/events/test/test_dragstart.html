@@ -2,7 +2,6 @@
 <head>
   <title>Tests for the dragstart event</title>
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css">
-  <script type="application/javascript" src="/MochiKit/packed.js"></script>
   <script type="application/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>      
   <script type="application/javascript" src="/tests/SimpleTest/EventUtils.js"></script>      
 
@@ -130,6 +129,8 @@ function doDragStartSelection(event)
   // text/plain data
   is(dt.getData("text/unicode"), "This is a draggable bit of text.", "initial selection text/unicode");
   is(dt.getData("Text"), "This is a draggable bit of text.", "initial selection Text");
+  is(dt.getData("TEXT"), "This is a draggable bit of text.", "initial selection TEXT");
+  is(dt.getData("text/UNICODE"), "This is a draggable bit of text.", "initial selection text/UNICODE"); 
 
   is(dt.mozItemCount, 1, "initial selection item count");
 

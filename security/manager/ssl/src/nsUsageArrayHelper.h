@@ -48,7 +48,7 @@ public:
   nsUsageArrayHelper(CERTCertificate *aCert);
 
   nsresult GetUsagesArray(const char *suffix,
-               PRBool ignoreOcsp,
+               bool localOnly,
                PRUint32 outArraySize,
                PRUint32 *_verified,
                PRUint32 *_count,

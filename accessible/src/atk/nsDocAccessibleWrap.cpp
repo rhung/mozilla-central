@@ -1,6 +1,5 @@
-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
-/* vim:expandtab:shiftwidth=4:tabstop=4:
- */
+/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* vim: set ts=2 et sw=2 tw=80: */
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
@@ -50,7 +49,7 @@
 nsDocAccessibleWrap::
     nsDocAccessibleWrap(nsIDocument *aDocument, nsIContent *aRootContent,
                         nsIWeakReference *aShell) :
-    nsDocAccessible(aDocument, aRootContent, aShell), mActivated(PR_FALSE)
+    nsDocAccessible(aDocument, aRootContent, aShell), mActivated(false)
 {
 }
 

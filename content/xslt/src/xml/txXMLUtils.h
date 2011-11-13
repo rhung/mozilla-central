@@ -48,11 +48,8 @@
 #include "nsDependentSubstring.h"
 #include "nsIAtom.h"
 #include "txXPathNode.h"
-
-#ifndef TX_EXE
 #include "nsIParserService.h"
 #include "nsContentUtils.h"
-#endif
 
 #define kExpatSeparatorChar 0xFFFF
 
@@ -78,7 +75,7 @@ public:
     }
 
     nsresult init(const nsAString& aQName, txNamespaceMap* aResolver,
-                  MBool aUseDefault);
+                  bool aUseDefault);
 
     void reset()
     {
@@ -86,7 +83,7 @@ public:
         mLocalName = nsnull;
     }
 
-    PRBool isNull()
+    bool isNull()
     {
         return mNamespaceID == kNameSpaceID_None && !mLocalName;
     }
@@ -98,13 +95,13 @@ public:
         return *this;
     }
 
-    MBool operator == (const txExpandedName& rhs) const
+    bool operator == (const txExpandedName& rhs) const
     {
         return ((mLocalName == rhs.mLocalName) &&
                 (mNamespaceID == rhs.mNamespaceID));
     }
 
-    MBool operator != (const txExpandedName& rhs) const
+    bool operator != (const txExpandedName& rhs) const
     {
         return ((mLocalName != rhs.mLocalName) ||
                 (mNamespaceID != rhs.mNamespaceID));
@@ -113,13 +110,6 @@ public:
     PRInt32 mNamespaceID;
     nsCOMPtr<nsIAtom> mLocalName;
 };
-
-#ifdef TX_EXE
-extern "C" int MOZ_XMLCheckQName(const char* ptr, const char* end,
-                                 int ns_aware, const char** colon);
-extern "C" int MOZ_XMLIsLetter(const char* ptr);
-extern "C" int MOZ_XMLIsNCNameChar(const char* ptr);
-#endif
 
 class XMLUtils {
 
@@ -134,7 +124,7 @@ public:
     /*
      * Returns true if the given character is whitespace.
      */
-    static MBool isWhitespace(const PRUnichar& aChar)
+    static bool isWhitespace(const PRUnichar& aChar)
     {
         return (aChar <= ' ' &&
                 (aChar == ' ' || aChar == '\r' ||
@@ -144,7 +134,7 @@ public:
     /**
      * Returns true if the given string has only whitespace characters
      */
-    static PRBool isWhitespace(const nsAFlatString& aText);
+    static bool isWhitespace(const nsAFlatString& aText);
 
     /**
      * Normalizes the value of a XML processingInstruction
@@ -154,58 +144,36 @@ public:
     /**
      * Returns true if the given string is a valid XML QName
      */
-    static PRBool isValidQName(const nsAFlatString& aQName,
+    static bool isValidQName(const nsAFlatString& aQName,
                                const PRUnichar** aColon)
     {
-#ifdef TX_EXE
-        const PRUnichar* end;
-        aQName.EndReading(end);
-
-        const char *colonPtr;
-        int result = MOZ_XMLCheckQName(reinterpret_cast<const char*>
-                                                       (aQName.get()),
-                                       reinterpret_cast<const char*>
-                                                       (end),
-                                       PR_TRUE, &colonPtr);
-        *aColon = reinterpret_cast<const PRUnichar*>(colonPtr);
-        return result == 0;
-#else
         nsIParserService* ps = nsContentUtils::GetParserService();
-        return ps && NS_SUCCEEDED(ps->CheckQName(aQName, PR_TRUE, aColon));
-#endif
+        return ps && NS_SUCCEEDED(ps->CheckQName(aQName, true, aColon));
     }
 
     /**
      * Returns true if the given character represents an Alpha letter
      */
-    static PRBool isLetter(PRUnichar aChar)
+    static bool isLetter(PRUnichar aChar)
     {
-#ifdef TX_EXE
-        return MOZ_XMLIsLetter(reinterpret_cast<const char*>(&aChar));
-#else
         nsIParserService* ps = nsContentUtils::GetParserService();
         return ps && ps->IsXMLLetter(aChar);
-#endif
     }
 
     /**
      * Returns true if the given character is an allowable NCName character
      */
-    static PRBool isNCNameChar(PRUnichar aChar)
+    static bool isNCNameChar(PRUnichar aChar)
     {
-#ifdef TX_EXE
-        return MOZ_XMLIsNCNameChar(reinterpret_cast<const char*>(&aChar));
-#else
         nsIParserService* ps = nsContentUtils::GetParserService();
         return ps && ps->IsXMLNCNameChar(aChar);
-#endif
     }
 
     /*
      * Walks up the document tree and returns true if the closest xml:space
      * attribute is "preserve"
      */
-    static MBool getXMLSpacePreserve(const txXPathNode& aNode);
+    static bool getXMLSpacePreserve(const txXPathNode& aNode);
 };
 
 #endif

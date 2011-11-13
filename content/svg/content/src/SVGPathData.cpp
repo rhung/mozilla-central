@@ -38,7 +38,6 @@
 #include "SVGAnimatedPathSegList.h"
 #include "SVGPathSegUtils.h"
 #include "nsSVGElement.h"
-#include "nsISVGValueUtils.h"
 #include "nsDOMError.h"
 #include "nsContentUtils.h"
 #include "nsString.h"
@@ -51,7 +50,7 @@
 
 using namespace mozilla;
 
-static PRBool IsMoveto(PRUint16 aSegType)
+static bool IsMoveto(PRUint16 aSegType)
 {
   return aSegType == nsIDOMSVGPathSeg::PATHSEG_MOVETO_ABS ||
          aSegType == nsIDOMSVGPathSeg::PATHSEG_MOVETO_REL;
@@ -154,7 +153,7 @@ SVGPathData::CountItems() const
 }
 #endif
 
-PRBool
+bool
 SVGPathData::GetSegmentLengths(nsTArray<double> *aLengths) const
 {
   aLengths->Clear();
@@ -166,17 +165,17 @@ SVGPathData::GetSegmentLengths(nsTArray<double> *aLengths) const
     SVGPathSegUtils::TraversePathSegment(&mData[i], state);
     if (!aLengths->AppendElement(state.length)) {
       aLengths->Clear();
-      return PR_FALSE;
+      return false;
     }
     i += 1 + SVGPathSegUtils::ArgCountForType(mData[i]);
   }
 
   NS_ABORT_IF_FALSE(i == mData.Length(), "Very, very bad - mData corrupt");
 
-  return PR_TRUE;
+  return true;
 }
 
-PRBool
+bool
 SVGPathData::GetDistancesFromOriginToEndsOfVisibleSegments(nsTArray<double> *aOutput) const
 {
   SVGPathTraversalState state;
@@ -201,7 +200,7 @@ SVGPathData::GetDistancesFromOriginToEndsOfVisibleSegments(nsTArray<double> *aOu
     if (i == 0 || (segType != nsIDOMSVGPathSeg::PATHSEG_MOVETO_ABS &&
                    segType != nsIDOMSVGPathSeg::PATHSEG_MOVETO_REL)) {
       if (!aOutput->AppendElement(state.length)) {
-        return PR_FALSE;
+        return false;
       }
     }
     i += 1 + SVGPathSegUtils::ArgCountForType(segType);
@@ -209,7 +208,7 @@ SVGPathData::GetDistancesFromOriginToEndsOfVisibleSegments(nsTArray<double> *aOu
 
   NS_ABORT_IF_FALSE(i == mData.Length(), "Very, very bad - mData corrupt?");
 
-  return PR_TRUE;
+  return true;
 }
 
 PRUint32
@@ -237,6 +236,50 @@ SVGPathData::GetPathSegAtLength(float aDistance) const
   return NS_MAX(0U, segIndex - 1); // -1 because while loop takes us 1 too far
 }
 
+/**
+ * The SVG spec says we have to paint stroke caps for zero length subpaths:
+ *
+ *   http://www.w3.org/TR/SVG11/implnote.html#PathElementImplementationNotes
+ *
+ * Cairo only does this for |stroke-linecap: round| and not for
+ * |stroke-linecap: square| (since that's what Adobe Acrobat has always done).
+ *
+ * To help us conform to the SVG spec we have this helper function to draw an
+ * approximation of square caps for zero length subpaths. It does this by
+ * inserting a subpath containing a single axis aligned straight line that is
+ * as small as it can be without cairo throwing it away for being too small to
+ * affect rendering. Cairo will then draw stroke caps for this axis aligned
+ * line, creating an axis aligned rectangle (approximating the square that
+ * would ideally be drawn).
+ *
+ * Note that this function inserts a subpath into the current gfx path that
+ * will be present during both fill and stroke operations.
+ */
+static void
+ApproximateZeroLengthSubpathSquareCaps(const gfxPoint &aPoint, gfxContext *aCtx)
+{
+  // Cairo's fixed point fractional part is 8 bits wide, so its device space
+  // coordinate granularity is 1/256 pixels. However, to prevent user space
+  // |aPoint| and |aPoint + tinyAdvance| being rounded to the same device
+  // coordinates, we double this for |tinyAdvance|:
+
+  const gfxSize tinyAdvance = aCtx->DeviceToUser(gfxSize(2.0/256.0, 0.0));
+
+  aCtx->MoveTo(aPoint);
+  aCtx->LineTo(aPoint + gfxPoint(tinyAdvance.width, tinyAdvance.height));
+  aCtx->MoveTo(aPoint);
+}
+
+#define MAYBE_APPROXIMATE_ZERO_LENGTH_SUBPATH_SQUARE_CAPS                     \
+  do {                                                                        \
+    if (capsAreSquare && !subpathHasLength && subpathContainsNonArc &&        \
+        SVGPathSegUtils::IsValidType(prevSegType) &&                          \
+        (!IsMoveto(prevSegType) ||                                            \
+         segType == nsIDOMSVGPathSeg::PATHSEG_CLOSEPATH)) {                   \
+      ApproximateZeroLengthSubpathSquareCaps(segStart, aCtx);                 \
+    }                                                                         \
+  } while(0)
+
 void
 SVGPathData::ConstructPath(gfxContext *aCtx) const
 {
@@ -244,9 +287,14 @@ SVGPathData::ConstructPath(gfxContext *aCtx) const
     return; // paths without an initial moveto are invalid
   }
 
+  bool capsAreSquare = aCtx->CurrentLineCap() == gfxContext::LINE_CAP_SQUARE;
+  bool subpathHasLength = false;  // visual length
+  bool subpathContainsNonArc = false;
+
   PRUint32 segType, prevSegType = nsIDOMSVGPathSeg::PATHSEG_UNKNOWN;
   gfxPoint pathStart(0.0, 0.0); // start point of [sub]path
-  gfxPoint segEnd(0.0, 0.0);    // end point of previous/current segment
+  gfxPoint segStart(0.0, 0.0);
+  gfxPoint segEnd;
   gfxPoint cp1, cp2;            // previous bezier's control points
   gfxPoint tcp1, tcp2;          // temporaries
 
@@ -257,36 +305,50 @@ SVGPathData::ConstructPath(gfxContext *aCtx) const
   PRUint32 i = 0;
   while (i < mData.Length()) {
     segType = SVGPathSegUtils::DecodeType(mData[i++]);
+    PRUint32 argCount = SVGPathSegUtils::ArgCountForType(segType);
 
     switch (segType)
     {
     case nsIDOMSVGPathSeg::PATHSEG_CLOSEPATH:
+      // set this early to allow drawing of square caps for "M{x},{y} Z":
+      subpathContainsNonArc = true;
+      MAYBE_APPROXIMATE_ZERO_LENGTH_SUBPATH_SQUARE_CAPS;
       segEnd = pathStart;
       aCtx->ClosePath();
       break;
 
     case nsIDOMSVGPathSeg::PATHSEG_MOVETO_ABS:
+      MAYBE_APPROXIMATE_ZERO_LENGTH_SUBPATH_SQUARE_CAPS;
       pathStart = segEnd = gfxPoint(mData[i], mData[i+1]);
       aCtx->MoveTo(segEnd);
-      i += 2;
+      subpathHasLength = false;
+      subpathContainsNonArc = false;
       break;
 
     case nsIDOMSVGPathSeg::PATHSEG_MOVETO_REL:
-      pathStart = segEnd += gfxPoint(mData[i], mData[i+1]);
+      MAYBE_APPROXIMATE_ZERO_LENGTH_SUBPATH_SQUARE_CAPS;
+      pathStart = segEnd = segStart + gfxPoint(mData[i], mData[i+1]);
       aCtx->MoveTo(segEnd);
-      i += 2;
+      subpathHasLength = false;
+      subpathContainsNonArc = false;
       break;
 
     case nsIDOMSVGPathSeg::PATHSEG_LINETO_ABS:
       segEnd = gfxPoint(mData[i], mData[i+1]);
       aCtx->LineTo(segEnd);
-      i += 2;
+      if (!subpathHasLength) {
+        subpathHasLength = (segEnd != segStart);
+      }
+      subpathContainsNonArc = true;
       break;
 
     case nsIDOMSVGPathSeg::PATHSEG_LINETO_REL:
-      segEnd += gfxPoint(mData[i], mData[i+1]);
+      segEnd = segStart + gfxPoint(mData[i], mData[i+1]);
       aCtx->LineTo(segEnd);
-      i += 2;
+      if (!subpathHasLength) {
+        subpathHasLength = (segEnd != segStart);
+      }
+      subpathContainsNonArc = true;
       break;
 
     case nsIDOMSVGPathSeg::PATHSEG_CURVETO_CUBIC_ABS:
@@ -294,126 +356,170 @@ SVGPathData::ConstructPath(gfxContext *aCtx) const
       cp2 = gfxPoint(mData[i+2], mData[i+3]);
       segEnd = gfxPoint(mData[i+4], mData[i+5]);
       aCtx->CurveTo(cp1, cp2, segEnd);
-      i += 6;
+      if (!subpathHasLength) {
+        subpathHasLength = (segEnd != segStart || segEnd != cp1 || segEnd != cp2);
+      }
+      subpathContainsNonArc = true;
       break;
 
     case nsIDOMSVGPathSeg::PATHSEG_CURVETO_CUBIC_REL:
-      cp1 = segEnd + gfxPoint(mData[i], mData[i+1]);
-      cp2 = segEnd + gfxPoint(mData[i+2], mData[i+3]);
-      segEnd += gfxPoint(mData[i+4], mData[i+5]);
+      cp1 = segStart + gfxPoint(mData[i], mData[i+1]);
+      cp2 = segStart + gfxPoint(mData[i+2], mData[i+3]);
+      segEnd = segStart + gfxPoint(mData[i+4], mData[i+5]);
       aCtx->CurveTo(cp1, cp2, segEnd);
-      i += 6;
+      if (!subpathHasLength) {
+        subpathHasLength = (segEnd != segStart || segEnd != cp1 || segEnd != cp2);
+      }
+      subpathContainsNonArc = true;
       break;
 
     case nsIDOMSVGPathSeg::PATHSEG_CURVETO_QUADRATIC_ABS:
       cp1 = gfxPoint(mData[i], mData[i+1]);
       // Convert quadratic curve to cubic curve:
-      tcp1 = segEnd + (cp1 - segEnd) * 2 / 3;
-      segEnd = gfxPoint(mData[i+2], mData[i+3]); // changed before setting tcp2!
+      tcp1 = segStart + (cp1 - segStart) * 2 / 3;
+      segEnd = gfxPoint(mData[i+2], mData[i+3]); // set before setting tcp2!
       tcp2 = cp1 + (segEnd - cp1) / 3;
       aCtx->CurveTo(tcp1, tcp2, segEnd);
-      i += 4;
+      if (!subpathHasLength) {
+        subpathHasLength = (segEnd != segStart || segEnd != cp1);
+      }
+      subpathContainsNonArc = true;
       break;
 
     case nsIDOMSVGPathSeg::PATHSEG_CURVETO_QUADRATIC_REL:
-      cp1 = segEnd + gfxPoint(mData[i], mData[i+1]);
+      cp1 = segStart + gfxPoint(mData[i], mData[i+1]);
       // Convert quadratic curve to cubic curve:
-      tcp1 = segEnd + (cp1 - segEnd) * 2 / 3;
-      segEnd += gfxPoint(mData[i+2], mData[i+3]); // changed before setting tcp2!
+      tcp1 = segStart + (cp1 - segStart) * 2 / 3;
+      segEnd = segStart + gfxPoint(mData[i+2], mData[i+3]); // set before setting tcp2!
       tcp2 = cp1 + (segEnd - cp1) / 3;
       aCtx->CurveTo(tcp1, tcp2, segEnd);
-      i += 4;
+      if (!subpathHasLength) {
+        subpathHasLength = (segEnd != segStart || segEnd != cp1);
+      }
+      subpathContainsNonArc = true;
       break;
 
     case nsIDOMSVGPathSeg::PATHSEG_ARC_ABS:
     case nsIDOMSVGPathSeg::PATHSEG_ARC_REL:
     {
       gfxPoint radii(mData[i], mData[i+1]);
-      gfxPoint start = segEnd;
-      gfxPoint end = gfxPoint(mData[i+5], mData[i+6]);
+      segEnd = gfxPoint(mData[i+5], mData[i+6]);
       if (segType == nsIDOMSVGPathSeg::PATHSEG_ARC_REL) {
-        end += start;
+        segEnd += segStart;
       }
-      segEnd = end;
-      if (start != end) {
+      if (segEnd != segStart) {
         if (radii.x == 0.0f || radii.y == 0.0f) {
-          aCtx->LineTo(end);
-          i += 7;
-          break;
-        }
-        nsSVGArcConverter converter(start, end, radii, mData[i+2],
-                                    mData[i+3] != 0, mData[i+4] != 0);
-        while (converter.GetNextSegment(&cp1, &cp2, &end)) {
-          aCtx->CurveTo(cp1, cp2, end);
+          aCtx->LineTo(segEnd);
+        } else {
+          nsSVGArcConverter converter(segStart, segEnd, radii, mData[i+2],
+                                      mData[i+3] != 0, mData[i+4] != 0);
+          while (converter.GetNextSegment(&cp1, &cp2, &segEnd)) {
+            aCtx->CurveTo(cp1, cp2, segEnd);
+          }
         }
       }
-      i += 7;
+      if (!subpathHasLength) {
+        subpathHasLength = (segEnd != segStart);
+      }
       break;
     }
 
     case nsIDOMSVGPathSeg::PATHSEG_LINETO_HORIZONTAL_ABS:
-      segEnd = gfxPoint(mData[i++], segEnd.y);
+      segEnd = gfxPoint(mData[i], segStart.y);
       aCtx->LineTo(segEnd);
+      if (!subpathHasLength) {
+        subpathHasLength = (segEnd != segStart);
+      }
+      subpathContainsNonArc = true;
       break;
 
     case nsIDOMSVGPathSeg::PATHSEG_LINETO_HORIZONTAL_REL:
-      segEnd += gfxPoint(mData[i++], 0.0f);
+      segEnd = segStart + gfxPoint(mData[i], 0.0f);
       aCtx->LineTo(segEnd);
+      if (!subpathHasLength) {
+        subpathHasLength = (segEnd != segStart);
+      }
+      subpathContainsNonArc = true;
       break;
 
     case nsIDOMSVGPathSeg::PATHSEG_LINETO_VERTICAL_ABS:
-      segEnd = gfxPoint(segEnd.x, mData[i++]);
+      segEnd = gfxPoint(segStart.x, mData[i]);
       aCtx->LineTo(segEnd);
+      if (!subpathHasLength) {
+        subpathHasLength = (segEnd != segStart);
+      }
+      subpathContainsNonArc = true;
       break;
 
     case nsIDOMSVGPathSeg::PATHSEG_LINETO_VERTICAL_REL:
-      segEnd += gfxPoint(0.0f, mData[i++]);
+      segEnd = segStart + gfxPoint(0.0f, mData[i]);
       aCtx->LineTo(segEnd);
+      if (!subpathHasLength) {
+        subpathHasLength = (segEnd != segStart);
+      }
+      subpathContainsNonArc = true;
       break;
 
     case nsIDOMSVGPathSeg::PATHSEG_CURVETO_CUBIC_SMOOTH_ABS:
-      cp1 = SVGPathSegUtils::IsCubicType(prevSegType) ? segEnd * 2 - cp2 : segEnd;
+      cp1 = SVGPathSegUtils::IsCubicType(prevSegType) ? segStart * 2 - cp2 : segStart;
       cp2 = gfxPoint(mData[i],   mData[i+1]);
       segEnd = gfxPoint(mData[i+2], mData[i+3]);
       aCtx->CurveTo(cp1, cp2, segEnd);
-      i += 4;
+      if (!subpathHasLength) {
+        subpathHasLength = (segEnd != segStart || segEnd != cp1 || segEnd != cp2);
+      }
+      subpathContainsNonArc = true;
       break;
 
     case nsIDOMSVGPathSeg::PATHSEG_CURVETO_CUBIC_SMOOTH_REL:
-      cp1 = SVGPathSegUtils::IsCubicType(prevSegType) ? segEnd * 2 - cp2 : segEnd;
-      cp2 = segEnd + gfxPoint(mData[i], mData[i+1]);
-      segEnd += gfxPoint(mData[i+2], mData[i+3]);
+      cp1 = SVGPathSegUtils::IsCubicType(prevSegType) ? segStart * 2 - cp2 : segStart;
+      cp2 = segStart + gfxPoint(mData[i], mData[i+1]);
+      segEnd = segStart + gfxPoint(mData[i+2], mData[i+3]);
       aCtx->CurveTo(cp1, cp2, segEnd);
-      i += 4;
+      if (!subpathHasLength) {
+        subpathHasLength = (segEnd != segStart || segEnd != cp1 || segEnd != cp2);
+      }
+      subpathContainsNonArc = true;
       break;
 
     case nsIDOMSVGPathSeg::PATHSEG_CURVETO_QUADRATIC_SMOOTH_ABS:
-      cp1 = SVGPathSegUtils::IsQuadraticType(prevSegType) ? segEnd * 2 - cp1 : segEnd;
+      cp1 = SVGPathSegUtils::IsQuadraticType(prevSegType) ? segStart * 2 - cp1 : segStart;
       // Convert quadratic curve to cubic curve:
-      tcp1 = segEnd + (cp1 - segEnd) * 2 / 3;
-      segEnd = gfxPoint(mData[i], mData[i+1]); // changed before setting tcp2!
+      tcp1 = segStart + (cp1 - segStart) * 2 / 3;
+      segEnd = gfxPoint(mData[i], mData[i+1]); // set before setting tcp2!
       tcp2 = cp1 + (segEnd - cp1) / 3;
       aCtx->CurveTo(tcp1, tcp2, segEnd);
-      i += 2;
+      if (!subpathHasLength) {
+        subpathHasLength = (segEnd != segStart || segEnd != cp1);
+      }
+      subpathContainsNonArc = true;
       break;
 
     case nsIDOMSVGPathSeg::PATHSEG_CURVETO_QUADRATIC_SMOOTH_REL:
-      cp1 = SVGPathSegUtils::IsQuadraticType(prevSegType) ? segEnd * 2 - cp1 : segEnd;
+      cp1 = SVGPathSegUtils::IsQuadraticType(prevSegType) ? segStart * 2 - cp1 : segStart;
       // Convert quadratic curve to cubic curve:
-      tcp1 = segEnd + (cp1 - segEnd) * 2 / 3;
-      segEnd = segEnd + gfxPoint(mData[i], mData[i+1]); // changed before setting tcp2!
+      tcp1 = segStart + (cp1 - segStart) * 2 / 3;
+      segEnd = segStart + gfxPoint(mData[i], mData[i+1]); // changed before setting tcp2!
       tcp2 = cp1 + (segEnd - cp1) / 3;
       aCtx->CurveTo(tcp1, tcp2, segEnd);
-      i += 2;
+      if (!subpathHasLength) {
+        subpathHasLength = (segEnd != segStart || segEnd != cp1);
+      }
+      subpathContainsNonArc = true;
       break;
 
     default:
       NS_NOTREACHED("Bad path segment type");
       return; // according to spec we'd use everything up to the bad seg anyway
     }
+    i += argCount;
     prevSegType = segType;
+    segStart = segEnd;
   }
+
   NS_ABORT_IF_FALSE(i == mData.Length(), "Very, very bad - mData corrupt");
+
+  MAYBE_APPROXIMATE_ZERO_LENGTH_SUBPATH_SQUARE_CAPS;
 }
 
 already_AddRefed<gfxFlattenedPath>
@@ -560,8 +666,8 @@ SVGPathData::GetMarkerPositioningData(nsTArray<nsSVGMark> *aMarks) const
       double rx = mData[i];
       double ry = mData[i+1];
       double angle = mData[i+2];
-      PRBool largeArcFlag = mData[i+3] != 0.0f;
-      PRBool sweepFlag = mData[i+4] != 0.0f;
+      bool largeArcFlag = mData[i+3] != 0.0f;
+      bool sweepFlag = mData[i+4] != 0.0f;
       if (segType == nsIDOMSVGPathSeg::PATHSEG_ARC_ABS) {
         segEnd = gfxPoint(mData[i+5], mData[i+6]);
       } else {
@@ -724,7 +830,7 @@ SVGPathData::GetMarkerPositioningData(nsTArray<nsSVGMark> *aMarks) const
     default:
       // Leave any existing marks in aMarks so we have a visual indication of
       // when things went wrong.
-      NS_ABORT_IF_FALSE(PR_FALSE, "Unknown segment type - path corruption?");
+      NS_ABORT_IF_FALSE(false, "Unknown segment type - path corruption?");
       return;
     }
 

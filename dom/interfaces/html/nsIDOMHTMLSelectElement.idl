@@ -53,7 +53,7 @@
 
 interface nsIDOMValidityState;
 
-[scriptable, uuid(58cd01b8-c3f2-4e58-b39d-8a0ba941717e)]
+[scriptable, uuid(98f111e0-2b7e-4abd-984b-2cc1d174fe44)]
 interface nsIDOMHTMLSelectElement : nsIDOMHTMLElement
 {
            attribute boolean                     autofocus;
@@ -69,15 +69,17 @@ interface nsIDOMHTMLSelectElement : nsIDOMHTMLElement
            attribute unsigned long               length;
   nsIDOMNode                item(in unsigned long index);
   nsIDOMNode                namedItem(in DOMString name);
+  // This add method implementation means the following
+  // since IDL doesn't support overfload.
+  //   void add(in nsIDOMHTMLElement, [optional] in nsIDOMHTMLElement)
+  //   void add(in nsIDOMHTMLElement, in long)
   void                      add(in nsIDOMHTMLElement element, 
-                                in nsIDOMHTMLElement before)
+                                [optional] in nsIVariant before)
                                                      raises(DOMException);   
   void                      remove(in long index);
 
            attribute long                  selectedIndex;
            attribute DOMString             value;
-
-           attribute long                  tabIndex;
 
   // The following lines are part of the constraint validation API, see:
   // http://www.whatwg.org/specs/web-apps/current-work/#the-constraint-validation-api

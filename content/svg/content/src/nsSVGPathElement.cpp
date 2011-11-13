@@ -36,6 +36,8 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+#include "mozilla/Util.h"
+
 #include "nsGkAtoms.h"
 #include "nsIDOMSVGPathSeg.h"
 #include "DOMSVGPathSeg.h"
@@ -44,7 +46,6 @@
 #include "nsIFrame.h"
 #include "nsSVGPathDataParser.h"
 #include "nsSVGPathElement.h"
-#include "nsISVGValueUtils.h"
 #include "nsSVGUtils.h"
 #include "DOMSVGPoint.h"
 #include "gfxContext.h"
@@ -53,7 +54,7 @@
 using namespace mozilla;
 
 nsSVGElement::NumberInfo nsSVGPathElement::sNumberInfo = 
-{ &nsGkAtoms::pathLength, 0, PR_FALSE };
+{ &nsGkAtoms::pathLength, 0, false };
 
 NS_IMPL_NS_NEW_SVG_ELEMENT(Path)
 
@@ -122,8 +123,11 @@ nsSVGPathElement::GetPointAtLength(float distance, nsIDOMSVGPoint **_retval)
     return NS_ERROR_FAILURE;
 
   float totalLength = flat->GetLength();
-  if (HasAttr(kNameSpaceID_None, nsGkAtoms::pathLength)) {
+  if (mPathLength.IsExplicitlySet()) {
     float pathLength = mPathLength.GetAnimValue();
+    if (pathLength <= 0) {
+      return NS_ERROR_FAILURE;
+    }
     distance *= totalLength / pathLength;
   }
   distance = NS_MAX(0.f,         distance);
@@ -233,7 +237,7 @@ nsSVGPathElement::CreateSVGPathSegCurvetoQuadraticRel(float x, float y, float x1
 
 /* nsIDOMSVGPathSegArcAbs createSVGPathSegArcAbs (in float x, in float y, in float r1, in float r2, in float angle, in boolean largeArcFlag, in boolean sweepFlag); */
 NS_IMETHODIMP
-nsSVGPathElement::CreateSVGPathSegArcAbs(float x, float y, float r1, float r2, float angle, PRBool largeArcFlag, PRBool sweepFlag, nsIDOMSVGPathSegArcAbs **_retval)
+nsSVGPathElement::CreateSVGPathSegArcAbs(float x, float y, float r1, float r2, float angle, bool largeArcFlag, bool sweepFlag, nsIDOMSVGPathSegArcAbs **_retval)
 {
   NS_ENSURE_FINITE5(x, y, r1, r2, angle, NS_ERROR_ILLEGAL_VALUE);
   nsIDOMSVGPathSeg* seg = NS_NewSVGPathSegArcAbs(x, y, r1, r2, angle,
@@ -244,7 +248,7 @@ nsSVGPathElement::CreateSVGPathSegArcAbs(float x, float y, float r1, float r2, f
 
 /* nsIDOMSVGPathSegArcRel createSVGPathSegArcRel (in float x, in float y, in float r1, in float r2, in float angle, in boolean largeArcFlag, in boolean sweepFlag); */
 NS_IMETHODIMP
-nsSVGPathElement::CreateSVGPathSegArcRel(float x, float y, float r1, float r2, float angle, PRBool largeArcFlag, PRBool sweepFlag, nsIDOMSVGPathSegArcRel **_retval)
+nsSVGPathElement::CreateSVGPathSegArcRel(float x, float y, float r1, float r2, float angle, bool largeArcFlag, bool sweepFlag, nsIDOMSVGPathSegArcRel **_retval)
 {
   NS_ENSURE_FINITE5(x, y, r1, r2, angle, NS_ERROR_ILLEGAL_VALUE);
   nsIDOMSVGPathSeg* seg = NS_NewSVGPathSegArcRel(x, y, r1, r2, angle,
@@ -349,7 +353,7 @@ nsSVGPathElement::GetNumberInfo()
 NS_IMETHODIMP nsSVGPathElement::GetPathSegList(nsIDOMSVGPathSegList * *aPathSegList)
 {
   void *key = mD.GetBaseValKey();
-  *aPathSegList = DOMSVGPathSegList::GetDOMWrapper(key, this, PR_FALSE).get();
+  *aPathSegList = DOMSVGPathSegList::GetDOMWrapper(key, this, false).get();
   return *aPathSegList ? NS_OK : NS_ERROR_OUT_OF_MEMORY;
 }
 
@@ -364,7 +368,7 @@ NS_IMETHODIMP nsSVGPathElement::GetAnimatedPathSegList(nsIDOMSVGPathSegList * *a
 {
   void *key = mD.GetAnimValKey();
   *aAnimatedPathSegList =
-    DOMSVGPathSegList::GetDOMWrapper(key, this, PR_TRUE).get();
+    DOMSVGPathSegList::GetDOMWrapper(key, this, true).get();
   return *aAnimatedPathSegList ? NS_OK : NS_ERROR_OUT_OF_MEMORY;
 }
 
@@ -377,14 +381,14 @@ NS_IMETHODIMP nsSVGPathElement::GetAnimatedNormalizedPathSegList(nsIDOMSVGPathSe
 //----------------------------------------------------------------------
 // nsIContent methods
 
-NS_IMETHODIMP_(PRBool)
+NS_IMETHODIMP_(bool)
 nsSVGPathElement::IsAttributeMapped(const nsIAtom* name) const
 {
   static const MappedAttributeEntry* const map[] = {
     sMarkersMap
   };
 
-  return FindAttributeDependence(name, map, NS_ARRAY_LENGTH(map)) ||
+  return FindAttributeDependence(name, map, ArrayLength(map)) ||
     nsSVGPathElementBase::IsAttributeMapped(name);
 }
 
@@ -397,20 +401,17 @@ nsSVGPathElement::GetFlattenedPath(const gfxMatrix &aMatrix)
 //----------------------------------------------------------------------
 // nsSVGPathGeometryElement methods
 
-PRBool
+bool
 nsSVGPathElement::AttributeDefinesGeometry(const nsIAtom *aName)
 {
-  if (aName == nsGkAtoms::d ||
-      aName == nsGkAtoms::pathLength)
-    return PR_TRUE;
-
-  return PR_FALSE;
+  return aName == nsGkAtoms::d ||
+         aName == nsGkAtoms::pathLength;
 }
 
-PRBool
+bool
 nsSVGPathElement::IsMarkable()
 {
-  return PR_TRUE;
+  return true;
 }
 
 void
@@ -425,3 +426,18 @@ nsSVGPathElement::ConstructPath(gfxContext *aCtx)
   mD.GetAnimValue().ConstructPath(aCtx);
 }
 
+gfxFloat
+nsSVGPathElement::GetScale()
+{
+  if (mPathLength.IsExplicitlySet()) {
+
+    nsRefPtr<gfxFlattenedPath> flat =
+      GetFlattenedPath(PrependLocalTransformTo(gfxMatrix()));
+    float pathLength = mPathLength.GetAnimValue();
+
+    if (flat && pathLength != 0) {
+      return flat->GetLength() / pathLength;
+    }
+  }
+  return 1.0;
+}

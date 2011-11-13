@@ -55,6 +55,7 @@ FormHistory.prototype = {
     QueryInterface   : XPCOMUtils.generateQI([Ci.nsIFormHistory2,
                                               Ci.nsIObserver,
                                               Ci.nsIFrameMessageListener,
+                                              Ci.nsISupportsWeakReference,
                                               ]),
 
     debug          : true,
@@ -89,7 +90,6 @@ FormHistory.prototype = {
             },
         }
     },
-    dbConnection : null,  // The database connection
     dbStmts      : null,  // Database statements for memoization
     dbFile       : null,
 
@@ -125,9 +125,7 @@ FormHistory.prototype = {
 
 
     init : function() {
-        let self = this;
-
-        Services.prefs.addObserver("browser.formfill.", this, false);
+        Services.prefs.addObserver("browser.formfill.", this, true);
 
         this.updatePrefs();
 
@@ -139,27 +137,9 @@ FormHistory.prototype = {
         this.messageManager.addMessageListener("FormHistory:FormSubmitEntries", this);
 
         // Add observers
-        Services.obs.addObserver(function() { self.expireOldEntries() }, "idle-daily", false);
-        Services.obs.addObserver(function() { self.expireOldEntries() }, "formhistory-expire-now", false);
-
-        try {
-            this.dbFile = Services.dirsvc.get("ProfD", Ci.nsIFile).clone();
-            this.dbFile.append("formhistory.sqlite");
-            this.log("Opening database at " + this.dbFile.path);
-
-            this.dbInit();
-        } catch (e) {
-            this.log("Initialization failed: " + e);
-            // If dbInit fails...
-            if (e.result == Cr.NS_ERROR_FILE_CORRUPTED) {
-                this.dbCleanup(true);
-                this.dbInit();
-            } else {
-                throw "Initialization failed";
-            }
-        }
+        Services.obs.addObserver(this, "idle-daily", true);
+        Services.obs.addObserver(this, "formhistory-expire-now", true);
     },
-
 
     /* ---- message listener ---- */
 
@@ -217,7 +197,9 @@ FormHistory.prototype = {
                 this.log("addEntry (modify) failed: " + e);
                 throw e;
             } finally {
-                stmt.reset();
+                if (stmt) {
+                    stmt.reset();
+                }
             }
 
         } else {
@@ -243,7 +225,9 @@ FormHistory.prototype = {
                 this.log("addEntry (create) failed: " + e);
                 throw e;
             } finally {
-                stmt.reset();
+                if (stmt) {
+                    stmt.reset();
+                }
             }
         }
     },
@@ -267,7 +251,9 @@ FormHistory.prototype = {
             this.log("removeEntry failed: " + e);
             throw e;
         } finally {
-            stmt.reset();
+            if (stmt) {
+                stmt.reset();
+            }
         }
     },
 
@@ -289,7 +275,9 @@ FormHistory.prototype = {
             this.log("removeEntriesForName failed: " + e);
             throw e;
         } finally {
-            stmt.reset();
+            if (stmt) {
+                stmt.reset();
+            }
         }
     },
 
@@ -310,14 +298,10 @@ FormHistory.prototype = {
             this.log("removeEntriesForName failed: " + e);
             throw e;
         } finally {
-            stmt.reset();
+            if (stmt) {
+                stmt.reset();
+            }
         }
-
-        // privacy cleanup, if there's an old mork formhistory around, just delete it
-        let oldFile = Services.dirsvc.get("ProfD", Ci.nsIFile);
-        oldFile.append("formhistory.dat");
-        if (oldFile.exists())
-            oldFile.remove(false);
     },
 
 
@@ -334,7 +318,9 @@ FormHistory.prototype = {
             this.log("nameExists failed: " + e);
             throw e;
         } finally {
-            stmt.reset();
+            if (stmt) {
+                stmt.reset();
+            }
         }
     },
 
@@ -364,11 +350,40 @@ FormHistory.prototype = {
             this.log("removeEntriesByTimeframe failed: " + e);
             throw e;
         } finally {
-            stmt.reset();
+            if (stmt) {
+                stmt.reset();
+            }
         }
 
     },
 
+    get dbConnection() {
+        let connection;
+
+        // Make sure dbConnection can't be called from now to prevent infinite loops.
+        delete FormHistory.prototype.dbConnection;
+
+        try {
+            this.dbFile = Services.dirsvc.get("ProfD", Ci.nsIFile).clone();
+            this.dbFile.append("formhistory.sqlite");
+            this.log("Opening database at " + this.dbFile.path);
+
+            FormHistory.prototype.dbConnection = this.dbOpen();
+            this.dbInit();
+        } catch (e) {
+            this.log("Initialization failed: " + e);
+            // If dbInit fails...
+            if (e.result == Cr.NS_ERROR_FILE_CORRUPTED) {
+                this.dbCleanup(true);
+                FormHistory.prototype.dbConnection = this.dbOpen();
+                this.dbInit();
+            } else {
+                throw "Initialization failed";
+            }
+        }
+
+        return FormHistory.prototype.dbConnection;
+    },
 
     get DBConnection() {
         return this.dbConnection;
@@ -379,10 +394,18 @@ FormHistory.prototype = {
 
 
     observe : function (subject, topic, data) {
-        if (topic == "nsPref:changed")
+        switch(topic) {
+        case "nsPref:changed":
             this.updatePrefs();
-        else
+            break;
+        case "idle-daily":
+        case "formhistory-expire-now":
+            this.expireOldEntries();
+            break;
+        default:
             this.log("Oops! Unexpected notification: " + topic);
+            break;
+        }
     },
 
 
@@ -476,7 +499,9 @@ FormHistory.prototype = {
             this.log("getExistingEntryID failed: " + e);
             throw e;
         } finally {
-            stmt.reset();
+            if (stmt) {
+                stmt.reset();
+            }
         }
 
         return [id, guid];
@@ -495,7 +520,9 @@ FormHistory.prototype = {
             this.log("countAllEntries failed: " + e);
             throw e;
         } finally {
-            stmt.reset();
+            if (stmt) {
+                stmt.reset();
+            }
         }
 
         this.log("countAllEntries: counted entries: " + numEntries);
@@ -531,7 +558,9 @@ FormHistory.prototype = {
             this.log("expireOldEntries failed: " + e);
             throw e;
         } finally {
-            stmt.reset();
+            if (stmt) {
+                stmt.reset();
+            }
         }
 
         let endingCount = this.countAllEntries();
@@ -577,6 +606,20 @@ FormHistory.prototype = {
         return stmt;
     },
 
+    /*
+     * dbOpen
+     *
+     * Open a connection with the database and returns it.
+     *
+     * @returns a db connection object.
+     */
+    dbOpen : function () {
+        this.log("Open Database");
+
+        let storage = Cc["@mozilla.org/storage/service;1"].
+                      getService(Ci.mozIStorageService);
+        return storage.openDatabase(this.dbFile);
+    },
 
     /*
      * dbInit
@@ -587,9 +630,6 @@ FormHistory.prototype = {
     dbInit : function () {
         this.log("Initializing Database");
 
-        let storage = Cc["@mozilla.org/storage/service;1"].
-                      getService(Ci.mozIStorageService);
-        this.dbConnection = storage.openDatabase(this.dbFile);
         let version = this.dbConnection.schemaVersion;
 
         // Note: Firefox 3 didn't set a schema value, so it started from 0.
@@ -700,7 +740,9 @@ FormHistory.prototype = {
             this.log("Failed setting timestamps: " + e);
             throw e;
         } finally {
-            stmt.reset();
+            if (stmt) {
+                stmt.reset();
+            }
         }
     },
 
@@ -749,7 +791,9 @@ FormHistory.prototype = {
             this.log("Failed getting IDs: " + e);
             throw e;
         } finally {
-            stmt.reset();
+            if (stmt) {
+                stmt.reset();
+            }
         }
 
         // Generate a GUID for each login and update the DB.
@@ -767,7 +811,9 @@ FormHistory.prototype = {
                 this.log("Failed setting GUID: " + e);
                 throw e;
             } finally {
-                stmt.reset();
+                if (stmt) {
+                    stmt.reset();
+                }
             }
         }
     },

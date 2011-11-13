@@ -265,21 +265,6 @@ LoginManagerPrompter.prototype = {
     },
 
 
-    __brandBundle : null, // String bundle for L10N
-    get _brandBundle() {
-        if (!this.__brandBundle) {
-            var bunService = Cc["@mozilla.org/intl/stringbundle;1"].
-                             getService(Ci.nsIStringBundleService);
-            this.__brandBundle = bunService.createBundle(
-                        "chrome://branding/locale/brand.properties");
-            if (!this.__brandBundle)
-                throw "Branding string bundle not present!";
-        }
-
-        return this.__brandBundle;
-    },
-
-
     __ellipsis : null,
     get _ellipsis() {
         if (!this.__ellipsis) {
@@ -956,20 +941,19 @@ LoginManagerPrompter.prototype = {
             (Ci.nsIPrompt.BUTTON_TITLE_IS_STRING * Ci.nsIPrompt.BUTTON_POS_1) +
             (Ci.nsIPrompt.BUTTON_TITLE_IS_STRING * Ci.nsIPrompt.BUTTON_POS_2);
 
-        var brandShortName =
-                this._brandBundle.GetStringFromName("brandShortName");
         var displayHost = this._getShortDisplayHost(aLogin.hostname);
 
         var dialogText;
         if (aLogin.username) {
             var displayUser = this._sanitizeUsername(aLogin.username);
             dialogText = this._getLocalizedString(
-                                 "saveLoginText",
-                                 [brandShortName, displayUser, displayHost]);
+                                 "rememberPasswordText",
+                                 [displayUser, displayHost]);
         } else {
             dialogText = this._getLocalizedString(
-                                 "saveLoginTextNoUsername",
-                                 [brandShortName, displayHost]);
+                                 "rememberPasswordTextNoUsername",
+                                 [displayHost]);
+
         }
         var dialogTitle        = this._getLocalizedString(
                                         "savePasswordTitle");
@@ -1116,11 +1100,11 @@ LoginManagerPrompter.prototype = {
         var dialogText;
         if (aOldLogin.username)
             dialogText  = this._getLocalizedString(
-                                    "passwordChangeText",
+                                    "updatePasswordText",
                                     [aOldLogin.username]);
         else
             dialogText  = this._getLocalizedString(
-                                    "passwordChangeTextNoUser");
+                                    "updatePasswordTextNoUser");
 
         var dialogTitle = this._getLocalizedString(
                                     "passwordChangeTitle");
@@ -1237,7 +1221,7 @@ LoginManagerPrompter.prototype = {
                 // disabled, and if so use the opener window. But if the window
                 // has been used to visit other pages (ie, has a history),
                 // assume it'll stick around and *don't* use the opener.
-                if (chromeDoc.getAttribute("chromehidden") &&
+                if (chromeDoc.hasAttribute("chromehidden") &&
                     webnav.sessionHistory.count == 1) {
                     this.log("Using opener window for notification bar.");
                     notifyWin = notifyWin.opener;

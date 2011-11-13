@@ -125,6 +125,7 @@
     <command id="Tools:Search" oncommand="BrowserSearch.webSearch();"/>
     <command id="Tools:Downloads" oncommand="BrowserDownloadsUI();"/>
     <command id="Tools:Inspect" oncommand="InspectorUI.toggleInspectorUI();" disabled="true"/>
+    <command id="Tools:Scratchpad" oncommand="Scratchpad.openScratchpad();" disabled="true"/>
     <command id="Tools:Addons" oncommand="BrowserOpenAddonsMgr();"/>
     <command id="Tools:Sanitize"
      oncommand="Cc['@mozilla.org/browser/browserglue;1'].getService(Ci.nsIBrowserGlue).sanitize(window);"/>
@@ -144,12 +145,8 @@
   <commandset id="inspectorCommands">
     <command id="Inspector:Inspect"
              oncommand="InspectorUI.toggleInspection();"/>
-    <command id="Inspector:Previous"
-             oncommand="InspectorUI.inspectPrevious();"
-             disabled="true"/>
-    <command id="Inspector:Next"
-             oncommand="InspectorUI.inspectNext();"
-             disabled="true"/>
+    <command id="Inspector:Sidebar"
+             oncommand="InspectorUI.toggleSidebar();"/>
   </commandset>
 
   <broadcasterset id="mainBroadcasterSet">
@@ -190,7 +187,7 @@
     <broadcaster id="isFrameImage"/>
     <broadcaster id="singleFeedMenuitemState" disabled="true"/>
     <broadcaster id="multipleFeedsMenuState" hidden="true"/>
-    <broadcaster id="tabviewGroupsNumber" groups="0"/>
+    <broadcaster id="tabviewGroupsNumber" groups="1"/>
 #ifdef MOZ_SERVICES_SYNC
     <broadcaster id="sync-setup-state"/>
     <broadcaster id="sync-syncnow-state"/>
@@ -219,6 +216,7 @@
 # Mac:  Cmd+K (cross platform binding)
 #       Cmd+Opt+F (platform convention)
 # Win:  Ctrl+K (cross platform binding)
+#       Ctrl+E (IE compat)
 #
 # We support Ctrl+K on all platforms now and advertise it in the menu since it is
 # our standard - it is a "safe" choice since it is near no harmful keys like "W" as
@@ -231,6 +229,9 @@
 #ifdef XP_MACOSX
     <key id="key_search2" key="&findOnCmd.commandkey;" command="Tools:Search" modifiers="accel,alt"/>
 #endif
+#ifdef XP_WIN
+    <key id="key_search2" key="&searchFocus.commandkey2;" command="Tools:Search" modifiers="accel"/>
+#endif
 #ifdef XP_GNOME
     <key id="key_search2" key="&searchFocusUnix.commandkey;" command="Tools:Search" modifiers="accel"/>
     <key id="key_openDownloads" key="&downloadsUnix.commandkey;" command="Tools:Downloads" modifiers="accel,shift"/>
@@ -241,6 +242,8 @@
     <key id="key_errorConsole" key="&errorConsoleCmd.commandkey;" oncommand="toJavaScriptConsole();" modifiers="accel,shift" disabled="true"/>
     <key id="key_webConsole" key="&webConsoleCmd.commandkey;" oncommand="HUDConsoleUI.toggleHUD();" modifiers="accel,shift"/>
     <key id="key_inspect" key="&inspectMenu.commandkey;" command="Tools:Inspect" modifiers="accel,shift"/>
+    <key id="key_scratchpad" keycode="&scratchpad.keycode;" modifiers="shift"
+         keytext="&scratchpad.keytext;" command="Tools:Scratchpad"/>
     <key id="openFileKb" key="&openFileCmd.commandkey;" command="Browser:OpenFile"  modifiers="accel"/>
     <key id="key_savePage" key="&savePageCmd.commandkey;" command="Browser:SavePage" modifiers="accel"/>
     <key id="printKb" key="&printCmd.commandkey;" command="cmd_print"  modifiers="accel"/>

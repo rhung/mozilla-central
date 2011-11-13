@@ -53,6 +53,7 @@ XPIDLSRCS = \
   nsIUrlClassifierDBService.idl \
   nsIUrlClassifierHashCompleter.idl \
   nsIUrlClassifierStreamUpdater.idl \
+  nsIUrlClassifierPrefixSet.idl \
   nsIUrlClassifierUtils.idl \
   nsIUrlListManager.idl \
   $(NULL)
@@ -61,7 +62,8 @@ CPPSRCS = \
   nsUrlClassifierDBService.cpp \
   nsUrlClassifierStreamUpdater.cpp \
   nsUrlClassifierUtils.cpp \
-  nsUrlClassifierHashCompleter.cpp \
+  nsUrlClassifierPrefixSet.cpp \
+  nsUrlClassifierProxies.cpp \
   $(NULL)
 
 LOCAL_INCLUDES = \
@@ -69,7 +71,10 @@ LOCAL_INCLUDES = \
   $(SQLITE_CFLAGS) \
   $(NULL)
 
-EXTRA_COMPONENTS = nsURLClassifier.manifest
+EXTRA_COMPONENTS = \
+  nsUrlClassifierHashCompleter.js \
+  nsURLClassifier.manifest \
+  $(NULL)
 
 # Same as JS components that are run through the pre-processor.
 EXTRA_PP_COMPONENTS = \

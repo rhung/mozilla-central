@@ -38,12 +38,14 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+#include "mozilla/ipc/RPCChannel.h"
 #include "nsAppShell.h"
 #include "nsToolkit.h"
 #include "nsThreadUtils.h"
 #include "WinTaskbar.h"
 #include "nsString.h"
 #include "nsIMM32Handler.h"
+#include "mozilla/widget/AudioSession.h"
 
 // For skidmark code
 #include <windows.h> 
@@ -52,21 +54,8 @@
 const PRUnichar* kAppShellEventId = L"nsAppShell:EventID";
 const PRUnichar* kTaskbarButtonEventId = L"TaskbarButtonCreated";
 
-#ifdef WINCE
-BOOL WaitMessage(VOID)
-{
-  BOOL retval = TRUE;
-  
-  HANDLE hThread = GetCurrentThread();
-  DWORD waitRes = MsgWaitForMultipleObjectsEx(1, &hThread, INFINITE, QS_ALLEVENTS, 0);
-  if((DWORD)-1 == waitRes)
-  {
-    retval = FALSE;
-  }
-  
-  return retval;
-}
-#endif
+// The maximum time we allow before forcing a native event callback
+#define NATIVE_EVENT_STARVATION_LIMIT mozilla::TimeDuration::FromSeconds(1)
 
 static UINT sMsgId;
 
@@ -89,10 +78,10 @@ using mozilla::crashreporter::LSPAnnotate;
 
 //-------------------------------------------------------------------------
 
-static PRBool PeekUIMessage(MSG* aMsg)
+static bool PeekUIMessage(MSG* aMsg)
 {
   MSG keyMsg, imeMsg, mouseMsg, *pMsg = 0;
-  PRBool haveKeyMsg, haveIMEMsg, haveMouseMsg;
+  bool haveKeyMsg, haveIMEMsg, haveMouseMsg;
 
   haveKeyMsg = ::PeekMessageW(&keyMsg, NULL, WM_KEYFIRST, WM_IME_KEYLAST, PM_NOREMOVE);
   haveIMEMsg = ::PeekMessageW(&imeMsg, NULL, NS_WM_IMEFIRST, NS_WM_IMELAST, PM_NOREMOVE);
@@ -106,7 +95,7 @@ static PRBool PeekUIMessage(MSG* aMsg)
   }
 
   if (pMsg && !nsIMM32Handler::CanOptimizeKeyAndIMEMessages(pMsg)) {
-    return PR_FALSE;
+    return false;
   }
 
   if (haveMouseMsg && (!pMsg || mouseMsg.time < pMsg->time)) {
@@ -114,7 +103,7 @@ static PRBool PeekUIMessage(MSG* aMsg)
   }
 
   if (!pMsg) {
-    return PR_FALSE;
+    return false;
   }
 
   return ::PeekMessageW(aMsg, NULL, pMsg->message, pMsg->message, PM_REMOVE);
@@ -149,16 +138,14 @@ nsAppShell::Init()
   LSPAnnotate();
 #endif
 
+  mLastNativeEventScheduled = TimeStamp::Now();
+
   if (!sMsgId)
     sMsgId = RegisterWindowMessageW(kAppShellEventId);
 
 #if MOZ_WINSDK_TARGETVER >= MOZ_NTDDI_WIN7
   sTaskbarButtonCreatedMsg = ::RegisterWindowMessageW(kTaskbarButtonEventId);
   NS_ASSERTION(sTaskbarButtonCreatedMsg, "Could not register taskbar button creation message");
-
-  // Global app registration id for Win7 and up. See
-  // WinTaskbar.cpp for details.
-  mozilla::widget::WinTaskbar::RegisterAppUserModelID();
 #endif
 
   WNDCLASSW wc;
@@ -221,17 +208,17 @@ CollectNewLoadedModules()
 
   // Now walk the module list of the process,
   // and display information about each module
-  PRBool done = !Module32FirstW(hModuleSnap, &module);
+  bool done = !Module32FirstW(hModuleSnap, &module);
   while (!done) {
     NS_LossyConvertUTF16toASCII moduleName(module.szModule);
-    PRBool found = PR_FALSE;
+    bool found = false;
     PRUint32 i;
     for (i = 0; i < NUM_LOADEDMODULEINFO &&
                 sLoadedModules[i].mStartAddr; ++i) {
       if (sLoadedModules[i].mStartAddr == module.modBaseAddr &&
           !strcmp(moduleName.get(),
                   sLoadedModules[i].mName)) {
-        found = PR_TRUE;
+        found = true;
         break;
       }
     }
@@ -259,9 +246,19 @@ nsAppShell::Run(void)
 {
   LoadedModuleInfo modules[NUM_LOADEDMODULEINFO];
   memset(modules, 0, sizeof(modules));
-  sLoadedModules = modules;
+  sLoadedModules = modules;	
+
+#if MOZ_WINSDK_TARGETVER >= MOZ_NTDDI_LONGHORN
+  // Ignore failure; failing to start the application is not exactly an
+  // appropriate response to failing to start an audio session.
+  mozilla::widget::StartAudioSession();
+#endif
 
   nsresult rv = nsBaseAppShell::Run();
+
+#ifdef MOZ_WINSDK_TARGETVER >= MOZ_NTDDI_LONGHORN
+  mozilla::widget::StopAudioSession();
+#endif
 
   // Don't forget to null this out!
   sLoadedModules = nsnull;
@@ -299,9 +296,9 @@ nsAppShell::DoProcessMoreGeckoEvents()
   // gecko events get processed.
   if (mEventloopNestingLevel < 2) {
     OnDispatchedEvent(nsnull);
-    mNativeCallbackPending = PR_FALSE;
+    mNativeCallbackPending = false;
   } else {
-    mNativeCallbackPending = PR_TRUE;
+    mNativeCallbackPending = true;
   }
 }
 
@@ -310,27 +307,33 @@ nsAppShell::ScheduleNativeEventCallback()
 {
   // Post a message to the hidden message window
   NS_ADDREF_THIS(); // will be released when the event is processed
+  // Time stamp this event so we can detect cases where the event gets
+  // dropping in sub classes / modal loops we do not control. 
+  mLastNativeEventScheduled = TimeStamp::Now();
   ::PostMessage(mEventWnd, sMsgId, 0, reinterpret_cast<LPARAM>(this));
 }
 
-PRBool
-nsAppShell::ProcessNextNativeEvent(PRBool mayWait)
+bool
+nsAppShell::ProcessNextNativeEvent(bool mayWait)
 {
 #if defined(_MSC_VER) && defined(_M_IX86)
   if (sXPCOMHasLoadedNewDLLs && sLoadedModules) {
-    sXPCOMHasLoadedNewDLLs = PR_FALSE;
+    sXPCOMHasLoadedNewDLLs = false;
     CollectNewLoadedModules();
   }
 #endif
 
-  PRBool gotMessage = PR_FALSE;
+  // Notify ipc we are spinning a (possibly nested) gecko event loop.
+  mozilla::ipc::RPCChannel::NotifyGeckoEventDispatch();
+
+  bool gotMessage = false;
 
   do {
     MSG msg;
     // Give priority to keyboard and mouse messages.
     if (PeekUIMessage(&msg) ||
         ::PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
-      gotMessage = PR_TRUE;
+      gotMessage = true;
       if (msg.message == WM_QUIT) {
         ::PostQuitMessage(msg.wParam);
         Exit();
@@ -349,5 +352,12 @@ nsAppShell::ProcessNextNativeEvent(PRBool mayWait)
   if (mNativeCallbackPending && mEventloopNestingLevel == 1)
     DoProcessMoreGeckoEvents();
 
+  // Check for starved native callbacks. If we haven't processed one
+  // of these events in NATIVE_EVENT_STARVATION_LIMIT, fire one off.
+  if ((TimeStamp::Now() - mLastNativeEventScheduled) >
+      NATIVE_EVENT_STARVATION_LIMIT) {
+    ScheduleNativeEventCallback();
+  }
+  
   return gotMessage;
 }

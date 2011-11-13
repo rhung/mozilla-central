@@ -44,7 +44,7 @@
 #include "mozilla/css/Loader.h"
 #include "nsCSSStyleSheet.h"
 #include "nsIStyleRule.h"
-#include "nsICSSRule.h"
+#include "mozilla/css/Rule.h"
 #include "mozilla/css/Declaration.h"
 #include "nsCSSProps.h"
 #include "nsCOMPtr.h"
@@ -79,7 +79,7 @@ nsDOMCSSDeclaration::GetPropertyValue(const nsCSSProperty aPropID,
   NS_PRECONDITION(aPropID != eCSSProperty_UNKNOWN,
                   "Should never pass eCSSProperty_UNKNOWN around");
 
-  css::Declaration* decl = GetCSSDeclaration(PR_FALSE);
+  css::Declaration* decl = GetCSSDeclaration(false);
 
   aValue.Truncate();
   if (decl) {
@@ -98,14 +98,14 @@ nsDOMCSSDeclaration::SetPropertyValue(const nsCSSProperty aPropID,
     return RemoveProperty(aPropID);
   }
 
-  return ParsePropertyValue(aPropID, aValue, PR_FALSE);
+  return ParsePropertyValue(aPropID, aValue, false);
 }
 
 
 NS_IMETHODIMP
 nsDOMCSSDeclaration::GetCssText(nsAString& aCssText)
 {
-  css::Declaration* decl = GetCSSDeclaration(PR_FALSE);
+  css::Declaration* decl = GetCSSDeclaration(false);
   aCssText.Truncate();
 
   if (decl) {
@@ -120,23 +120,15 @@ nsDOMCSSDeclaration::SetCssText(const nsAString& aCssText)
 {
   // We don't need to *do* anything with the old declaration, but we need
   // to ensure that it exists, or else SetCSSDeclaration may crash.
-  css::Declaration* olddecl = GetCSSDeclaration(PR_TRUE);
+  css::Declaration* olddecl = GetCSSDeclaration(true);
   if (!olddecl) {
     return NS_ERROR_FAILURE;
   }
 
-  nsresult result;
-  nsRefPtr<css::Loader> cssLoader;
-  nsCOMPtr<nsIURI> baseURI, sheetURI;
-  nsCOMPtr<nsIPrincipal> sheetPrincipal;
-
-  result = GetCSSParsingEnvironment(getter_AddRefs(sheetURI),
-                                    getter_AddRefs(baseURI),
-                                    getter_AddRefs(sheetPrincipal),
-                                    getter_AddRefs(cssLoader));
-
-  if (NS_FAILED(result)) {
-    return result;
+  CSSParsingEnvironment env;
+  GetCSSParsingEnvironment(env);
+  if (!env.mPrincipal) {
+    return NS_ERROR_NOT_AVAILABLE;
   }
 
   // For nsDOMCSSAttributeDeclaration, SetCSSDeclaration will lead to
@@ -144,14 +136,15 @@ nsDOMCSSDeclaration::SetCssText(const nsAString& aCssText)
   // need to start the update now so that the old rule doesn't get used
   // between when we mutate the declaration and when we set the new
   // rule (see stack in bug 209575).
-  mozAutoDocConditionalContentUpdateBatch autoUpdate(DocToUpdate(), PR_TRUE);
+  mozAutoDocConditionalContentUpdateBatch autoUpdate(DocToUpdate(), true);
 
   nsAutoPtr<css::Declaration> decl(new css::Declaration());
   decl->InitializeEmpty();
-  nsCSSParser cssParser(cssLoader);
-  PRBool changed;
-  result = cssParser.ParseDeclarations(aCssText, sheetURI, baseURI,
-                                       sheetPrincipal, decl, &changed);
+  nsCSSParser cssParser(env.mCSSLoader);
+  bool changed;
+  nsresult result = cssParser.ParseDeclarations(aCssText, env.mSheetURI,
+                                                env.mBaseURI,
+                                                env.mPrincipal, decl, &changed);
   if (NS_FAILED(result) || !changed) {
     return result;
   }
@@ -162,7 +155,7 @@ nsDOMCSSDeclaration::SetCssText(const nsAString& aCssText)
 NS_IMETHODIMP
 nsDOMCSSDeclaration::GetLength(PRUint32* aLength)
 {
-  css::Declaration* decl = GetCSSDeclaration(PR_FALSE);
+  css::Declaration* decl = GetCSSDeclaration(false);
 
   if (decl) {
     *aLength = decl->Count();
@@ -188,7 +181,7 @@ nsDOMCSSDeclaration::GetPropertyCSSValue(const nsAString& aPropertyName,
 NS_IMETHODIMP
 nsDOMCSSDeclaration::Item(PRUint32 aIndex, nsAString& aReturn)
 {
-  css::Declaration* decl = GetCSSDeclaration(PR_FALSE);
+  css::Declaration* decl = GetCSSDeclaration(false);
 
   aReturn.SetLength(0);
   if (decl) {
@@ -215,7 +208,7 @@ NS_IMETHODIMP
 nsDOMCSSDeclaration::GetPropertyPriority(const nsAString& aPropertyName,
                                          nsAString& aReturn)
 {
-  css::Declaration* decl = GetCSSDeclaration(PR_FALSE);
+  css::Declaration* decl = GetCSSDeclaration(false);
 
   aReturn.Truncate();
   if (decl && decl->GetValueIsImportant(aPropertyName)) {
@@ -244,11 +237,11 @@ nsDOMCSSDeclaration::SetProperty(const nsAString& aPropertyName,
   }
 
   if (aPriority.IsEmpty()) {
-    return ParsePropertyValue(propID, aValue, PR_FALSE);
+    return ParsePropertyValue(propID, aValue, false);
   }
 
   if (aPriority.EqualsLiteral("important")) {
-    return ParsePropertyValue(propID, aValue, PR_TRUE);
+    return ParsePropertyValue(propID, aValue, true);
   }
 
   // XXX silent failure?
@@ -271,66 +264,38 @@ nsDOMCSSDeclaration::RemoveProperty(const nsAString& aPropertyName,
   return RemoveProperty(propID);
 }
 
-/* static */ nsresult
-nsDOMCSSDeclaration::GetCSSParsingEnvironmentForRule(
-                         nsICSSRule* aRule, nsIURI** aSheetURI,
-                         nsIURI** aBaseURI, nsIPrincipal** aSheetPrincipal,
-                         mozilla::css::Loader** aCSSLoader)
+/* static */ void
+nsDOMCSSDeclaration::GetCSSParsingEnvironmentForRule(css::Rule* aRule,
+                                                     CSSParsingEnvironment& aCSSParseEnv)
 {
-  // null out the out params since some of them may not get initialized below
-  *aSheetURI = nsnull;
-  *aBaseURI = nsnull;
-  *aSheetPrincipal = nsnull;
-  *aCSSLoader = nsnull;
-
-  if (aRule) {
-    nsIStyleSheet* sheet = aRule->GetStyleSheet();
-    if (sheet) {
-      NS_IF_ADDREF(*aSheetURI = sheet->GetSheetURI());
-      NS_IF_ADDREF(*aBaseURI = sheet->GetBaseURI());
-
-      nsRefPtr<nsCSSStyleSheet> cssSheet(do_QueryObject(sheet));
-      if (cssSheet) {
-        NS_ADDREF(*aSheetPrincipal = cssSheet->Principal());
-      }
-
-      nsIDocument* document = sheet->GetOwningDocument();
-      if (document) {
-        NS_ADDREF(*aCSSLoader = document->CSSLoader());
-      }
-    }
+  nsIStyleSheet* sheet = aRule ? aRule->GetStyleSheet() : nsnull;
+  nsRefPtr<nsCSSStyleSheet> cssSheet(do_QueryObject(sheet));
+  if (!cssSheet) {
+    aCSSParseEnv.mPrincipal = nsnull;
+    return;
   }
 
-  nsresult result = NS_OK;
-  if (!*aSheetPrincipal) {
-    result = CallCreateInstance("@mozilla.org/nullprincipal;1",
-                                aSheetPrincipal);
-  }
-
-  return result;
+  nsIDocument* document = sheet->GetOwningDocument();
+  aCSSParseEnv.mSheetURI = sheet->GetSheetURI();
+  aCSSParseEnv.mBaseURI = sheet->GetBaseURI();
+  aCSSParseEnv.mPrincipal = cssSheet->Principal();
+  aCSSParseEnv.mCSSLoader = document ? document->CSSLoader() : nsnull;
 }
 
 nsresult
 nsDOMCSSDeclaration::ParsePropertyValue(const nsCSSProperty aPropID,
                                         const nsAString& aPropValue,
-                                        PRBool aIsImportant)
+                                        bool aIsImportant)
 {
-  css::Declaration* olddecl = GetCSSDeclaration(PR_TRUE);
+  css::Declaration* olddecl = GetCSSDeclaration(true);
   if (!olddecl) {
     return NS_ERROR_FAILURE;
   }
 
-  nsresult result;
-  nsRefPtr<css::Loader> cssLoader;
-  nsCOMPtr<nsIURI> baseURI, sheetURI;
-  nsCOMPtr<nsIPrincipal> sheetPrincipal;
-
-  result = GetCSSParsingEnvironment(getter_AddRefs(sheetURI),
-                                    getter_AddRefs(baseURI),
-                                    getter_AddRefs(sheetPrincipal),
-                                    getter_AddRefs(cssLoader));
-  if (NS_FAILED(result)) {
-    return result;
+  CSSParsingEnvironment env;
+  GetCSSParsingEnvironment(env);
+  if (!env.mPrincipal) {
+    return NS_ERROR_NOT_AVAILABLE;
   }
 
   // For nsDOMCSSAttributeDeclaration, SetCSSDeclaration will lead to
@@ -338,14 +303,14 @@ nsDOMCSSDeclaration::ParsePropertyValue(const nsCSSProperty aPropID,
   // need to start the update now so that the old rule doesn't get used
   // between when we mutate the declaration and when we set the new
   // rule (see stack in bug 209575).
-  mozAutoDocConditionalContentUpdateBatch autoUpdate(DocToUpdate(), PR_TRUE);
+  mozAutoDocConditionalContentUpdateBatch autoUpdate(DocToUpdate(), true);
   css::Declaration* decl = olddecl->EnsureMutable();
 
-  nsCSSParser cssParser(cssLoader);
-  PRBool changed;
-  result = cssParser.ParseProperty(aPropID, aPropValue, sheetURI, baseURI,
-                                   sheetPrincipal, decl, &changed,
-                                   aIsImportant);
+  nsCSSParser cssParser(env.mCSSLoader);
+  bool changed;
+  nsresult result = cssParser.ParseProperty(aPropID, aPropValue, env.mSheetURI,
+                                            env.mBaseURI, env.mPrincipal, decl,
+                                            &changed, aIsImportant);
   if (NS_FAILED(result) || !changed) {
     if (decl != olddecl) {
       delete decl;
@@ -359,7 +324,7 @@ nsDOMCSSDeclaration::ParsePropertyValue(const nsCSSProperty aPropID,
 nsresult
 nsDOMCSSDeclaration::RemoveProperty(const nsCSSProperty aPropID)
 {
-  css::Declaration* decl = GetCSSDeclaration(PR_FALSE);
+  css::Declaration* decl = GetCSSDeclaration(false);
   if (!decl) {
     return NS_OK; // no decl, so nothing to remove
   }
@@ -369,7 +334,7 @@ nsDOMCSSDeclaration::RemoveProperty(const nsCSSProperty aPropID)
   // need to start the update now so that the old rule doesn't get used
   // between when we mutate the declaration and when we set the new
   // rule (see stack in bug 209575).
-  mozAutoDocConditionalContentUpdateBatch autoUpdate(DocToUpdate(), PR_TRUE);
+  mozAutoDocConditionalContentUpdateBatch autoUpdate(DocToUpdate(), true);
 
   decl = decl->EnsureMutable();
   decl->RemoveProperty(aPropID);

@@ -43,12 +43,14 @@ include protocol PNecko;
 
 include "mozilla/net/PHttpChannelParams.h";
 include "mozilla/net/NeckoMessageUtils.h";
+include "prio.h";
 
 using RequestHeaderTuples;
 using nsHttpResponseHead;
 using nsHttpAtom;
 using IPC::URI;
 using IPC::InputStream;
+using PRNetAddr;
 
 namespace mozilla {
 namespace net {
@@ -70,11 +72,11 @@ parent:
             RequestHeaderTuples requestHeaders,
             nsHttpAtom          requestMethod,
             InputStream         uploadStream,
-            PRBool              uploadStreamHasHeaders,
+            bool                uploadStreamHasHeaders,
             PRUint16            priority,
             PRUint8             redirectionLimit,
-            PRBool              allowPipelining,
-            PRBool              forceAllowThirdPartyCookie,
+            bool                allowPipelining,
+            bool                forceAllowThirdPartyCookie,
             bool                resumeAt,
             PRUint64            startPos,
             nsCString           entityID,
@@ -125,13 +127,15 @@ parent:
 
 child:
   OnStartRequest(nsHttpResponseHead  responseHead,
-                 PRBool              useResponseHead,
+                 bool                useResponseHead,
                  RequestHeaderTuples requestHeaders,
-                 PRBool              isFromCache,
-                 PRBool              cacheEntryAvailable,
+                 bool                isFromCache,
+                 bool                cacheEntryAvailable,
                  PRUint32            cacheExpirationTime,
                  nsCString           cachedCharset,
-                 nsCString           securityInfoSerialization);
+                 nsCString           securityInfoSerialization,
+                 PRNetAddr           selfAddr,
+                 PRNetAddr           peerAddr);
 
   // Combines a single OnDataAvailable and its associated OnProgress &
   // OnStatus calls into one IPDL message
@@ -150,7 +154,7 @@ child:
 
   // Used to cancel child channel if we hit errors during creating and
   // AsyncOpen of nsHttpChannel on the parent.
-  CancelEarly(nsresult status);
+  FailedAsyncOpen(nsresult status);
 
   // Called to initiate content channel redirect, starts talking to sinks
   // on the content process and reports result via Redirect2Verify above

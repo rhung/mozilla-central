@@ -44,13 +44,12 @@ include $(DEPTH)/config/autoconf.mk
 
 MODULE = shellservice
 FORCE_STATIC_LIB = 1
-FORCE_USE_PIC = 1
 ifndef MOZ_MEMORY
 USE_STATIC_LIBS = 1
 endif
 
 
-ifneq (,$(filter WINCE WINNT,$(OS_ARCH)))
+ifeq ($(OS_ARCH),WINNT)
 CPPSRCS = nsWindowsShellService.cpp
 else
 ifeq (cocoa,$(MOZ_WIDGET_TOOLKIT))

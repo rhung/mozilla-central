@@ -72,7 +72,7 @@ var panelProgressListener = {
     }
     ,
 
-    onLocationChange : function(aWebProgress, aRequest, aLocation) {
+    onLocationChange : function(aWebProgress, aRequest, aLocation, aFlags) {
         UpdateBackForwardCommands(getPanelBrowser().webNavigation);
     },
 
@@ -108,10 +108,10 @@ function load()
     var panelBrowser = getPanelBrowser();
     panelBrowser.webProgress.addProgressListener(panelProgressListener,
                                                  Ci.nsIWebProgress.NOTIFY_ALL);
-    if (panelBrowser.getAttribute("cachedurl")) {
+    var cachedurl = panelBrowser.getAttribute("cachedurl")
+    if (cachedurl) {
         panelBrowser.webNavigation
-                    .loadURI(panelBrowser.getAttribute("cachedurl"),
-                             nsIWebNavigation.LOAD_FLAGS_NONE, null,
+                    .loadURI(cachedurl, nsIWebNavigation.LOAD_FLAGS_NONE, null,
                              null, null);
     }
 

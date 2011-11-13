@@ -51,8 +51,9 @@
 #include "nsIDOMCSSStyleSheet.h"
 #include "nsICSSLoaderObserver.h"
 #include "nsCOMArray.h"
+#include "nsTArray.h"
+#include "nsString.h"
 
-class nsICSSRule;
 class nsXMLNameSpaceMap;
 class nsCSSRuleProcessor;
 class nsMediaList;
@@ -66,6 +67,7 @@ template<class E, class A> class nsTArray;
 
 namespace mozilla {
 namespace css {
+class Rule;
 class GroupRule;
 class ImportRule;
 }
@@ -100,7 +102,7 @@ private:
   nsCOMPtr<nsIURI>       mOriginalSheetURI;  // for GetHref.  Can be null.
   nsCOMPtr<nsIURI>       mBaseURI; // for resolving relative URIs
   nsCOMPtr<nsIPrincipal> mPrincipal;
-  nsCOMArray<nsICSSRule> mOrderedRules;
+  nsCOMArray<mozilla::css::Rule> mOrderedRules;
   nsAutoPtr<nsXMLNameSpaceMap> mNameSpaceMap;
   // Linked list of child sheets.  This is al fundamentally broken, because
   // each of the child sheets has a unique parent... We can only hope (and
@@ -108,10 +110,10 @@ private:
   // child sheet that means we've already ensured unique inners throughout its
   // parent chain and things are good.
   nsRefPtr<nsCSSStyleSheet> mFirstChild;
-  PRBool                 mComplete;
+  bool                   mComplete;
 
 #ifdef DEBUG
-  PRBool                 mPrincipalSet;
+  bool                   mPrincipalSet;
 #endif
 };
 
@@ -146,17 +148,17 @@ public:
   virtual nsIURI* GetBaseURI() const;
   virtual void GetTitle(nsString& aTitle) const;
   virtual void GetType(nsString& aType) const;
-  virtual PRBool HasRules() const;
-  virtual PRBool IsApplicable() const;
-  virtual void SetEnabled(PRBool aEnabled);
-  virtual PRBool IsComplete() const;
+  virtual bool HasRules() const;
+  virtual bool IsApplicable() const;
+  virtual void SetEnabled(bool aEnabled);
+  virtual bool IsComplete() const;
   virtual void SetComplete();
   virtual nsIStyleSheet* GetParentSheet() const;  // may be null
   virtual nsIDocument* GetOwningDocument() const;  // may be null
   virtual void SetOwningDocument(nsIDocument* aDocument);
 
-  // Find the ID of the owner outer window.
-  virtual PRUint64 FindOwningWindowID() const;
+  // Find the ID of the owner inner window.
+  PRUint64 FindOwningWindowInnerID() const;
 #ifdef DEBUG
   virtual void List(FILE* out = stdout, PRInt32 aIndent = 0) const;
 #endif
@@ -165,16 +167,16 @@ public:
   void InsertStyleSheetAt(nsCSSStyleSheet* aSheet, PRInt32 aIndex);
 
   // XXX do these belong here or are they generic?
-  void PrependStyleRule(nsICSSRule* aRule);
-  void AppendStyleRule(nsICSSRule* aRule);
-  void ReplaceStyleRule(nsICSSRule* aOld, nsICSSRule* aNew);
+  void PrependStyleRule(mozilla::css::Rule* aRule);
+  void AppendStyleRule(mozilla::css::Rule* aRule);
+  void ReplaceStyleRule(mozilla::css::Rule* aOld, mozilla::css::Rule* aNew);
 
   PRInt32 StyleRuleCount() const;
-  nsresult GetStyleRuleAt(PRInt32 aIndex, nsICSSRule*& aRule) const;
+  nsresult GetStyleRuleAt(PRInt32 aIndex, mozilla::css::Rule*& aRule) const;
 
   nsresult DeleteRuleFromGroup(mozilla::css::GroupRule* aGroup, PRUint32 aIndex);
   nsresult InsertRuleIntoGroup(const nsAString& aRule, mozilla::css::GroupRule* aGroup, PRUint32 aIndex, PRUint32* _retval);
-  nsresult ReplaceRuleInGroup(mozilla::css::GroupRule* aGroup, nsICSSRule* aOld, nsICSSRule* aNew);
+  nsresult ReplaceRuleInGroup(mozilla::css::GroupRule* aGroup, mozilla::css::Rule* aOld, mozilla::css::Rule* aNew);
 
   PRInt32 StyleSheetCount() const;
 
@@ -209,7 +211,7 @@ public:
                                           nsIDocument* aCloneDocument,
                                           nsIDOMNode* aCloneOwningNode) const;
 
-  PRBool IsModified() const { return mDirty; }
+  bool IsModified() const { return mDirty; }
 
   void SetModifiedByChildRule() {
     NS_ASSERTION(mDirty,
@@ -231,7 +233,7 @@ public:
   virtual nsIURI* GetOriginalURI() const;
 
   // nsICSSLoaderObserver interface
-  NS_IMETHOD StyleSheetLoaded(nsCSSStyleSheet* aSheet, PRBool aWasAlternate,
+  NS_IMETHOD StyleSheetLoaded(nsCSSStyleSheet* aSheet, bool aWasAlternate,
                               nsresult aStatus);
 
   enum EnsureUniqueInnerResult {
@@ -245,11 +247,11 @@ public:
   };
   EnsureUniqueInnerResult EnsureUniqueInner();
 
-  // Append all of this sheet's child sheets to aArray.  Return PR_TRUE
-  // on success and PR_FALSE on allocation failure.
-  PRBool AppendAllChildSheets(nsTArray<nsCSSStyleSheet*>& aArray);
+  // Append all of this sheet's child sheets to aArray.  Return true
+  // on success and false on allocation failure.
+  bool AppendAllChildSheets(nsTArray<nsCSSStyleSheet*>& aArray);
 
-  PRBool UseForPresentation(nsPresContext* aPresContext,
+  bool UseForPresentation(nsPresContext* aPresContext,
                             nsMediaQueryResultCacheKey& aKey) const;
 
   // nsIDOMStyleSheet interface
@@ -260,7 +262,7 @@ public:
 
   // Function used as a callback to rebuild our inner's child sheet
   // list after we clone a unique inner for ourselves.
-  static PRBool RebuildChildList(nsICSSRule* aRule, void* aBuilder);
+  static bool RebuildChildList(mozilla::css::Rule* aRule, void* aBuilder);
 
 private:
   nsCSSStyleSheet(const nsCSSStyleSheet& aCopy,
@@ -287,7 +289,7 @@ protected:
   nsresult SubjectSubsumesInnerPrincipal() const;
 
   // Add the namespace mapping from this @namespace rule to our namespace map
-  nsresult RegisterNamespaceRule(nsICSSRule* aRule);
+  nsresult RegisterNamespaceRule(mozilla::css::Rule* aRule);
 
 protected:
   nsString              mTitle;
@@ -299,8 +301,8 @@ protected:
   CSSRuleListImpl*      mRuleCollection;
   nsIDocument*          mDocument; // weak ref; parents maintain this for their children
   nsIDOMNode*           mOwningNode; // weak ref
-  PRPackedBool          mDisabled;
-  PRPackedBool          mDirty; // has been modified 
+  bool                  mDisabled;
+  bool                  mDirty; // has been modified 
 
   nsCSSStyleSheetInner* mInner;
 

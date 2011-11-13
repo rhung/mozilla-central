@@ -1,5 +1,5 @@
 /* -*- Mode: C; tab-width: 8; c-basic-offset: 8; indent-tabs-mode: t -*- */
-/* vim:set softtabstop=8 shiftwidth=8: */
+/* vim:set softtabstop=8 shiftwidth=8 noet: */
 /*-
  * Copyright (C) 2006-2008 Jason Evans <jasone@FreeBSD.org>.
  * All rights reserved.
@@ -82,6 +82,10 @@
  *   |                           |     ... |
  *   |=====================================|
  *
+ * NOTE: Due to Mozilla bug 691003, we cannot reserve less than one word for an
+ * allocation on Linux or Mac.  So on 32-bit *nix, the smallest bucket size is
+ * 4 bytes, and on 64-bit, the smallest bucket size is 8 bytes.
+ *
  * A different mechanism is used for each category:
  *
  *   Small : Each size class is segregated into its own set of runs.  Each run
@@ -99,6 +103,29 @@
 #ifdef MOZ_MEMORY_ANDROID
 #define NO_TLS
 #define _pthread_self() pthread_self()
+#endif
+
+/*
+ * On Linux, we use madvise(MADV_DONTNEED) to release memory back to the
+ * operating system.  If we release 1MB of live pages with MADV_DONTNEED, our
+ * RSS will decrease by 1MB (almost) immediately.
+ *
+ * On Mac, we use madvise(MADV_FREE).  Unlike MADV_DONTNEED on Linux, MADV_FREE
+ * on Mac doesn't cause the OS to release the specified pages immediately; the
+ * OS keeps them in our process until the machine comes under memory pressure.
+ *
+ * It's therefore difficult to measure the process's RSS on Mac, since, in the
+ * absence of memory pressure, the contribution from the heap to RSS will not
+ * decrease due to our madvise calls.
+ *
+ * We therefore define MALLOC_DOUBLE_PURGE on Mac.  This causes jemalloc to
+ * track which pages have been MADV_FREE'd.  You can then call
+ * jemalloc_purge_freed_pages(), which will force the OS to release those
+ * MADV_FREE'd pages, making the process's RSS reflect its true memory usage.
+ *
+ */
+#ifdef MOZ_MEMORY_DARWIN
+#define MALLOC_DOUBLE_PURGE
 #endif
 
 /*
@@ -170,17 +197,12 @@
  */
 /* #define	MALLOC_BALANCE */
 
-#if (!defined(MOZ_MEMORY_WINDOWS) && !defined(MOZ_MEMORY_DARWIN))
-   /*
-    * MALLOC_PAGEFILE causes all mmap()ed memory to be backed by temporary
-    * files, so that if a chunk is mapped, it is guaranteed to be swappable.
-    * This avoids asynchronous OOM failures that are due to VM over-commit.
-    *
-    * XXX OS X over-commits, so we should probably use mmap() instead of
-    * vm_allocate(), so that MALLOC_PAGEFILE works.
-    */
-#define MALLOC_PAGEFILE
-#endif
+/*
+ * MALLOC_PAGEFILE causes all mmap()ed memory to be backed by temporary
+ * files, so that if a chunk is mapped, it is guaranteed to be swappable.
+ * This avoids asynchronous OOM failures that are due to VM over-commit.
+ */
+/* #define MALLOC_PAGEFILE */
 
 #ifdef MALLOC_PAGEFILE
 /* Write size when initializing a page file. */
@@ -195,27 +217,21 @@
 #endif
 #endif
 
-#ifndef MOZ_MEMORY_WINCE
 #include <sys/types.h>
 
 #include <errno.h>
 #include <stdlib.h>
-#endif
 #include <limits.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
 #ifdef MOZ_MEMORY_WINDOWS
-#ifndef MOZ_MEMORY_WINCE
-#include <cruntime.h>
-#include <internal.h>
+
+/* Some defines from the CRT internal headers that we need here. */
+#define _CRT_SPINCOUNT 5000
+#define __crtInitCritSecAndSpinCount InitializeCriticalSectionAndSpinCount
 #include <io.h>
-#else
-#include <cmnintrin.h>
-#include <crtdefs.h>
-#define SIZE_MAX UINT_MAX
-#endif
 #include <windows.h>
 
 #pragma warning( disable: 4267 4996 4146 )
@@ -234,14 +250,9 @@ static unsigned long tlsIndex = 0xffffffff;
 #endif 
 
 #define	__thread
-#ifdef MOZ_MEMORY_WINCE
-#define	_pthread_self() GetCurrentThreadId()
-#else
 #define	_pthread_self() __threadid()
-#endif
 #define	issetugid() 0
 
-#ifndef MOZ_MEMORY_WINCE
 /* use MSVC intrinsics */
 #pragma intrinsic(_BitScanForward)
 static __forceinline int
@@ -269,19 +280,6 @@ getenv(const char *name)
 
 	return (NULL);
 }
-
-#else /* WIN CE */
-
-#define ENOMEM          12
-#define EINVAL          22
-
-static __forceinline int
-ffs(int x)
-{
-
-	return 32 - _CountLeadingZeros((-x) & x);
-}
-#endif
 
 typedef unsigned char uint8_t;
 typedef unsigned uint32_t;
@@ -377,6 +375,7 @@ __FBSDID("$FreeBSD: head/lib/libc/stdlib/malloc.c 180599 2008-07-18 19:35:44Z ja
 #endif
 
 #include "jemalloc.h"
+#include "linkedlist.h"
 
 /* Some tools, such as /dev/dsp wrappers, LD_PRELOAD libraries that
  * happen to override mmap() and call dlsym() from their overridden
@@ -433,10 +432,6 @@ static const bool __isthreaded = true;
 #define JEMALLOC_USES_MAP_ALIGN	 /* Required on Solaris 10. Might improve performance elsewhere. */
 #endif
 
-#if defined(MOZ_MEMORY_WINCE) && !defined(MOZ_MEMORY_WINCE6)
-#define JEMALLOC_USES_MAP_ALIGN	 /* Required for Windows CE < 6 */
-#endif
-
 #define __DECONST(type, var) ((type)(uintptr_t)(const void *)(var))
 
 #ifdef MOZ_MEMORY_WINDOWS
@@ -457,7 +452,7 @@ static const bool __isthreaded = true;
 /* Size of stack-allocated buffer passed to strerror_r(). */
 #define	STRERROR_BUF		64
 
-/* Minimum alignment of allocations is 2^QUANTUM_2POW_MIN bytes. */
+/* Minimum alignment of non-tiny allocations is 2^QUANTUM_2POW_MIN bytes. */
 #  define QUANTUM_2POW_MIN      4
 #ifdef MOZ_MEMORY_SIZEOF_PTR_2POW
 #  define SIZEOF_PTR_2POW		MOZ_MEMORY_SIZEOF_PTR_2POW
@@ -534,11 +529,7 @@ static const bool __isthreaded = true;
  * Size and alignment of memory chunks that are allocated by the OS's virtual
  * memory system.
  */
-#if defined(MOZ_MEMORY_WINCE) && !defined(MOZ_MEMORY_WINCE6)
-#define	CHUNK_2POW_DEFAULT	21
-#else
 #define	CHUNK_2POW_DEFAULT	20
-#endif
 /* Maximum number of dirty pages per arena. */
 #define	DIRTY_MAX_DEFAULT	(1U << 10)
 
@@ -550,8 +541,15 @@ static const bool __isthreaded = true;
 #define	CACHELINE_2POW		6
 #define	CACHELINE		((size_t)(1U << CACHELINE_2POW))
 
-/* Smallest size class to support. */
+/*
+ * Smallest size class to support.  On Linux and Mac, even malloc(1) must
+ * reserve a word's worth of memory (see Mozilla bug 691003).
+ */
+#ifdef MOZ_MEMORY_WINDOWS
 #define	TINY_MIN_2POW		1
+#else
+#define TINY_MIN_2POW           (sizeof(void*) == 8 ? 3 : 2)
+#endif
 
 /*
  * Maximum size class that is a multiple of the quantum, but not (necessarily)
@@ -628,6 +626,11 @@ static const bool __isthreaded = true;
 #endif
 
 /******************************************************************************/
+
+/* MALLOC_DECOMMIT and MALLOC_DOUBLE_PURGE are mutually exclusive. */
+#if defined(MALLOC_DECOMMIT) && defined(MALLOC_DOUBLE_PURGE)
+#error MALLOC_DECOMMIT and MALLOC_DOUBLE_PURGE are mutually exclusive.
+#endif
 
 /*
  * Mutexes based on spinlocks.  We can't use normal pthread spinlocks in all
@@ -722,10 +725,10 @@ struct arena_stats_s {
 	uint64_t	ndecommit;
 	uint64_t	ncommit;
 	uint64_t	decommitted;
+#endif
 
 	/* Current number of committed pages. */
 	size_t		committed;
-#endif
 
 	/* Per-size-category statistics. */
 	size_t		allocated_small;
@@ -831,13 +834,14 @@ struct arena_chunk_map_s {
 	 * Run address (or size) and various flags are stored together.  The bit
 	 * layout looks like (assuming 32-bit system):
 	 *
-	 *   ???????? ???????? ????---- --ckdzla
+	 *   ???????? ???????? ????---- -mckdzla
 	 *
 	 * ? : Unallocated: Run address for first/last pages, unset for internal
 	 *                  pages.
 	 *     Small: Run address.
 	 *     Large: Run size for first page, unset for trailing pages.
 	 * - : Unused.
+	 * m : MADV_FREE/MADV_DONTNEED'ed?
 	 * c : decommitted?
 	 * k : key?
 	 * d : dirty?
@@ -869,8 +873,27 @@ struct arena_chunk_map_s {
 	 *     -------- -------- -------- ------la
 	 */
 	size_t				bits;
-#ifdef MALLOC_DECOMMIT
+
+/* Note that CHUNK_MAP_DECOMMITTED's meaning varies depending on whether
+ * MALLOC_DECOMMIT and MALLOC_DOUBLE_PURGE are defined.
+ *
+ * If MALLOC_DECOMMIT is defined, a page which is CHUNK_MAP_DECOMMITTED must be
+ * re-committed with pages_commit() before it may be touched.  If
+ * MALLOC_DECOMMIT is defined, MALLOC_DOUBLE_PURGE may not be defined.
+ *
+ * If neither MALLOC_DECOMMIT nor MALLOC_DOUBLE_PURGE is defined, pages which
+ * are madvised (with either MADV_DONTNEED or MADV_FREE) are marked with
+ * CHUNK_MAP_MADVISED.
+ *
+ * Otherwise, if MALLOC_DECOMMIT is not defined and MALLOC_DOUBLE_PURGE is
+ * defined, then a page which is madvised is marked as CHUNK_MAP_MADVISED.
+ * When it's finally freed with jemalloc_purge_freed_pages, the page is marked
+ * as CHUNK_MAP_DECOMMITTED.
+ */
+#if defined(MALLOC_DECOMMIT) || defined(MALLOC_STATS) || defined(MALLOC_DOUBLE_PURGE)
+#define	CHUNK_MAP_MADVISED	((size_t)0x40U)
 #define	CHUNK_MAP_DECOMMITTED	((size_t)0x20U)
+#define	CHUNK_MAP_MADVISED_OR_DECOMMITTED (CHUNK_MAP_MADVISED | CHUNK_MAP_DECOMMITTED)
 #endif
 #define	CHUNK_MAP_KEY		((size_t)0x10U)
 #define	CHUNK_MAP_DIRTY		((size_t)0x08U)
@@ -889,6 +912,16 @@ struct arena_chunk_s {
 
 	/* Linkage for the arena's chunks_dirty tree. */
 	rb_node(arena_chunk_t) link_dirty;
+
+#ifdef MALLOC_DOUBLE_PURGE
+	/* If we're double-purging, we maintain a linked list of chunks which
+	 * have pages which have been madvise(MADV_FREE)'d but not explicitly
+	 * purged.
+	 *
+	 * We're currently lazy and don't remove a chunk from this list when
+	 * all its madvised pages are recommitted. */
+	LinkedList	chunks_madvised_elem;
+#endif
 
 	/* Number of dirty pages. */
 	size_t		ndirty;
@@ -974,6 +1007,12 @@ struct arena_s {
 
 	/* Tree of dirty-page-containing chunks this arena manages. */
 	arena_chunk_tree_t	chunks_dirty;
+
+#ifdef MALLOC_DOUBLE_PURGE
+	/* Head of a linked list of MADV_FREE'd-page-containing chunks this
+	 * arena manages. */
+	LinkedList		chunks_madvised;
+#endif
 
 	/*
 	 * In order to avoid rapid chunk allocation/deallocation when an arena
@@ -1107,7 +1146,7 @@ static char		pagefile_templ[PATH_MAX];
  */
 static void		*base_pages;
 static void		*base_next_addr;
-#ifdef MALLOC_DECOMMIT
+#if defined(MALLOC_DECOMMIT) || defined(MALLOC_STATS)
 static void		*base_next_decommitted;
 #endif
 static void		*base_past_addr; /* Addr immediately past base_pages. */
@@ -1115,9 +1154,7 @@ static extent_node_t	*base_nodes;
 static malloc_mutex_t	base_mtx;
 #ifdef MALLOC_STATS
 static size_t		base_mapped;
-#  ifdef MALLOC_DECOMMIT
 static size_t		base_committed;
-#  endif
 #endif
 
 /********/
@@ -1225,7 +1262,7 @@ typedef struct {
  * Begin function prototypes for non-inline static functions.
  */
 
-static char	*umax2s(uintmax_t x, char *s);
+static char	*umax2s(uintmax_t x, unsigned base, char *s);
 static bool	malloc_mutex_init(malloc_mutex_t *mutex);
 static bool	malloc_spin_init(malloc_spinlock_t *lock);
 static void	wrtmessage(const char *p1, const char *p2, const char *p3,
@@ -1301,8 +1338,66 @@ static
 #endif
 bool		malloc_init_hard(void);
 
-void		_malloc_prefork(void);
-void		_malloc_postfork(void);
+#ifdef MOZ_MEMORY_ANDROID
+void	_malloc_prefork(void);
+void	_malloc_postfork(void);
+#else
+static void	_malloc_prefork(void);
+static void	_malloc_postfork(void);
+#endif
+
+#ifdef MOZ_MEMORY_DARWIN
+/*
+ * MALLOC_ZONE_T_NOTE
+ *
+ * On Darwin, we hook into the memory allocator using a malloc_zone_t struct.
+ * We must be very careful around this struct because of different behaviour on
+ * different versions of OSX.
+ *
+ * Each of OSX 10.5, 10.6 and 10.7 use different versions of the struct
+ * (with version numbers 3, 6 and 8 respectively). The binary we use on each of
+ * these platforms will not necessarily be built using the correct SDK [1].
+ * This means we need to statically know the correct struct size to use on all
+ * OSX releases, and have a fallback for unknown future versions. The struct
+ * sizes defined in osx_zone_types.h.
+ *
+ * For OSX 10.8 and later, we may expect the malloc_zone_t struct to change
+ * again, and need to dynamically account for this. By simply leaving
+ * malloc_zone_t alone, we don't quite deal with the problem, because there
+ * remain calls to jemalloc through the mozalloc interface. We check this
+ * dynamically on each allocation, using the CHECK_DARWIN macro and
+ * osx_use_jemalloc.
+ *
+ *
+ * [1] Mozilla is built as a universal binary on Mac, supporting i386 and
+ *     x86_64. The i386 target is built using the 10.5 SDK, even if it runs on
+ *     10.6. The x86_64 target is built using the 10.6 SDK, even if it runs on
+ *     10.7 or later, or 10.5.
+ *
+ * FIXME:
+ *   When later versions of OSX come out (10.8 and up), we need to check their
+ *   malloc_zone_t versions. If they're greater than 8, we need a new version
+ *   of malloc_zone_t adapted into osx_zone_types.h.
+ */
+
+#include "osx_zone_types.h"
+
+#define LEOPARD_MALLOC_ZONE_T_VERSION 3
+#define SNOW_LEOPARD_MALLOC_ZONE_T_VERSION 6
+#define LION_MALLOC_ZONE_T_VERSION 8
+
+static bool osx_use_jemalloc = false;
+
+
+static lion_malloc_zone l_szone;
+static malloc_zone_t * szone = (malloc_zone_t*)(&l_szone);
+
+static lion_malloc_introspection l_ozone_introspect;
+static malloc_introspection_t * const ozone_introspect =
+	(malloc_introspection_t*)(&l_ozone_introspect);
+static void szone2ozone(malloc_zone_t *zone, size_t size);
+static size_t zone_version_size(int version);
+#endif
 
 /*
  * End function prototypes.
@@ -1314,19 +1409,36 @@ void		_malloc_postfork(void);
  * especially useful for situations where allocation in vsnprintf() calls would
  * potentially cause deadlock.
  */
-#define	UMAX2S_BUFSIZE	21
-static char *
-umax2s(uintmax_t x, char *s)
+#define	UMAX2S_BUFSIZE	65
+char *
+umax2s(uintmax_t x, unsigned base, char *s)
 {
 	unsigned i;
 
 	i = UMAX2S_BUFSIZE - 1;
 	s[i] = '\0';
-	do {
-		i--;
-		s[i] = "0123456789"[x % 10];
-		x /= 10;
-	} while (x > 0);
+	switch (base) {
+	case 10:
+		do {
+			i--;
+			s[i] = "0123456789"[x % 10];
+			x /= 10;
+		} while (x > 0);
+		break;
+	case 16:
+		do {
+			i--;
+			s[i] = "0123456789abcdef"[x & 0xf];
+			x >>= 4;
+		} while (x > 0);
+		break;
+	default:
+		do {
+			i--;
+			s[i] = "0123456789abcdefghijklmnopqrstuvwxyz"[x % base];
+			x /= base;
+		} while (x > 0);
+	}
 
 	return (&s[i]);
 }
@@ -1334,17 +1446,6 @@ umax2s(uintmax_t x, char *s)
 static void
 wrtmessage(const char *p1, const char *p2, const char *p3, const char *p4)
 {
-#ifdef MOZ_MEMORY_WINCE
-       wchar_t buf[1024];
-#define WRT_PRINT(s) \
-       MultiByteToWideChar(CP_ACP, 0, s, -1, buf, 1024); \
-       OutputDebugStringW(buf)
-
-       WRT_PRINT(p1);
-       WRT_PRINT(p2);
-       WRT_PRINT(p3);
-       WRT_PRINT(p4);
-#else
 #if defined(MOZ_MEMORY) && !defined(MOZ_MEMORY_WINDOWS)
 #define	_write	write
 #endif
@@ -1352,8 +1453,6 @@ wrtmessage(const char *p1, const char *p2, const char *p3, const char *p4)
 	_write(STDERR_FILENO, p2, (unsigned int) strlen(p2));
 	_write(STDERR_FILENO, p3, (unsigned int) strlen(p3));
 	_write(STDERR_FILENO, p4, (unsigned int) strlen(p4));
-#endif
-
 }
 
 #define _malloc_message malloc_message
@@ -1365,7 +1464,7 @@ void	(*_malloc_message)(const char *p1, const char *p2, const char *p3,
 #  define assert(e) do {						\
 	if (!(e)) {							\
 		char line_buf[UMAX2S_BUFSIZE];				\
-		_malloc_message(__FILE__, ":", umax2s(__LINE__,		\
+		_malloc_message(__FILE__, ":", umax2s(__LINE__, 10,	\
 		    line_buf), ": Failed assertion: ");			\
 		_malloc_message("\"", #e, "\"\n", "");			\
 		abort();						\
@@ -1385,9 +1484,7 @@ void	(*_malloc_message)(const char *p1, const char *p2, const char *p3,
 static bool
 malloc_mutex_init(malloc_mutex_t *mutex)
 {
-#if defined(MOZ_MEMORY_WINCE)
-	InitializeCriticalSection(mutex);
-#elif defined(MOZ_MEMORY_WINDOWS)
+#if defined(MOZ_MEMORY_WINDOWS)
 	if (__isthreaded)
 		if (! __crtInitCritSecAndSpinCount(mutex, _CRT_SPINCOUNT))
 			return (true);
@@ -1449,9 +1546,7 @@ malloc_mutex_unlock(malloc_mutex_t *mutex)
 static bool
 malloc_spin_init(malloc_spinlock_t *lock)
 {
-#if defined(MOZ_MEMORY_WINCE)
-	InitializeCriticalSection(lock);
-#elif defined(MOZ_MEMORY_WINDOWS)
+#if defined(MOZ_MEMORY_WINDOWS)
 	if (__isthreaded)
 		if (! __crtInitCritSecAndSpinCount(lock, _CRT_SPINCOUNT))
 			return (true);
@@ -1700,19 +1795,42 @@ static int
 utrace(const void *addr, size_t len)
 {
 	malloc_utrace_t *ut = (malloc_utrace_t *)addr;
+	char buf_a[UMAX2S_BUFSIZE];
+	char buf_b[UMAX2S_BUFSIZE];
 
 	assert(len == sizeof(malloc_utrace_t));
 
-	if (ut->p == NULL && ut->s == 0 && ut->r == NULL)
-		malloc_printf("%d x USER malloc_init()\n", getpid());
-	else if (ut->p == NULL && ut->r != NULL) {
-		malloc_printf("%d x USER %p = malloc(%zu)\n", getpid(), ut->r,
-		    ut->s);
+	if (ut->p == NULL && ut->s == 0 && ut->r == NULL) {
+		_malloc_message(
+		    umax2s(getpid(), 10, buf_a),
+		    " x USER malloc_init()\n", "", "");
+	} else if (ut->p == NULL && ut->r != NULL) {
+		_malloc_message(
+		    umax2s(getpid(), 10, buf_a),
+		    " x USER 0x",
+		    umax2s((uintptr_t)ut->r, 16, buf_b),
+		    " = malloc(");
+		_malloc_message(
+		    umax2s(ut->s, 10, buf_a),
+		    ")\n", "", "");
 	} else if (ut->p != NULL && ut->r != NULL) {
-		malloc_printf("%d x USER %p = realloc(%p, %zu)\n", getpid(),
-		    ut->r, ut->p, ut->s);
-	} else
-		malloc_printf("%d x USER free(%p)\n", getpid(), ut->p);
+		_malloc_message(
+		    umax2s(getpid(), 10, buf_a),
+		    " x USER 0x",
+		    umax2s((uintptr_t)ut->r, 16, buf_b),
+		    " = realloc(0x");
+		_malloc_message(
+		    umax2s((uintptr_t)ut->p, 16, buf_a),
+		    ", ",
+		    umax2s(ut->s, 10, buf_b),
+		    ")\n");
+	} else {
+		_malloc_message(
+		    umax2s(getpid(), 10, buf_a),
+		    " x USER free(0x",
+		    umax2s((uintptr_t)ut->p, 16, buf_b),
+		    ")\n");
+	}
 
 	return (0);
 }
@@ -1732,7 +1850,6 @@ _getprogname(void)
 static void
 malloc_printf(const char *format, ...)
 {
-#ifndef WINCE
 	char buf[4096];
 	va_list ap;
 
@@ -1740,13 +1857,11 @@ malloc_printf(const char *format, ...)
 	vsnprintf(buf, sizeof(buf), format, ap);
 	va_end(ap);
 	_malloc_message(buf, "", "", "");
-#endif
 }
 #endif
 
 /******************************************************************************/
 
-#ifdef MALLOC_DECOMMIT
 static inline void
 pages_decommit(void *addr, size_t size)
 {
@@ -1772,14 +1887,13 @@ pages_commit(void *addr, size_t size)
 		abort();
 #  endif
 }
-#endif
 
 static bool
 base_pages_alloc_mmap(size_t minsize)
 {
 	bool ret;
 	size_t csize;
-#ifdef MALLOC_DECOMMIT
+#if defined(MALLOC_DECOMMIT) || defined(MALLOC_STATS)
 	size_t pminsize;
 #endif
 	int pfd;
@@ -1801,19 +1915,19 @@ base_pages_alloc_mmap(size_t minsize)
 	}
 	base_next_addr = base_pages;
 	base_past_addr = (void *)((uintptr_t)base_pages + csize);
-#ifdef MALLOC_DECOMMIT
+#if defined(MALLOC_DECOMMIT) || defined(MALLOC_STATS)
 	/*
 	 * Leave enough pages for minsize committed, since otherwise they would
 	 * have to be immediately recommitted.
 	 */
 	pminsize = PAGE_CEILING(minsize);
 	base_next_decommitted = (void *)((uintptr_t)base_pages + pminsize);
+#  if defined(MALLOC_DECOMMIT)
 	if (pminsize < csize)
 		pages_decommit(base_next_decommitted, csize - pminsize);
-#endif
-#ifdef MALLOC_STATS
+#  endif
+#  ifdef MALLOC_STATS
 	base_mapped += csize;
-#  ifdef MALLOC_DECOMMIT
 	base_committed += pminsize;
 #  endif
 #endif
@@ -1857,14 +1971,16 @@ base_alloc(size_t size)
 	/* Allocate. */
 	ret = base_next_addr;
 	base_next_addr = (void *)((uintptr_t)base_next_addr + csize);
-#ifdef MALLOC_DECOMMIT
+#if defined(MALLOC_DECOMMIT) || defined(MALLOC_STATS)
 	/* Make sure enough pages are committed for the new allocation. */
 	if ((uintptr_t)base_next_addr > (uintptr_t)base_next_decommitted) {
 		void *pbase_next_addr =
 		    (void *)(PAGE_CEILING((uintptr_t)base_next_addr));
 
+#  ifdef MALLOC_DECOMMIT
 		pages_commit(base_next_decommitted, (uintptr_t)pbase_next_addr -
 		    (uintptr_t)base_next_decommitted);
+#  endif
 		base_next_decommitted = pbase_next_addr;
 #  ifdef MALLOC_STATS
 		base_committed += (uintptr_t)pbase_next_addr -
@@ -2094,64 +2210,13 @@ rb_wrap(static, extent_tree_ad_, extent_tree_t, extent_node_t, link_ad,
  */
 
 #ifdef MOZ_MEMORY_WINDOWS
-#ifdef MOZ_MEMORY_WINCE
-#define ALIGN_ADDR2OFFSET(al, ad) \
-	((uintptr_t)ad & (al - 1))
-static void *
-pages_map_align(size_t size, int pfd, size_t alignment)
-{
-	
-	void *ret; 
-	int offset;
-	if (size % alignment)
-		size += (alignment - (size % alignment));
-	assert(size >= alignment);
-	ret = pages_map(NULL, size, pfd);
-	offset = ALIGN_ADDR2OFFSET(alignment, ret);
-	if (offset) {  
-		/* try to over allocate by the ammount we're offset */
-		void *tmp;
-		pages_unmap(ret, size);
-		tmp = VirtualAlloc(NULL, size + alignment - offset, 
-					 MEM_RESERVE, PAGE_NOACCESS);
-		if (offset == ALIGN_ADDR2OFFSET(alignment, tmp))
-			ret = VirtualAlloc((void*)((intptr_t)tmp + alignment 
-						   - offset), size, MEM_COMMIT,
-					   PAGE_READWRITE);
-		else 
-			VirtualFree(tmp, 0, MEM_RELEASE);
-		offset = ALIGN_ADDR2OFFSET(alignment, ret);
-		
-	
-		if (offset) {  
-			/* over allocate to ensure we have an aligned region */
-			ret = VirtualAlloc(NULL, size + alignment, MEM_RESERVE, 
-					   PAGE_NOACCESS);
-			offset = ALIGN_ADDR2OFFSET(alignment, ret);
-			ret = VirtualAlloc((void*)((intptr_t)ret + 
-						   alignment - offset),
-					   size, MEM_COMMIT, PAGE_READWRITE);
-		}
-	}
-	return (ret);
-}
-#endif
 
 static void *
 pages_map(void *addr, size_t size, int pfd)
 {
 	void *ret = NULL;
-#if defined(MOZ_MEMORY_WINCE) && !defined(MOZ_MEMORY_WINCE6)
-	void *va_ret;
-	assert(addr == NULL);
-	va_ret = VirtualAlloc(addr, size, MEM_RESERVE, PAGE_NOACCESS);
-	if (va_ret)
-		ret = VirtualAlloc(va_ret, size, MEM_COMMIT, PAGE_READWRITE);
-	assert(va_ret == ret);
-#else
 	ret = VirtualAlloc(addr, size, MEM_COMMIT | MEM_RESERVE,
 	    PAGE_READWRITE);
-#endif
 	return (ret);
 }
 
@@ -2159,73 +2224,13 @@ static void
 pages_unmap(void *addr, size_t size)
 {
 	if (VirtualFree(addr, 0, MEM_RELEASE) == 0) {
-#if defined(MOZ_MEMORY_WINCE) && !defined(MOZ_MEMORY_WINCE6)
-		if (GetLastError() == ERROR_INVALID_PARAMETER) {
-			MEMORY_BASIC_INFORMATION info;
-			VirtualQuery(addr, &info, sizeof(info));
-			if (VirtualFree(info.AllocationBase, 0, MEM_RELEASE))
-				return;
-		}
-#endif
 		_malloc_message(_getprogname(),
 		    ": (malloc) Error in VirtualFree()\n", "", "");
 		if (opt_abort)
 			abort();
 	}
 }
-#elif (defined(MOZ_MEMORY_DARWIN))
-static void *
-pages_map(void *addr, size_t size, int pfd)
-{
-	void *ret;
-	kern_return_t err;
-	int flags;
-
-	if (addr != NULL) {
-		ret = addr;
-		flags = 0;
-	} else
-		flags = VM_FLAGS_ANYWHERE;
-
-	err = vm_allocate((vm_map_t)mach_task_self(), (vm_address_t *)&ret,
-	    (vm_size_t)size, flags);
-	if (err != KERN_SUCCESS)
-		ret = NULL;
-
-	assert(ret == NULL || (addr == NULL && ret != addr)
-	    || (addr != NULL && ret == addr));
-	return (ret);
-}
-
-static void
-pages_unmap(void *addr, size_t size)
-{
-	kern_return_t err;
-
-	err = vm_deallocate((vm_map_t)mach_task_self(), (vm_address_t)addr,
-	    (vm_size_t)size);
-	if (err != KERN_SUCCESS) {
-		malloc_message(_getprogname(),
-		    ": (malloc) Error in vm_deallocate(): ",
-		    mach_error_string(err), "\n");
-		if (opt_abort)
-			abort();
-	}
-}
-
-#define	VM_COPY_MIN (pagesize << 5)
-static inline void
-pages_copy(void *dest, const void *src, size_t n)
-{
-
-	assert((void *)((uintptr_t)dest & ~pagesize_mask) == dest);
-	assert(n >= VM_COPY_MIN);
-	assert((void *)((uintptr_t)src & ~pagesize_mask) == src);
-
-	vm_copy(mach_task_self(), (vm_address_t)src, (vm_size_t)n,
-	    (vm_address_t)dest);
-}
-#else /* MOZ_MEMORY_DARWIN */
+#else
 #ifdef JEMALLOC_USES_MAP_ALIGN
 static void *
 pages_map_align(size_t size, int pfd, size_t alignment)
@@ -2258,6 +2263,26 @@ static void *
 pages_map(void *addr, size_t size, int pfd)
 {
 	void *ret;
+#if defined(__ia64__)
+        /*
+         * The JS engine assumes that all allocated pointers have their high 17 bits clear,
+         * which ia64's mmap doesn't support directly. However, we can emulate it by passing
+         * mmap an "addr" parameter with those bits clear. The mmap will return that address,
+         * or the nearest available memory above that address, providing a near-guarantee
+         * that those bits are clear. If they are not, we return NULL below to indicate
+         * out-of-memory.
+         * 
+         * The addr is chosen as 0x0000070000000000, which still allows about 120TB of virtual 
+         * address space.
+         * 
+         * See Bug 589735 for more information.
+         */
+	bool check_placement = true;
+        if (addr == NULL) {
+		addr = (void*)0x0000070000000000;
+		check_placement = false;
+	}
+#endif
 
 	/*
 	 * We don't use MAP_FIXED here, because it can cause the *replacement*
@@ -2275,9 +2300,23 @@ pages_map(void *addr, size_t size, int pfd)
 	}
 	assert(ret != NULL);
 
-	if (ret == MAP_FAILED)
+	if (ret == MAP_FAILED) {
 		ret = NULL;
+        }
+#if defined(__ia64__)
+        /* 
+         * If the allocated memory doesn't have its upper 17 bits clear, consider it 
+         * as out of memory.
+        */
+        else if ((long long)ret & 0xffff800000000000) {
+		munmap(ret, size);
+                ret = NULL;
+        }
+        /* If the caller requested a specific memory location, verify that's what mmap returned. */
+	else if (check_placement && ret != addr) {
+#else
 	else if (addr != NULL && ret != addr) {
+#endif
 		/*
 		 * We succeeded in mapping memory, but not in the right place.
 		 */
@@ -2293,8 +2332,13 @@ pages_map(void *addr, size_t size, int pfd)
 		ret = NULL;
 	}
 
+#if defined(__ia64__)
+	assert(ret == NULL || (!check_placement && ret != NULL)
+	    || (check_placement && ret == addr));
+#else
 	assert(ret == NULL || (addr == NULL && ret != addr)
 	    || (addr != NULL && ret == addr));
+#endif
 	return (ret);
 }
 
@@ -2314,6 +2358,21 @@ pages_unmap(void *addr, size_t size)
 }
 #endif
 
+#ifdef MOZ_MEMORY_DARWIN
+#define	VM_COPY_MIN (pagesize << 5)
+static inline void
+pages_copy(void *dest, const void *src, size_t n)
+{
+
+	assert((void *)((uintptr_t)dest & ~pagesize_mask) == dest);
+	assert(n >= VM_COPY_MIN);
+	assert((void *)((uintptr_t)src & ~pagesize_mask) == src);
+
+	vm_copy(mach_task_self(), (vm_address_t)src, (vm_size_t)n,
+	    (vm_address_t)dest);
+}
+#endif
+
 #ifdef MALLOC_VALIDATE
 static inline malloc_rtree_t *
 malloc_rtree_new(unsigned bits)
@@ -2328,8 +2387,8 @@ malloc_rtree_new(unsigned bits)
 		height++;
 	assert(height * bits_per_level >= bits);
 
-	ret = (malloc_rtree_t*)base_calloc(1, sizeof(malloc_rtree_t) + (sizeof(unsigned) *
-	    (height - 1)));
+	ret = (malloc_rtree_t*)base_calloc(1, sizeof(malloc_rtree_t) +
+	    (sizeof(unsigned) * (height - 1)));
 	if (ret == NULL)
 		return (NULL);
 
@@ -2354,36 +2413,73 @@ malloc_rtree_new(unsigned bits)
 	return (ret);
 }
 
-/* The least significant bits of the key are ignored. */
-static inline void *
-malloc_rtree_get(malloc_rtree_t *rtree, uintptr_t key)
-{
-	void *ret;
-	uintptr_t subkey;
-	unsigned i, lshift, height, bits;
-	void **node, **child;
-
-	malloc_spin_lock(&rtree->lock);
-	for (i = lshift = 0, height = rtree->height, node = rtree->root;
-	    i < height - 1;
-	    i++, lshift += bits, node = child) {
-		bits = rtree->level2bits[i];
-		subkey = (key << lshift) >> ((SIZEOF_PTR << 3) - bits);
-		child = (void**)node[subkey];
-		if (child == NULL) {
-			malloc_spin_unlock(&rtree->lock);
-			return (NULL);
-		}
-	}
-
-	/* node is a leaf, so it contains values rather than node pointers. */
-	bits = rtree->level2bits[i];
-	subkey = (key << lshift) >> ((SIZEOF_PTR << 3) - bits);
-	ret = node[subkey];
-	malloc_spin_unlock(&rtree->lock);
-
-	return (ret);
+#define	MALLOC_RTREE_GET_GENERATE(f)					\
+/* The least significant bits of the key are ignored. */		\
+static inline void *							\
+f(malloc_rtree_t *rtree, uintptr_t key)					\
+{									\
+	void *ret;							\
+	uintptr_t subkey;						\
+	unsigned i, lshift, height, bits;				\
+	void **node, **child;						\
+									\
+	MALLOC_RTREE_LOCK(&rtree->lock);				\
+	for (i = lshift = 0, height = rtree->height, node = rtree->root;\
+	    i < height - 1;						\
+	    i++, lshift += bits, node = child) {			\
+		bits = rtree->level2bits[i];				\
+		subkey = (key << lshift) >> ((SIZEOF_PTR << 3) - bits);	\
+		child = (void**)node[subkey];				\
+		if (child == NULL) {					\
+			MALLOC_RTREE_UNLOCK(&rtree->lock);		\
+			return (NULL);					\
+		}							\
+	}								\
+									\
+	/*								\
+	 * node is a leaf, so it contains values rather than node	\
+	 * pointers.							\
+	 */								\
+	bits = rtree->level2bits[i];					\
+	subkey = (key << lshift) >> ((SIZEOF_PTR << 3) - bits);		\
+	ret = node[subkey];						\
+	MALLOC_RTREE_UNLOCK(&rtree->lock);				\
+									\
+	MALLOC_RTREE_GET_VALIDATE					\
+	return (ret);							\
 }
+
+#ifdef MALLOC_DEBUG
+#  define MALLOC_RTREE_LOCK(l)		malloc_spin_lock(l)
+#  define MALLOC_RTREE_UNLOCK(l)	malloc_spin_unlock(l)
+#  define MALLOC_RTREE_GET_VALIDATE
+MALLOC_RTREE_GET_GENERATE(malloc_rtree_get_locked)
+#  undef MALLOC_RTREE_LOCK
+#  undef MALLOC_RTREE_UNLOCK
+#  undef MALLOC_RTREE_GET_VALIDATE
+#endif
+
+#define	MALLOC_RTREE_LOCK(l)
+#define	MALLOC_RTREE_UNLOCK(l)
+#ifdef MALLOC_DEBUG
+   /*
+    * Suppose that it were possible for a jemalloc-allocated chunk to be
+    * munmap()ped, followed by a different allocator in another thread re-using
+    * overlapping virtual memory, all without invalidating the cached rtree
+    * value.  The result would be a false positive (the rtree would claim that
+    * jemalloc owns memory that it had actually discarded).  I don't think this
+    * scenario is possible, but the following assertion is a prudent sanity
+    * check.
+    */
+#  define MALLOC_RTREE_GET_VALIDATE					\
+	assert(malloc_rtree_get_locked(rtree, key) == ret);
+#else
+#  define MALLOC_RTREE_GET_VALIDATE
+#endif
+MALLOC_RTREE_GET_GENERATE(malloc_rtree_get)
+#undef MALLOC_RTREE_LOCK
+#undef MALLOC_RTREE_UNLOCK
+#undef MALLOC_RTREE_GET_VALIDATE
 
 static inline bool
 malloc_rtree_set(malloc_rtree_t *rtree, uintptr_t key, void *val)
@@ -2420,6 +2516,10 @@ malloc_rtree_set(malloc_rtree_t *rtree, uintptr_t key, void *val)
 }
 #endif
 
+#if defined(MOZ_MEMORY_WINDOWS) || defined(JEMALLOC_USES_MAP_ALIGN) || defined(MALLOC_PAGEFILE)
+
+/* Allocate an aligned chunk while maintaining a 1:1 correspondence between
+ * mmap and unmap calls.  This is important on Windows, but not elsewhere. */
 static void *
 chunk_alloc_mmap(size_t size, bool pagefile)
 {
@@ -2437,16 +2537,6 @@ chunk_alloc_mmap(size_t size, bool pagefile)
 	} else
 #endif
 		pfd = -1;
-
-	/*
-	 * Windows requires that there be a 1:1 mapping between VM
-	 * allocation/deallocation operations.  Therefore, take care here to
-	 * acquire the final result via one mapping operation.  This means
-	 * unmapping any preliminary result that is not correctly aligned.
-	 *
-	 * The MALLOC_PAGEFILE code also benefits from this mapping algorithm,
-	 * since it reduces the number of page files.
-	 */
 
 #ifdef JEMALLOC_USES_MAP_ALIGN
 	ret = pages_map_align(size, pfd, chunksize);
@@ -2499,6 +2589,143 @@ RETURN:
 #endif
 	return (ret);
 }
+
+#else /* ! (defined(MOZ_MEMORY_WINDOWS) || defined(JEMALLOC_USES_MAP_ALIGN) || defined(MALLOC_PAGEFILE)) */
+
+/*
+ * Used by chunk_alloc_mmap() to decide whether to attempt the fast path and
+ * potentially avoid some system calls.
+ */
+#ifndef NO_TLS
+static __thread bool	mmap_unaligned_tls __attribute__((tls_model("initial-exec")));
+#define	MMAP_UNALIGNED_GET()	mmap_unaligned_tls
+#define	MMAP_UNALIGNED_SET(v)	do {					\
+	mmap_unaligned_tls = (v);					\
+} while (0)
+#else
+#define NEEDS_PTHREAD_MMAP_UNALIGNED_TSD
+static pthread_key_t	mmap_unaligned_tsd;
+#define	MMAP_UNALIGNED_GET()	((bool)pthread_getspecific(mmap_unaligned_tsd))
+#define	MMAP_UNALIGNED_SET(v)	do {					\
+	pthread_setspecific(mmap_unaligned_tsd, (void *)(v));		\
+} while (0)
+#endif
+
+/* chunk_alloc_mmap_slow and chunk_alloc_mmap were cherry-picked from upstream
+ * jemalloc 2.2.3 to fix Mozilla bug 694896, enable jemalloc on Mac 10.7. */
+
+static void *
+chunk_alloc_mmap_slow(size_t size, bool unaligned)
+{
+	void *ret;
+	size_t offset;
+
+	/* Beware size_t wrap-around. */
+	if (size + chunksize <= size)
+		return (NULL);
+
+	ret = pages_map(NULL, size + chunksize, -1);
+	if (ret == NULL)
+		return (NULL);
+
+	/* Clean up unneeded leading/trailing space. */
+	offset = CHUNK_ADDR2OFFSET(ret);
+	if (offset != 0) {
+		/* Note that mmap() returned an unaligned mapping. */
+		unaligned = true;
+
+		/* Leading space. */
+		pages_unmap(ret, chunksize - offset);
+
+		ret = (void *)((uintptr_t)ret +
+		    (chunksize - offset));
+
+		/* Trailing space. */
+		pages_unmap((void *)((uintptr_t)ret + size),
+		    offset);
+	} else {
+		/* Trailing space only. */
+		pages_unmap((void *)((uintptr_t)ret + size),
+		    chunksize);
+	}
+
+	/*
+	 * If mmap() returned an aligned mapping, reset mmap_unaligned so that
+	 * the next chunk_alloc_mmap() execution tries the fast allocation
+	 * method.
+	 */
+	if (unaligned == false)
+		MMAP_UNALIGNED_SET(false);
+
+	return (ret);
+}
+
+static void *
+chunk_alloc_mmap(size_t size, bool pagefile)
+{
+	void *ret;
+
+	/*
+	 * Ideally, there would be a way to specify alignment to mmap() (like
+	 * NetBSD has), but in the absence of such a feature, we have to work
+	 * hard to efficiently create aligned mappings.  The reliable, but
+	 * slow method is to create a mapping that is over-sized, then trim the
+	 * excess.  However, that always results in at least one call to
+	 * pages_unmap().
+	 *
+	 * A more optimistic approach is to try mapping precisely the right
+	 * amount, then try to append another mapping if alignment is off.  In
+	 * practice, this works out well as long as the application is not
+	 * interleaving mappings via direct mmap() calls.  If we do run into a
+	 * situation where there is an interleaved mapping and we are unable to
+	 * extend an unaligned mapping, our best option is to switch to the
+	 * slow method until mmap() returns another aligned mapping.  This will
+	 * tend to leave a gap in the memory map that is too small to cause
+	 * later problems for the optimistic method.
+	 *
+	 * Another possible confounding factor is address space layout
+	 * randomization (ASLR), which causes mmap(2) to disregard the
+	 * requested address.  mmap_unaligned tracks whether the previous
+	 * chunk_alloc_mmap() execution received any unaligned or relocated
+	 * mappings, and if so, the current execution will immediately fall
+	 * back to the slow method.  However, we keep track of whether the fast
+	 * method would have succeeded, and if so, we make a note to try the
+	 * fast method next time.
+	 */
+
+	if (MMAP_UNALIGNED_GET() == false) {
+		size_t offset;
+
+		ret = pages_map(NULL, size, -1);
+		if (ret == NULL)
+			return (NULL);
+
+		offset = CHUNK_ADDR2OFFSET(ret);
+		if (offset != 0) {
+			MMAP_UNALIGNED_SET(true);
+			/* Try to extend chunk boundary. */
+			if (pages_map((void *)((uintptr_t)ret + size),
+			    chunksize - offset, -1) == NULL) {
+				/*
+				 * Extension failed.  Clean up, then revert to
+				 * the reliable-but-expensive method.
+				 */
+				pages_unmap(ret, size);
+				ret = chunk_alloc_mmap_slow(size, true);
+			} else {
+				/* Clean up unneeded leading space. */
+				pages_unmap(ret, chunksize - offset);
+				ret = (void *)((uintptr_t)ret + (chunksize -
+				    offset));
+			}
+		}
+	} else
+		ret = chunk_alloc_mmap_slow(size, false);
+
+	return (ret);
+}
+
+#endif /* defined(MOZ_MEMORY_WINDOWS) || defined(JEMALLOC_USES_MAP_ALIGN) || defined(MALLOC_PAGEFILE) */
 
 #ifdef MALLOC_PAGEFILE
 static int
@@ -3026,34 +3253,49 @@ arena_run_split(arena_t *arena, arena_run_t *run, size_t size, bool large,
 	}
 
 	for (i = 0; i < need_pages; i++) {
-#ifdef MALLOC_DECOMMIT
+#if defined(MALLOC_DECOMMIT) || defined(MALLOC_STATS) || defined(MALLOC_DOUBLE_PURGE)
 		/*
 		 * Commit decommitted pages if necessary.  If a decommitted
 		 * page is encountered, commit all needed adjacent decommitted
 		 * pages in one operation, in order to reduce system call
 		 * overhead.
 		 */
-		if (chunk->map[run_ind + i].bits & CHUNK_MAP_DECOMMITTED) {
+		if (chunk->map[run_ind + i].bits & CHUNK_MAP_MADVISED_OR_DECOMMITTED) {
 			size_t j;
 
 			/*
 			 * Advance i+j to just past the index of the last page
-			 * to commit.  Clear CHUNK_MAP_DECOMMITTED along the
-			 * way.
+			 * to commit.  Clear CHUNK_MAP_DECOMMITTED and
+			 * CHUNK_MAP_MADVISED along the way.
 			 */
 			for (j = 0; i + j < need_pages && (chunk->map[run_ind +
-			    i + j].bits & CHUNK_MAP_DECOMMITTED); j++) {
-				chunk->map[run_ind + i + j].bits ^=
-				    CHUNK_MAP_DECOMMITTED;
+			    i + j].bits & CHUNK_MAP_MADVISED_OR_DECOMMITTED); j++) {
+				/* DECOMMITTED and MADVISED are mutually exclusive. */
+				assert(!(chunk->map[run_ind + i + j].bits & CHUNK_MAP_DECOMMITTED &&
+					 chunk->map[run_ind + i + j].bits & CHUNK_MAP_MADVISED));
+
+				chunk->map[run_ind + i + j].bits &=
+				    ~CHUNK_MAP_MADVISED_OR_DECOMMITTED;
 			}
 
+#  ifdef MALLOC_DECOMMIT
 			pages_commit((void *)((uintptr_t)chunk + ((run_ind + i)
 			    << pagesize_2pow)), (j << pagesize_2pow));
-#  ifdef MALLOC_STATS
+#    ifdef MALLOC_STATS
 			arena->stats.ncommit++;
+#    endif
+#  endif
+
+#  ifdef MALLOC_STATS
 			arena->stats.committed += j;
 #  endif
+
+#  ifndef MALLOC_DECOMMIT
+                }
+#  else
 		} else /* No need to zero since commit zeros. */
+#  endif
+
 #endif
 
 		/* Zero if necessary. */
@@ -3126,23 +3368,11 @@ arena_chunk_init(arena_t *arena, arena_chunk_t *chunk)
 	    pagesize_2pow));
 	for (i = 0; i < arena_chunk_header_npages; i++)
 		chunk->map[i].bits = 0;
-	chunk->map[i].bits = arena_maxclass
-#ifdef MALLOC_DECOMMIT
-	    | CHUNK_MAP_DECOMMITTED
-#endif
-	    | CHUNK_MAP_ZEROED;
+	chunk->map[i].bits = arena_maxclass | CHUNK_MAP_DECOMMITTED | CHUNK_MAP_ZEROED;
 	for (i++; i < chunk_npages-1; i++) {
-		chunk->map[i].bits =
-#ifdef MALLOC_DECOMMIT
-		    CHUNK_MAP_DECOMMITTED |
-#endif
-		    CHUNK_MAP_ZEROED;
+		chunk->map[i].bits = CHUNK_MAP_DECOMMITTED | CHUNK_MAP_ZEROED;
 	}
-	chunk->map[chunk_npages-1].bits = arena_maxclass
-#ifdef MALLOC_DECOMMIT
-	    | CHUNK_MAP_DECOMMITTED
-#endif
-	    | CHUNK_MAP_ZEROED;
+	chunk->map[chunk_npages-1].bits = arena_maxclass | CHUNK_MAP_DECOMMITTED | CHUNK_MAP_ZEROED;
 
 #ifdef MALLOC_DECOMMIT
 	/*
@@ -3153,13 +3383,19 @@ arena_chunk_init(arena_t *arena, arena_chunk_t *chunk)
 #  ifdef MALLOC_STATS
 	arena->stats.ndecommit++;
 	arena->stats.decommitted += (chunk_npages - arena_chunk_header_npages);
-	arena->stats.committed += arena_chunk_header_npages;
 #  endif
+#endif
+#ifdef MALLOC_STATS
+	arena->stats.committed += arena_chunk_header_npages;
 #endif
 
 	/* Insert the run into the runs_avail tree. */
 	arena_avail_tree_insert(&arena->runs_avail,
 	    &chunk->map[arena_chunk_header_npages]);
+
+#ifdef MALLOC_DOUBLE_PURGE
+	LinkedList_Init(&chunk->chunks_madvised_elem);
+#endif
 }
 
 static void
@@ -3171,17 +3407,21 @@ arena_chunk_dealloc(arena_t *arena, arena_chunk_t *chunk)
 			arena_chunk_tree_dirty_remove(
 			    &chunk->arena->chunks_dirty, arena->spare);
 			arena->ndirty -= arena->spare->ndirty;
-#if (defined(MALLOC_STATS) && defined(MALLOC_DECOMMIT))
+#ifdef MALLOC_STATS
 			arena->stats.committed -= arena->spare->ndirty;
 #endif
 		}
+
+#ifdef MALLOC_DOUBLE_PURGE
+		/* This is safe to do even if arena->spare is not in the list. */
+		LinkedList_Remove(&arena->spare->chunks_madvised_elem);
+#endif
+
 		VALGRIND_FREELIKE_BLOCK(arena->spare, 0);
 		chunk_dealloc((void *)arena->spare, chunksize);
 #ifdef MALLOC_STATS
 		arena->stats.mapped -= chunksize;
-#  ifdef MALLOC_DECOMMIT
 		arena->stats.committed -= arena_chunk_header_npages;
-#  endif
 #endif
 	}
 
@@ -3280,6 +3520,9 @@ arena_purge(arena_t *arena)
 	 * purged.
 	 */
 	while (arena->ndirty > (opt_dirty_max >> 1)) {
+#ifdef MALLOC_DOUBLE_PURGE
+		bool madvised = false;
+#endif
 		chunk = arena_chunk_tree_dirty_last(&arena->chunks_dirty);
 		assert(chunk != NULL);
 
@@ -3288,28 +3531,22 @@ arena_purge(arena_t *arena)
 
 			if (chunk->map[i].bits & CHUNK_MAP_DIRTY) {
 #ifdef MALLOC_DECOMMIT
+				const size_t free_operation = CHUNK_MAP_DECOMMITTED;
+#else
+				const size_t free_operation = CHUNK_MAP_MADVISED;
+#endif
 				assert((chunk->map[i].bits &
-				    CHUNK_MAP_DECOMMITTED) == 0);
-#endif
-				chunk->map[i].bits ^=
-#ifdef MALLOC_DECOMMIT
-				    CHUNK_MAP_DECOMMITTED |
-#endif
-				    CHUNK_MAP_DIRTY;
+				        CHUNK_MAP_MADVISED_OR_DECOMMITTED) == 0);
+				chunk->map[i].bits ^= free_operation | CHUNK_MAP_DIRTY;
 				/* Find adjacent dirty run(s). */
-				for (npages = 1; i > arena_chunk_header_npages
-				    && (chunk->map[i - 1].bits &
-				    CHUNK_MAP_DIRTY); npages++) {
+				for (npages = 1;
+				     i > arena_chunk_header_npages &&
+				       (chunk->map[i - 1].bits & CHUNK_MAP_DIRTY);
+				     npages++) {
 					i--;
-#ifdef MALLOC_DECOMMIT
 					assert((chunk->map[i].bits &
-					    CHUNK_MAP_DECOMMITTED) == 0);
-#endif
-					chunk->map[i].bits ^=
-#ifdef MALLOC_DECOMMIT
-					    CHUNK_MAP_DECOMMITTED |
-#endif
-					    CHUNK_MAP_DIRTY;
+					        CHUNK_MAP_MADVISED_OR_DECOMMITTED) == 0);
+					chunk->map[i].bits ^= free_operation | CHUNK_MAP_DIRTY;
 				}
 				chunk->ndirty -= npages;
 				arena->ndirty -= npages;
@@ -3321,12 +3558,19 @@ arena_purge(arena_t *arena)
 #  ifdef MALLOC_STATS
 				arena->stats.ndecommit++;
 				arena->stats.decommitted += npages;
-				arena->stats.committed -= npages;
 #  endif
-#else
+#endif
+#ifdef MALLOC_STATS
+				arena->stats.committed -= npages;
+#endif
+
+#ifndef MALLOC_DECOMMIT
 				madvise((void *)((uintptr_t)chunk + (i <<
 				    pagesize_2pow)), (npages << pagesize_2pow),
 				    MADV_FREE);
+#  ifdef MALLOC_DOUBLE_PURGE
+				madvised = true;
+#  endif
 #endif
 #ifdef MALLOC_STATS
 				arena->stats.nmadvise++;
@@ -3341,6 +3585,14 @@ arena_purge(arena_t *arena)
 			arena_chunk_tree_dirty_remove(&arena->chunks_dirty,
 			    chunk);
 		}
+#ifdef MALLOC_DOUBLE_PURGE
+		if (madvised) {
+			/* The chunk might already be in the list, but this
+			 * makes sure it's at the front. */
+			LinkedList_Remove(&chunk->chunks_madvised_elem);
+			LinkedList_InsertHead(&arena->chunks_madvised, &chunk->chunks_madvised_elem);
+		}
+#endif
 	}
 }
 
@@ -4528,6 +4780,9 @@ arena_new(arena_t *arena)
 
 	/* Initialize chunks. */
 	arena_chunk_tree_dirty_new(&arena->chunks_dirty);
+#ifdef MALLOC_DOUBLE_PURGE
+	LinkedList_Init(&arena->chunks_madvised);
+#endif
 	arena->spare = NULL;
 
 	arena->ndirty = 0;
@@ -4636,9 +4891,7 @@ huge_malloc(size_t size, bool zero)
 {
 	void *ret;
 	size_t csize;
-#ifdef MALLOC_DECOMMIT
 	size_t psize;
-#endif
 	extent_node_t *node;
 
 	/* Allocate one or more contiguous chunks for this request. */
@@ -4662,22 +4915,33 @@ huge_malloc(size_t size, bool zero)
 
 	/* Insert node into huge. */
 	node->addr = ret;
-#ifdef MALLOC_DECOMMIT
 	psize = PAGE_CEILING(size);
 	node->size = psize;
-#else
-	node->size = csize;
-#endif
 
 	malloc_mutex_lock(&huge_mtx);
 	extent_tree_ad_insert(&huge, node);
 #ifdef MALLOC_STATS
 	huge_nmalloc++;
-#  ifdef MALLOC_DECOMMIT
+
+        /* Although we allocated space for csize bytes, we indicate that we've
+         * allocated only psize bytes.
+         *
+         * If DECOMMIT is defined, this is a reasonable thing to do, since
+         * we'll explicitly decommit the bytes in excess of psize.
+         *
+         * If DECOMMIT is not defined, then we're relying on the OS to be lazy
+         * about how it allocates physical pages to mappings.  If we never
+         * touch the pages in excess of psize, the OS won't allocate a physical
+         * page, and we won't use more than psize bytes of physical memory.
+         *
+         * A correct program will only touch memory in excess of how much it
+         * requested if it first calls malloc_usable_size and finds out how
+         * much space it has to play with.  But because we set node->size =
+         * psize above, malloc_usable_size will return psize, not csize, and
+         * the program will (hopefully) never touch bytes in excess of psize.
+         * Thus those bytes won't take up space in physical memory, and we can
+         * reasonably claim we never "allocated" them in the first place. */
 	huge_allocated += psize;
-#  else
-	huge_allocated += csize;
-#  endif
 #endif
 	malloc_mutex_unlock(&huge_mtx);
 
@@ -4718,9 +4982,7 @@ huge_palloc(size_t alignment, size_t size)
 {
 	void *ret;
 	size_t alloc_size, chunk_size, offset;
-#ifdef MALLOC_DECOMMIT
 	size_t psize;
-#endif
 	extent_node_t *node;
 	int pfd;
 
@@ -4789,22 +5051,16 @@ huge_palloc(size_t alignment, size_t size)
 #endif
 	/* Insert node into huge. */
 	node->addr = ret;
-#ifdef MALLOC_DECOMMIT
 	psize = PAGE_CEILING(size);
 	node->size = psize;
-#else
-	node->size = chunk_size;
-#endif
 
 	malloc_mutex_lock(&huge_mtx);
 	extent_tree_ad_insert(&huge, node);
 #ifdef MALLOC_STATS
 	huge_nmalloc++;
-#  ifdef MALLOC_DECOMMIT
+        /* See note in huge_alloc() for why huge_allocated += psize is correct
+         * here even when DECOMMIT is not defined. */
 	huge_allocated += psize;
-#  else
-	huge_allocated += chunk_size;
-#  endif
 #endif
 	malloc_mutex_unlock(&huge_mtx);
 
@@ -4854,9 +5110,7 @@ huge_ralloc(void *ptr, size_t size, size_t oldsize)
 
 	if (oldsize > arena_maxclass &&
 	    CHUNK_CEILING(size) == CHUNK_CEILING(oldsize)) {
-#ifdef MALLOC_DECOMMIT
 		size_t psize = PAGE_CEILING(size);
-#endif
 #ifdef MALLOC_FILL
 		if (opt_junk && size < oldsize) {
 			memset((void *)((uintptr_t)ptr + size), 0x5a, oldsize
@@ -4882,24 +5136,32 @@ huge_ralloc(void *ptr, size_t size, size_t oldsize)
 			node->size = psize;
 			malloc_mutex_unlock(&huge_mtx);
 		} else if (psize > oldsize) {
-			extent_node_t *node, key;
-
 			pages_commit((void *)((uintptr_t)ptr + oldsize),
 			    psize - oldsize);
-
-			/* Update recorded size. */
-			malloc_mutex_lock(&huge_mtx);
-			key.addr = __DECONST(void *, ptr);
-			node = extent_tree_ad_search(&huge, &key);
-			assert(node != NULL);
-			assert(node->size == oldsize);
-#  ifdef MALLOC_STATS
-			huge_allocated += psize - oldsize;
-#  endif
-			node->size = psize;
-			malloc_mutex_unlock(&huge_mtx);
-		}
+                }
 #endif
+
+                /* Although we don't have to commit or decommit anything if
+                 * DECOMMIT is not defined and the size class didn't change, we
+                 * do need to update the recorded size if the size increased,
+                 * so malloc_usable_size doesn't return a value smaller than
+                 * what was requested via realloc(). */
+
+                if (psize > oldsize) {
+                        /* Update recorded size. */
+                        extent_node_t *node, key;
+                        malloc_mutex_lock(&huge_mtx);
+                        key.addr = __DECONST(void *, ptr);
+                        node = extent_tree_ad_search(&huge, &key);
+                        assert(node != NULL);
+                        assert(node->size == oldsize);
+#  ifdef MALLOC_STATS
+                        huge_allocated += psize - oldsize;
+#  endif
+                        node->size = psize;
+                        malloc_mutex_unlock(&huge_mtx);
+                }
+
 #ifdef MALLOC_FILL
 		if (opt_zero && size > oldsize) {
 			memset((void *)((uintptr_t)ptr + oldsize), 0, size
@@ -4955,11 +5217,7 @@ huge_dalloc(void *ptr)
 	if (opt_junk)
 		memset(node->addr, 0x5a, node->size);
 #endif
-#ifdef MALLOC_DECOMMIT
 	chunk_dealloc(node->addr, CHUNK_CEILING(node->size));
-#else
-	chunk_dealloc(node->addr, node->size);
-#endif
 	VALGRIND_FREELIKE_BLOCK(node->addr, 0);
 
 	base_node_dealloc(node);
@@ -5116,23 +5374,27 @@ malloc_print_stats(void)
 		_malloc_message("\n", "", "", "");
 
 #ifndef MOZ_MEMORY_NARENAS_DEFAULT_ONE
-		_malloc_message("CPUs: ", umax2s(ncpus, s), "\n", "");
+		_malloc_message("CPUs: ", umax2s(ncpus, 10, s), "\n", "");
 #endif
-		_malloc_message("Max arenas: ", umax2s(narenas, s), "\n", "");
+		_malloc_message("Max arenas: ", umax2s(narenas, 10, s), "\n",
+		    "");
 #ifdef MALLOC_BALANCE
 		_malloc_message("Arena balance threshold: ",
-		    umax2s(opt_balance_threshold, s), "\n", "");
+		    umax2s(opt_balance_threshold, 10, s), "\n", "");
 #endif
-		_malloc_message("Pointer size: ", umax2s(sizeof(void *), s),
+		_malloc_message("Pointer size: ", umax2s(sizeof(void *), 10, s),
 		    "\n", "");
-		_malloc_message("Quantum size: ", umax2s(quantum, s), "\n", "");
-		_malloc_message("Max small size: ", umax2s(small_max, s), "\n",
+		_malloc_message("Quantum size: ", umax2s(quantum, 10, s), "\n",
 		    "");
+		_malloc_message("Max small size: ", umax2s(small_max, 10, s),
+		    "\n", "");
 		_malloc_message("Max dirty pages per arena: ",
-		    umax2s(opt_dirty_max, s), "\n", "");
+		    umax2s(opt_dirty_max, 10, s), "\n", "");
 
-		_malloc_message("Chunk size: ", umax2s(chunksize, s), "", "");
-		_malloc_message(" (2^", umax2s(opt_chunk_2pow, s), ")\n", "");
+		_malloc_message("Chunk size: ", umax2s(chunksize, 10, s), "",
+		    "");
+		_malloc_message(" (2^", umax2s(opt_chunk_2pow, 10, s), ")\n",
+		    "");
 
 #ifdef MALLOC_STATS
 		{
@@ -5231,7 +5493,7 @@ malloc_print_stats(void)
  * implementation has to take pains to avoid infinite recursion during
  * initialization.
  */
-#if (defined(MOZ_MEMORY_WINDOWS) || defined(MOZ_MEMORY_DARWIN)) && !defined(MOZ_MEMORY_WINCE)
+#if (defined(MOZ_MEMORY_WINDOWS) || defined(MOZ_MEMORY_DARWIN))
 #define	malloc_init() false
 #else
 static inline bool
@@ -5245,7 +5507,7 @@ malloc_init(void)
 }
 #endif
 
-#if !defined(MOZ_MEMORY_WINDOWS) || defined(MOZ_MEMORY_WINCE) 
+#if !defined(MOZ_MEMORY_WINDOWS)
 static
 #endif
 bool
@@ -5257,6 +5519,9 @@ malloc_init_hard(void)
 	long result;
 #ifndef MOZ_MEMORY_WINDOWS
 	int linklen;
+#endif
+#ifdef MOZ_MEMORY_DARWIN
+    malloc_zone_t* default_zone;
 #endif
 
 #ifndef MOZ_MEMORY_WINDOWS
@@ -5572,6 +5837,8 @@ MALLOC_OUT:
 
 #if (!defined(MOZ_MEMORY_WINDOWS) && !defined(MOZ_MEMORY_DARWIN) && !defined(MOZ_MEMORY_ANDROID))
 	/* Prevent potential deadlock on malloc locks after fork. */
+	/* XXX on Android there is no pthread_atfork, so we specifically
+	   call _malloc_prefork and _malloc_postfork in process_util_linux.cc */
 	pthread_atfork(_malloc_prefork, _malloc_postfork, _malloc_postfork);
 #endif
 
@@ -5652,9 +5919,7 @@ MALLOC_OUT:
 	/* Initialize base allocation data structures. */
 #ifdef MALLOC_STATS
 	base_mapped = 0;
-#  ifdef MALLOC_DECOMMIT
 	base_committed = 0;
-#  endif
 #endif
 	base_nodes = NULL;
 	malloc_mutex_init(&base_mtx);
@@ -5784,6 +6049,52 @@ MALLOC_OUT:
 #endif
 
 	malloc_initialized = true;
+
+#if defined(NEEDS_PTHREAD_MMAP_UNALIGNED_TSD)
+	if (pthread_key_create(&mmap_unaligned_tsd, NULL) != 0) {
+		malloc_printf("<jemalloc>: Error in pthread_key_create()\n");
+	}
+#endif
+
+#ifdef MOZ_MEMORY_DARWIN
+	/*
+	* Overwrite the default memory allocator to use jemalloc everywhere.
+	*/
+	default_zone = malloc_default_zone();
+
+	/*
+	 * We only use jemalloc with versions of MacOS we've seen (10.5, 10.6, and
+	 * 10.7).  We'll have to update our code to work with newer versions,
+	 * because the malloc zone layout is likely to change.
+	 */
+
+	osx_use_jemalloc = (default_zone->version == LEOPARD_MALLOC_ZONE_T_VERSION ||
+			    default_zone->version == SNOW_LEOPARD_MALLOC_ZONE_T_VERSION ||
+			    default_zone->version == LION_MALLOC_ZONE_T_VERSION);
+
+	/* Allow us dynamically turn off jemalloc for testing. */
+	if (getenv("NO_MAC_JEMALLOC")) {
+		osx_use_jemalloc = false;
+#ifdef __i386__
+		malloc_printf("Warning: NO_MAC_JEMALLOC has no effect on "
+			      "i386 machines (such as this one).\n");
+#endif
+	}
+
+	if (osx_use_jemalloc) {
+		/*
+		 * Convert the default szone to an "overlay zone" that is capable
+		 * of deallocating szone-allocated objects, but allocating new
+		 * objects from jemalloc.
+		 */
+		size_t size = zone_version_size(default_zone->version);
+		szone2ozone(default_zone, size);
+	}
+	else {
+		szone = default_zone;
+	}
+#endif
+
 #ifndef MOZ_MEMORY_WINDOWS
 	malloc_mutex_unlock(&init_lock);
 #endif
@@ -5809,51 +6120,84 @@ malloc_shutdown()
  */
 
 /*
- * Inline the standard malloc functions if they are being subsumed by Darwin's
- * zone infrastructure.
+ * Mangle standard interfaces, in order to avoid linking problems.
  */
-#ifdef MOZ_MEMORY_DARWIN
-#  define ZONE_INLINE	inline
+#if defined(MOZ_MEMORY_DARWIN) || defined(MOZ_MEMORY_WINDOWS) || \
+    defined(MOZ_MEMORY_ANDROID)
+
+#ifdef MOZ_MEMORY_ANDROID
+/*
+ * On Android, we use __wrap_* instead of je_* to accomodate with the
+ * linker's --wrap option we use. That option prefixes the function
+ * names it is given with __wrap_.
+ */
+#define wrap(a) __wrap_ ## a
+
+/* Extra wrappers for NSPR alloc functions */
+void *
+__wrap_PR_Malloc(size_t size) __attribute__((alias("__wrap_malloc")));
+void *
+__wrap_PR_Calloc(size_t num, size_t size) __attribute__((alias("__wrap_calloc")));
+void *
+__wrap_PR_Realloc(void *ptr, size_t size) __attribute__((alias("__wrap_realloc")));
+void
+__wrap_PR_Free(void *ptr) __attribute__((alias("__wrap_free")));
+
 #else
-#  define ZONE_INLINE
+#define wrap(a) je_ ## a
 #endif
 
-/* Mangle standard interfaces on Darwin and Android, 
-   in order to avoid linking problems. */
-#if defined(MOZ_MEMORY_DARWIN)
-#define	malloc(a)	moz_malloc(a)
-#define	valloc(a)	moz_valloc(a)
-#define	calloc(a, b)	moz_calloc(a, b)
-#define	realloc(a, b)	moz_realloc(a, b)
-#define	free(a)		moz_free(a)
-#endif
+#define malloc(a)               wrap(malloc)(a)
+#define memalign(a, b)          wrap(memalign)(a, b)
+#define posix_memalign(a, b, c) wrap(posix_memalign)(a, b, c)
+#define valloc(a)               wrap(valloc)(a)
+#define calloc(a, b)            wrap(calloc)(a, b)
+#define realloc(a, b)           wrap(realloc)(a, b)
+#define free(a)                 wrap(free)(a)
+#define malloc_usable_size(a)   wrap(malloc_usable_size)(a)
 
-#if defined(MOZ_MEMORY_ANDROID) || defined(WRAP_MALLOC)
-inline void sys_free(void* ptr) {return free(ptr);}
-#define	malloc(a)	je_malloc(a)
-#define	valloc(a)	je_valloc(a)
-#define	calloc(a, b)	je_calloc(a, b)
-#define	realloc(a, b)	je_realloc(a, b)
-#define	free(a)		je_free(a)
-#define posix_memalign(a, b, c)  je_posix_memalign(a, b, c)
+void *malloc(size_t size);
 
-char    *je_strndup(const char *src, size_t len) {
-  char* dst = (char*)je_malloc(len + 1);
-  if(dst)
-    strncpy(dst, src, len + 1);
-  return dst;
+char *
+wrap(strndup)(const char *src, size_t len) {
+	char* dst = (char*) malloc(len + 1);
+	if (dst)
+		strncpy(dst, src, len + 1);
+	return dst;
 }
-char    *je_strdup(const char *src) {
-  size_t len = strlen(src);
-  return je_strndup(src, len );
+
+char *
+wrap(strdup)(const char *src) {
+	size_t len = strlen(src);
+	return wrap(strndup)(src, len);
 }
 #endif
 
-ZONE_INLINE
+/*
+ * Even though we compile with MOZ_MEMORY, we may have to dynamically decide
+ * not to use jemalloc, as discussed above. However, we call jemalloc
+ * functions directly from mozalloc. Since it's pretty dangerous to mix the
+ * allocators, we need to call the OSX allocators from the functions below,
+ * when osx_use_jemalloc is not (dynamically) set.
+ *
+ * Note that we assume jemalloc is enabled on i386.  This is safe because the
+ * only i386 versions of MacOS are 10.5 and 10.6, which we support.  We have to
+ * do this because madvise isn't in the malloc zone struct for 10.5.
+ *
+ * This means that NO_MAC_JEMALLOC doesn't work on i386.
+ */
+#if defined(MOZ_MEMORY_DARWIN) && !defined(__i386__)
+#define DARWIN_ONLY(A) if (!osx_use_jemalloc) { A; }
+#else
+#define DARWIN_ONLY(A)
+#endif
+
 void *
 malloc(size_t size)
 {
 	void *ret;
+
+	DARWIN_ONLY(return (szone->malloc)(szone, size));
 
 	if (malloc_init()) {
 		ret = NULL;
@@ -5892,21 +6236,48 @@ RETURN:
 	return (ret);
 }
 
+/*
+ * In ELF systems the default visibility allows symbols to be preempted at
+ * runtime. This in turn prevents the uses of memalign in this file from being
+ * optimized. What we do in here is define two aliasing symbols (they point to
+ * the same code): memalign and memalign_internal. The internal version has
+ * hidden visibility and is used in every reference from this file.
+ *
+ * For more information on this technique, see section 2.2.7 (Avoid Using
+ * Exported Symbols) in http://www.akkadia.org/drepper/dsohowto.pdf.
+ */
+
+#if defined(__GNUC__) && !defined(MOZ_MEMORY_DARWIN)
+#define MOZ_MEMORY_ELF
+#endif
+
 #ifdef MOZ_MEMORY_SOLARIS
 #  ifdef __SUNPRO_C
 void *
 memalign(size_t alignment, size_t size);
 #pragma no_inline(memalign)
-#  elif (defined(__GNU_C__))
+#  elif (defined(__GNUC__))
 __attribute__((noinline))
 #  endif
 #else
-inline
+#if (defined(MOZ_MEMORY_ELF))
+__attribute__((visibility ("hidden")))
 #endif
+#endif
+
+
+#ifdef MOZ_MEMORY_ELF
+#define MEMALIGN memalign_internal
+#else
+#define MEMALIGN memalign
+#endif
+
 void *
-memalign(size_t alignment, size_t size)
+MEMALIGN(size_t alignment, size_t size)
 {
 	void *ret;
+
+	DARWIN_ONLY(return (szone->memalign)(szone, alignment, size));
 
 	assert(((alignment - 1) & alignment) == 0);
 
@@ -5943,7 +6314,11 @@ RETURN:
 	return (ret);
 }
 
-ZONE_INLINE
+#ifdef MOZ_MEMORY_ELF
+extern void *
+memalign(size_t alignment, size_t size) __attribute__((alias ("memalign_internal"), visibility ("default")));
+#endif
+
 int
 posix_memalign(void **memptr, size_t alignment, size_t size)
 {
@@ -5964,11 +6339,8 @@ posix_memalign(void **memptr, size_t alignment, size_t size)
 
 	/* The 0-->1 size promotion is done in the memalign() call below */
 
-#ifdef MOZ_MEMORY_DARWIN
-	result = moz_memalign(alignment, size);
-#else
-	result = memalign(alignment, size);
-#endif
+	result = MEMALIGN(alignment, size);
+
 	if (result == NULL)
 		return (ENOMEM);
 
@@ -5976,23 +6348,19 @@ posix_memalign(void **memptr, size_t alignment, size_t size)
 	return (0);
 }
 
-ZONE_INLINE
 void *
 valloc(size_t size)
 {
-#ifdef MOZ_MEMORY_DARWIN
-	return (moz_memalign(pagesize, size));
-#else
-	return (memalign(pagesize, size));
-#endif
+	return (MEMALIGN(pagesize, size));
 }
 
-ZONE_INLINE
 void *
 calloc(size_t num, size_t size)
 {
 	void *ret;
 	size_t num_size;
+
+	DARWIN_ONLY(return (szone->calloc)(szone, num, size));
 
 	if (malloc_init()) {
 		num_size = 0;
@@ -6043,11 +6411,12 @@ RETURN:
 	return (ret);
 }
 
-ZONE_INLINE
 void *
 realloc(void *ptr, size_t size)
 {
 	void *ret;
+
+	DARWIN_ONLY(return (szone->realloc)(szone, ptr, size));
 
 	if (size == 0) {
 #ifdef MALLOC_SYSV
@@ -6106,12 +6475,13 @@ RETURN:
 	return (ret);
 }
 
-ZONE_INLINE
 void
 free(void *ptr)
 {
 	size_t offset;
 	
+	DARWIN_ONLY((szone->free)(szone, ptr); return);
+
 	UTRACE(ptr, 0, 0);
 
 	/*
@@ -6133,6 +6503,47 @@ free(void *ptr)
 /*
  * Begin non-standard functions.
  */
+
+/* This was added by Mozilla for use by SQLite. */
+size_t
+je_malloc_usable_size_in_advance(size_t size)
+{
+	/*
+	 * This duplicates the logic in imalloc(), arena_malloc() and
+	 * arena_malloc_small().
+	 */
+	if (size < small_min) {
+		/* Small (tiny). */
+		size = pow2_ceil(size);
+		/*
+		 * We omit the #ifdefs from arena_malloc_small() --
+		 * it can be inaccurate with its size in some cases, but this
+		 * function must be accurate.
+		 */
+		if (size < (1U << TINY_MIN_2POW))
+			size = (1U << TINY_MIN_2POW);
+	} else if (size <= small_max) {
+		/* Small (quantum-spaced). */
+		size = QUANTUM_CEILING(size);
+	} else if (size <= bin_maxclass) {
+		/* Small (sub-page). */
+		size = pow2_ceil(size);
+	} else if (size <= arena_maxclass) {
+		/* Large. */
+		size = PAGE_CEILING(size);
+	} else {
+		/*
+		 * Huge.  We use PAGE_CEILING to get psize, instead of using
+		 * CHUNK_CEILING to get csize.  This ensures that this
+		 * malloc_usable_size(malloc(n)) always matches
+		 * je_malloc_usable_size_in_advance(n).
+		 */
+		size = PAGE_CEILING(size);
+	}
+	return size;
+}
+
+
 #ifdef MOZ_MEMORY_ANDROID
 size_t
 malloc_usable_size(void *ptr)
@@ -6141,6 +6552,7 @@ size_t
 malloc_usable_size(const void *ptr)
 #endif
 {
+	DARWIN_ONLY(return (szone->size)(szone, ptr));
 
 #ifdef MALLOC_VALIDATE
 	return (isalloc_validate(ptr));
@@ -6212,45 +6624,106 @@ jemalloc_stats(jemalloc_stats_t *stats)
 	/* Get huge mapped/allocated. */
 	malloc_mutex_lock(&huge_mtx);
 	stats->mapped += stats_chunks.curchunks * chunksize;
-#ifdef MALLOC_DECOMMIT
 	stats->committed += huge_allocated;
-#endif
 	stats->allocated += huge_allocated;
 	malloc_mutex_unlock(&huge_mtx);
 
 	/* Get base mapped. */
 	malloc_mutex_lock(&base_mtx);
 	stats->mapped += base_mapped;
-#ifdef MALLOC_DECOMMIT
 	assert(base_committed <= base_mapped);
 	stats->committed += base_committed;
-#endif
 	malloc_mutex_unlock(&base_mtx);
 
 	/* Iterate over arenas and their chunks. */
 	for (i = 0; i < narenas; i++) {
 		arena_t *arena = arenas[i];
 		if (arena != NULL) {
-			arena_chunk_t *chunk;
-
 			malloc_spin_lock(&arena->lock);
 			stats->allocated += arena->stats.allocated_small;
 			stats->allocated += arena->stats.allocated_large;
-#ifdef MALLOC_DECOMMIT
 			stats->committed += (arena->stats.committed <<
 			    pagesize_2pow);
-#endif
 			stats->dirty += (arena->ndirty << pagesize_2pow);
 			malloc_spin_unlock(&arena->lock);
 		}
 	}
 
-#ifndef MALLOC_DECOMMIT
-	stats->committed = stats->mapped;
-#endif
 	assert(stats->mapped >= stats->committed);
 	assert(stats->committed >= stats->allocated);
 }
+
+#ifdef MALLOC_DOUBLE_PURGE
+
+/* Explicitly remove all of this chunk's MADV_FREE'd pages from memory. */
+static void
+hard_purge_chunk(arena_chunk_t *chunk)
+{
+	/* See similar logic in arena_purge(). */
+
+	size_t i;
+	for (i = arena_chunk_header_npages; i < chunk_npages; i++) {
+		/* Find all adjacent pages with CHUNK_MAP_MADVISED set. */
+		size_t npages;
+		for (npages = 0;
+		     chunk->map[i + npages].bits & CHUNK_MAP_MADVISED && i + npages < chunk_npages;
+		     npages++) {
+			/* Turn off the chunk's MADV_FREED bit and turn on its
+			 * DECOMMITTED bit. */
+			assert(!(chunk->map[i + npages].bits & CHUNK_MAP_DECOMMITTED));
+			chunk->map[i + npages].bits ^= CHUNK_MAP_MADVISED_OR_DECOMMITTED;
+		}
+
+		/* We could use mincore to find out which pages are actually
+		 * present, but it's not clear that's better. */
+		if (npages > 0) {
+			pages_decommit(((char*)chunk) + (i << pagesize_2pow), npages << pagesize_2pow);
+			pages_commit(((char*)chunk) + (i << pagesize_2pow), npages << pagesize_2pow);
+		}
+		i += npages;
+	}
+}
+
+/* Explicitly remove all of this arena's MADV_FREE'd pages from memory. */
+static void
+hard_purge_arena(arena_t *arena)
+{
+	malloc_spin_lock(&arena->lock);
+
+	while (!LinkedList_IsEmpty(&arena->chunks_madvised)) {
+		LinkedList* next = arena->chunks_madvised.next;
+		arena_chunk_t *chunk =
+			LinkedList_Get(arena->chunks_madvised.next,
+				       arena_chunk_t, chunks_madvised_elem);
+		hard_purge_chunk(chunk);
+		LinkedList_Remove(&chunk->chunks_madvised_elem);
+	}
+
+	malloc_spin_unlock(&arena->lock);
+}
+
+void
+jemalloc_purge_freed_pages()
+{
+	size_t i;
+	for (i = 0; i < narenas; i++) {
+		arena_t *arena = arenas[i];
+		if (arena != NULL)
+			hard_purge_arena(arena);
+	}
+}
+
+#else /* !defined MALLOC_DOUBLE_PURGE */
+
+void
+jemalloc_purge_freed_pages()
+{
+	/* Do nothing. */
+}
+
+#endif /* defined MALLOC_DOUBLE_PURGE */
+
+
 
 #ifdef MOZ_MEMORY_WINDOWS
 void*
@@ -6308,7 +6781,11 @@ _msize(const void *ptr)
  * is threaded here.
  */
 
+#ifdef MOZ_MEMORY_ANDROID
 void
+#else
+static void
+#endif
 _malloc_prefork(void)
 {
 	unsigned i;
@@ -6326,7 +6803,11 @@ _malloc_prefork(void)
 	malloc_mutex_lock(&huge_mtx);
 }
 
+#ifdef MOZ_MEMORY_ANDROID
 void
+#else
+static void
+#endif
 _malloc_postfork(void)
 {
 	unsigned i;
@@ -6354,24 +6835,6 @@ _malloc_postfork(void)
 #endif
 
 #ifdef MOZ_MEMORY_DARWIN
-static malloc_zone_t zone;
-static struct malloc_introspection_t zone_introspect;
-
-static size_t
-zone_size(malloc_zone_t *zone, void *ptr)
-{
-
-	/*
-	 * There appear to be places within Darwin (such as setenv(3)) that
-	 * cause calls to this function with pointers that *no* zone owns.  If
-	 * we knew that all pointers were owned by *some* zone, we could split
-	 * our zone into two parts, and use one as the default allocator and
-	 * the other as the default deallocator/reallocator.  Since that will
-	 * not work in practice, we must check all pointers to assure that they
-	 * reside within a mapped chunk before determining size.
-	 */
-	return (isalloc_validate(ptr));
-}
 
 static void *
 zone_malloc(malloc_zone_t *zone, size_t size)
@@ -6397,18 +6860,10 @@ zone_valloc(malloc_zone_t *zone, size_t size)
 	return (ret);
 }
 
-static void
-zone_free(malloc_zone_t *zone, void *ptr)
-{
-
-	free(ptr);
-}
-
 static void *
-zone_realloc(malloc_zone_t *zone, void *ptr, size_t size)
+zone_memalign(malloc_zone_t *zone, size_t alignment, size_t size)
 {
-
-	return (realloc(ptr, size));
+	return (memalign(alignment, size));
 }
 
 static void *
@@ -6423,95 +6878,190 @@ zone_destroy(malloc_zone_t *zone)
 static size_t
 zone_good_size(malloc_zone_t *zone, size_t size)
 {
-	size_t ret;
-	void *p;
+	return je_malloc_usable_size_in_advance(size);
+}
 
-	/*
-	 * Actually create an object of the appropriate size, then find out
-	 * how large it could have been without moving up to the next size
-	 * class.
-	 */
-	p = malloc(size);
-	if (p != NULL) {
-		ret = isalloc(p);
-		free(p);
-	} else
-		ret = size;
+static size_t
+ozone_size(malloc_zone_t *zone, void *ptr)
+{
+	size_t ret = isalloc_validate(ptr);
+	if (ret == 0)
+		ret = szone->size(zone, ptr);
 
-	return (ret);
+	return ret;
 }
 
 static void
-zone_force_lock(malloc_zone_t *zone)
+ozone_free(malloc_zone_t *zone, void *ptr)
 {
+	if (isalloc_validate(ptr) != 0)
+		free(ptr);
+	else {
+		size_t size = szone->size(zone, ptr);
+		if (size != 0)
+			(szone->free)(zone, ptr);
+		/* Otherwise we leak. */
+	}
+}
 
-	_malloc_prefork();
+static void *
+ozone_realloc(malloc_zone_t *zone, void *ptr, size_t size)
+{
+    size_t oldsize;
+	if (ptr == NULL)
+		return (malloc(size));
+
+	oldsize = isalloc_validate(ptr);
+	if (oldsize != 0)
+		return (realloc(ptr, size));
+	else {
+		oldsize = szone->size(zone, ptr);
+		if (oldsize == 0)
+			return (malloc(size));
+		else {
+			void *ret = malloc(size);
+			if (ret != NULL) {
+				memcpy(ret, ptr, (oldsize < size) ? oldsize :
+				    size);
+				(szone->free)(zone, ptr);
+			}
+			return (ret);
+		}
+	}
+}
+
+static unsigned
+ozone_batch_malloc(malloc_zone_t *zone, size_t size, void **results,
+    unsigned num_requested)
+{
+	/* Don't bother implementing this interface, since it isn't required. */
+	return 0;
 }
 
 static void
-zone_force_unlock(malloc_zone_t *zone)
+ozone_batch_free(malloc_zone_t *zone, void **to_be_freed, unsigned num)
 {
+	unsigned i;
 
-	_malloc_postfork();
+	for (i = 0; i < num; i++)
+		ozone_free(zone, to_be_freed[i]);
 }
 
-static malloc_zone_t *
-create_zone(void)
+static void
+ozone_free_definite_size(malloc_zone_t *zone, void *ptr, size_t size)
 {
+	if (isalloc_validate(ptr) != 0) {
+		assert(isalloc_validate(ptr) == size);
+		free(ptr);
+	} else {
+		assert(size == szone->size(zone, ptr));
+		l_szone.m16(zone, ptr, size);
+	}
+}
 
+static void
+ozone_force_lock(malloc_zone_t *zone)
+{
+	/* jemalloc locking is taken care of by the normal jemalloc zone. */
+	szone->introspect->force_lock(zone);
+}
+
+static void
+ozone_force_unlock(malloc_zone_t *zone)
+{
+	/* jemalloc locking is taken care of by the normal jemalloc zone. */
+	szone->introspect->force_unlock(zone);
+}
+
+static size_t
+zone_version_size(int version)
+{
+    switch (version)
+    {
+        case SNOW_LEOPARD_MALLOC_ZONE_T_VERSION:
+            return sizeof(snow_leopard_malloc_zone);
+        case LEOPARD_MALLOC_ZONE_T_VERSION:
+            return sizeof(leopard_malloc_zone);
+        default:
+        case LION_MALLOC_ZONE_T_VERSION:
+            return sizeof(lion_malloc_zone);
+    }
+}
+
+/*
+ * Overlay the default scalable zone (szone) such that existing allocations are
+ * drained, and further allocations come from jemalloc. This is necessary
+ * because Core Foundation directly accesses and uses the szone before the
+ * jemalloc library is even loaded.
+ */
+static void
+szone2ozone(malloc_zone_t *default_zone, size_t size)
+{
+    lion_malloc_zone *l_zone;
 	assert(malloc_initialized);
 
-	zone.size = (void *)zone_size;
-	zone.malloc = (void *)zone_malloc;
-	zone.calloc = (void *)zone_calloc;
-	zone.valloc = (void *)zone_valloc;
-	zone.free = (void *)zone_free;
-	zone.realloc = (void *)zone_realloc;
-	zone.destroy = (void *)zone_destroy;
-	zone.zone_name = "jemalloc_zone";
-	zone.batch_malloc = NULL;
-	zone.batch_free = NULL;
-	zone.introspect = &zone_introspect;
+	/*
+	 * Stash a copy of the original szone so that we can call its
+	 * functions as needed. Note that internally, the szone stores its
+	 * bookkeeping data structures immediately following the malloc_zone_t
+	 * header, so when calling szone functions, we need to pass a pointer to
+	 * the original zone structure.
+	 */
+	memcpy(szone, default_zone, size);
 
-	zone_introspect.enumerator = NULL;
-	zone_introspect.good_size = (void *)zone_good_size;
-	zone_introspect.check = NULL;
-	zone_introspect.print = NULL;
-	zone_introspect.log = NULL;
-	zone_introspect.force_lock = (void *)zone_force_lock;
-	zone_introspect.force_unlock = (void *)zone_force_unlock;
-	zone_introspect.statistics = NULL;
+	/* OSX 10.7 allocates the default zone in protected memory. */
+	if (default_zone->version >= LION_MALLOC_ZONE_T_VERSION) {
+		void* start_of_page = (void*)((size_t)(default_zone) & ~pagesize_mask);
+		mprotect (start_of_page, size, PROT_READ | PROT_WRITE);
+	}
 
-	return (&zone);
+	default_zone->size = (void *)ozone_size;
+	default_zone->malloc = (void *)zone_malloc;
+	default_zone->calloc = (void *)zone_calloc;
+	default_zone->valloc = (void *)zone_valloc;
+	default_zone->free = (void *)ozone_free;
+	default_zone->realloc = (void *)ozone_realloc;
+	default_zone->destroy = (void *)zone_destroy;
+	default_zone->batch_malloc = NULL;
+	default_zone->batch_free = ozone_batch_free;
+	default_zone->introspect = ozone_introspect;
+
+	/* Don't modify default_zone->zone_name; Mac libc may rely on the name
+	 * being unchanged.  See Mozilla bug 694896. */
+
+	ozone_introspect->enumerator = NULL;
+	ozone_introspect->good_size = (void *)zone_good_size;
+	ozone_introspect->check = NULL;
+	ozone_introspect->print = NULL;
+	ozone_introspect->log = NULL;
+	ozone_introspect->force_lock = (void *)ozone_force_lock;
+	ozone_introspect->force_unlock = (void *)ozone_force_unlock;
+	ozone_introspect->statistics = NULL;
+
+    /* Platform-dependent structs */
+    l_zone = (lion_malloc_zone*)(default_zone);
+
+    if (default_zone->version >= SNOW_LEOPARD_MALLOC_ZONE_T_VERSION) {
+        l_zone->m15 = (void (*)())zone_memalign;
+        l_zone->m16 = (void (*)())ozone_free_definite_size;
+        l_ozone_introspect.m9 = NULL;
+    }
+
+    if (default_zone->version >= LION_MALLOC_ZONE_T_VERSION) {
+        l_zone->m17 = NULL;
+        l_ozone_introspect.m10 = NULL;
+        l_ozone_introspect.m11 = NULL;
+        l_ozone_introspect.m12 = NULL;
+        l_ozone_introspect.m13 = NULL;
+    }
 }
 
 __attribute__((constructor))
 void
 jemalloc_darwin_init(void)
 {
-	extern unsigned malloc_num_zones;
-	extern malloc_zone_t **malloc_zones;
-
 	if (malloc_init_hard())
 		abort();
-
-	/*
-	 * The following code is *not* thread-safe, so it's critical that
-	 * initialization be manually triggered.
-	 */
-
-	/* Register the custom zones. */
-	malloc_zone_register(create_zone());
-	assert(malloc_zones[malloc_num_zones - 1] == &zone);
-
-	/*
-	 * Shift malloc_zones around so that zone is first, which makes it the
-	 * default zone.
-	 */
-	assert(malloc_num_zones > 1);
-	memmove(&malloc_zones[1], &malloc_zones[0],
-		sizeof(malloc_zone_t *) * (malloc_num_zones - 1));
-	malloc_zones[0] = &zone;
 }
 
 #elif defined(__GLIBC__) && !defined(__UCLIBC__)
@@ -6524,12 +7074,10 @@ jemalloc_darwin_init(void)
  * passed an extra argument for the caller return address, which will be
  * ignored.
  */
-#ifndef WRAP_MALLOC
 void (*__free_hook)(void *ptr) = free;
 void *(*__malloc_hook)(size_t size) = malloc;
 void *(*__realloc_hook)(void *ptr, size_t size) = realloc;
-void *(*__memalign_hook)(size_t alignment, size_t size) = memalign;
-#endif
+void *(*__memalign_hook)(size_t alignment, size_t size) = MEMALIGN;
 
 #elif defined(RTLD_DEEPBIND)
 /*
@@ -6538,4 +7086,60 @@ void *(*__memalign_hook)(size_t alignment, size_t size) = memalign;
  * visibility be used for interposition where available?
  */
 #  error "Interposing malloc is unsafe on this system without libc malloc hooks."
+#endif
+
+#ifdef MOZ_MEMORY_WINDOWS
+/*
+ * In the new style jemalloc integration jemalloc is built as a separate
+ * shared library.  Since we're no longer hooking into the CRT binary,
+ * we need to initialize the heap at the first opportunity we get.
+ * DLL_PROCESS_ATTACH in DllMain is that opportunity.
+ */
+BOOL APIENTRY DllMain(HINSTANCE hModule, 
+                      DWORD reason, 
+                      LPVOID lpReserved)
+{
+  switch (reason) {
+    case DLL_PROCESS_ATTACH:
+      /* Don't force the system to page DllMain back in every time
+       * we create/destroy a thread */
+      DisableThreadLibraryCalls(hModule);
+      /* Initialize the heap */
+      malloc_init_hard();
+      break;
+    
+    case DLL_PROCESS_DETACH:
+      break;
+
+  }
+
+  return TRUE;
+}
+
+/*
+ *  There's a fun allocator mismatch in (at least) the VS 2010 CRT
+ *  (see the giant comment in this directory's Makefile.in
+ *  that gets redirected here to avoid a crash on shutdown.
+ */
+void
+je_dumb_free_thunk(void *ptr)
+{
+  return; /* shutdown leaks that we don't care about */
+}
+
+#include <wchar.h>
+
+/*
+ *  We also need to provide our own impl of wcsdup so that we don't ask
+ *  the CRT for memory from its heap (which will then be unfreeable).
+ */
+wchar_t *je_wcsdup(const wchar_t *src)
+{
+  size_t len = wcslen(src);
+  wchar_t* dst = (wchar_t*)je_malloc((len + 1) * sizeof(wchar_t));
+  if(dst)
+    wcsncpy(dst, src, len + 1);
+  return dst;
+}
+
 #endif

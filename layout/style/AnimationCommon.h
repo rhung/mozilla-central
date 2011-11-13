@@ -67,17 +67,18 @@ public:
 
   // nsIStyleRuleProcessor (parts)
   virtual nsRestyleHint HasStateDependentStyle(StateRuleProcessorData* aData);
-  virtual PRBool HasDocumentStateDependentStyle(StateRuleProcessorData* aData);
+  virtual bool HasDocumentStateDependentStyle(StateRuleProcessorData* aData);
   virtual nsRestyleHint
     HasAttributeDependentStyle(AttributeRuleProcessorData* aData);
-  virtual PRBool MediumFeaturesChanged(nsPresContext* aPresContext);
+  virtual bool MediumFeaturesChanged(nsPresContext* aPresContext);
+  virtual PRInt64 SizeOf() const;
 
   /**
    * Notify the manager that the pres context is going away.
    */
   void Disconnect();
 
-  static PRBool ExtractComputedValueForTransition(
+  static bool ExtractComputedValueForTransition(
                   nsCSSProperty aProperty,
                   nsStyleContext* aStyleContext,
                   nsStyleAnimation::Value& aComputedValue);
@@ -148,12 +149,17 @@ struct CommonElementAnimationData : public PRCList
     : mElement(aElement)
     , mElementProperty(aElementProperty)
     , mManager(aManager)
+#ifdef DEBUG
+    , mCalledPropertyDtor(false)
+#endif
   {
     MOZ_COUNT_CTOR(CommonElementAnimationData);
     PR_INIT_CLIST(this);
   }
   ~CommonElementAnimationData()
   {
+    NS_ABORT_IF_FALSE(mCalledPropertyDtor,
+                      "must call destructor through element property dtor");
     MOZ_COUNT_DTOR(CommonElementAnimationData);
     PR_REMOVE_LINK(this);
     mManager->ElementDataRemoved();
@@ -172,6 +178,10 @@ struct CommonElementAnimationData : public PRCList
   nsIAtom *mElementProperty;
 
   CommonAnimationManager *mManager;
+
+#ifdef DEBUG
+  bool mCalledPropertyDtor;
+#endif
 };
 
 }

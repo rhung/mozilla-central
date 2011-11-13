@@ -73,7 +73,7 @@ LIBS            += \
 		$(NULL)
 endif
 
-ifneq (,$(filter WINNT WINCE,$(OS_ARCH)))
+ifeq ($(OS_ARCH),WINNT)
 RCINCLUDE = xulrunner-stub.rc
 ifndef GNU_CC
 RCFLAGS += -DMOZ_XULRUNNER -I$(srcdir)
@@ -94,17 +94,28 @@ endif
 include $(topsrcdir)/config/config.mk
 
 ifdef _MSC_VER
-ifdef WINCE
-WIN32_EXE_LDFLAGS += -ENTRY:mainWCRTStartup
-else
 WIN32_EXE_LDFLAGS += -ENTRY:wmainCRTStartup
 endif
-endif
-
-LIBS += $(JEMALLOC_LIBS)
 
 include $(topsrcdir)/config/rules.mk
 
 ifeq ($(OS_ARCH),WINNT)
 OS_LIBS += $(call EXPAND_LIBNAME,shell32)
+endif
+
+ifeq (cocoa,$(MOZ_WIDGET_TOOLKIT))
+
+FRAMEWORK_NAME = XUL
+FRAMEWORK_VERSION = $(MOZILLA_VERSION)
+
+FRAMEWORK_DIR = \
+   $(DIST)/$(FRAMEWORK_NAME).framework/Versions/$(FRAMEWORK_VERSION)
+
+$(FRAMEWORK_DIR):
+	$(NSINSTALL) -D $@
+
+$(FRAMEWORK_DIR)/$(PROGRAM): $(PROGRAM) $(FRAMEWORK_DIR)
+	$(NSINSTALL) $(PROGRAM) $(FRAMEWORK_DIR)
+
+libs:: $(FRAMEWORK_DIR)/$(PROGRAM)
 endif

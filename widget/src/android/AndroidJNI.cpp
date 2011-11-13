@@ -35,6 +35,7 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+#include "mozilla/Hal.h"
 #include "nsILocalFile.h"
 #include "nsString.h"
 
@@ -53,6 +54,7 @@
 
 #ifdef MOZ_CRASHREPORTER
 #include "nsICrashReporter.h"
+#include "nsExceptionHandler.h"
 #endif
 
 
@@ -63,12 +65,16 @@ using namespace mozilla;
 extern "C" {
     NS_EXPORT void JNICALL Java_org_mozilla_gecko_GeckoAppShell_nativeInit(JNIEnv *, jclass);
     NS_EXPORT void JNICALL Java_org_mozilla_gecko_GeckoAppShell_notifyGeckoOfEvent(JNIEnv *, jclass, jobject event);
+    NS_EXPORT void JNICALL Java_org_mozilla_gecko_GeckoAppShell_processNextNativeEvent(JNIEnv *, jclass);
     NS_EXPORT void JNICALL Java_org_mozilla_gecko_GeckoAppShell_setSurfaceView(JNIEnv *jenv, jclass, jobject sv);
     NS_EXPORT void JNICALL Java_org_mozilla_gecko_GeckoAppShell_onResume(JNIEnv *, jclass);
     NS_EXPORT void JNICALL Java_org_mozilla_gecko_GeckoAppShell_onLowMemory(JNIEnv *, jclass);
     NS_EXPORT void JNICALL Java_org_mozilla_gecko_GeckoAppShell_callObserver(JNIEnv *, jclass, jstring observerKey, jstring topic, jstring data);
     NS_EXPORT void JNICALL Java_org_mozilla_gecko_GeckoAppShell_removeObserver(JNIEnv *jenv, jclass, jstring jObserverKey);
     NS_EXPORT void JNICALL Java_org_mozilla_gecko_GeckoAppShell_onChangeNetworkLinkStatus(JNIEnv *, jclass, jstring status);
+    NS_EXPORT void JNICALL Java_org_mozilla_gecko_GeckoAppShell_reportJavaCrash(JNIEnv *, jclass, jstring stack);
+    NS_EXPORT void JNICALL Java_org_mozilla_gecko_GeckoAppShell_executeNextRunnable(JNIEnv *, jclass);
+    NS_EXPORT void JNICALL Java_org_mozilla_gecko_GeckoAppShell_notifyBatteryChange(JNIEnv* jenv, jclass, jdouble, jboolean, jdouble);
 }
 
 
@@ -88,6 +94,14 @@ Java_org_mozilla_gecko_GeckoAppShell_notifyGeckoOfEvent(JNIEnv *jenv, jclass jc,
     // poke the appshell
     if (nsAppShell::gAppShell)
         nsAppShell::gAppShell->PostEvent(new AndroidGeckoEvent(jenv, event));
+}
+
+NS_EXPORT void JNICALL
+Java_org_mozilla_gecko_GeckoAppShell_processNextNativeEvent(JNIEnv *jenv, jclass)
+{
+    // poke the appshell
+    if (nsAppShell::gAppShell)
+        nsAppShell::gAppShell->ProcessNextNativeEvent(false);
 }
 
 NS_EXPORT void JNICALL
@@ -152,3 +166,55 @@ Java_org_mozilla_gecko_GeckoAppShell_onChangeNetworkLinkStatus(JNIEnv *jenv, jcl
                                            NS_NETWORK_LINK_TOPIC,
                                            sStatus.get());
 }
+
+NS_EXPORT void JNICALL
+Java_org_mozilla_gecko_GeckoAppShell_reportJavaCrash(JNIEnv *jenv, jclass, jstring stack)
+{
+#ifdef MOZ_CRASHREPORTER
+    nsJNIString javaStack(stack, jenv);
+    CrashReporter::AppendAppNotesToCrashReport(NS_ConvertUTF16toUTF8(javaStack));
+#endif
+    abort();
+}
+
+NS_EXPORT void JNICALL
+Java_org_mozilla_gecko_GeckoAppShell_executeNextRunnable(JNIEnv *, jclass)
+{
+    __android_log_print(ANDROID_LOG_INFO, "GeckoJNI", "%s", __PRETTY_FUNCTION__);
+    if (!AndroidBridge::Bridge()) {
+        __android_log_print(ANDROID_LOG_INFO, "GeckoJNI", "no bridge in %s!!!!", __PRETTY_FUNCTION__);
+        return;
+    }
+    AndroidBridge::Bridge()->ExecuteNextRunnable();
+    __android_log_print(ANDROID_LOG_INFO, "GeckoJNI", "leaving %s", __PRETTY_FUNCTION__);
+}
+
+NS_EXPORT void JNICALL
+Java_org_mozilla_gecko_GeckoAppShell_notifyBatteryChange(JNIEnv* jenv, jclass,
+                                                         jdouble aLevel,
+                                                         jboolean aCharging,
+                                                         jdouble aRemainingTime)
+{
+    class NotifyBatteryChangeRunnable : public nsRunnable {
+    public:
+      NotifyBatteryChangeRunnable(double aLevel, bool aCharging, double aRemainingTime)
+        : mLevel(aLevel)
+        , mCharging(aCharging)
+        , mRemainingTime(aRemainingTime)
+      {}
+
+      NS_IMETHODIMP Run() {
+        hal::NotifyBatteryChange(hal::BatteryInformation(mLevel, mCharging, mRemainingTime));
+        return NS_OK;
+      }
+
+    private:
+      double mLevel;
+      bool   mCharging;
+      double mRemainingTime;
+    };
+
+    nsCOMPtr<nsIRunnable> runnable = new NotifyBatteryChangeRunnable(aLevel, aCharging, aRemainingTime);
+    NS_DispatchToMainThread(runnable);
+}
+

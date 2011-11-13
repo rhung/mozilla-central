@@ -55,7 +55,6 @@ class nsSVGPathElement : public nsSVGPathElementBase,
                          public nsIDOMSVGAnimatedPathData
 {
 friend class nsSVGPathFrame;
-friend class nsSVGTextPathFrame;
 
 protected:
   friend nsresult NS_NewSVGPathElement(nsIContent **aResult,
@@ -76,11 +75,11 @@ public:
   NS_FORWARD_NSIDOMSVGELEMENT(nsSVGPathElementBase::)
 
   // nsIContent interface
-  NS_IMETHOD_(PRBool) IsAttributeMapped(const nsIAtom* name) const;
+  NS_IMETHOD_(bool) IsAttributeMapped(const nsIAtom* name) const;
 
   // nsSVGPathGeometryElement methods:
-  virtual PRBool AttributeDefinesGeometry(const nsIAtom *aName);
-  virtual PRBool IsMarkable();
+  virtual bool AttributeDefinesGeometry(const nsIAtom *aName);
+  virtual bool IsMarkable();
   virtual void GetMarkPoints(nsTArray<nsSVGMark> *aMarks);
   virtual void ConstructPath(gfxContext *aCtx);
 
@@ -98,6 +97,8 @@ public:
   virtual nsIAtom* GetPathDataAttrName() const {
     return nsGkAtoms::d;
   }
+
+  gfxFloat GetScale();
 
 protected:
 
