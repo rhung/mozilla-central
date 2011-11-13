@@ -1,5 +1,3 @@
-# .gitignore - List of filenames git should ignore
-
 # Filenames that should be ignored wherever they appear
 *~
 *.pyc
@@ -14,6 +12,7 @@ ID
 
 # User files that may appear at the root
 .mozconfig
+.mozconfig.mk
 mozconfig
 configure
 config.cache
