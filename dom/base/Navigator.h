@@ -48,7 +48,7 @@
 #include "nsIDOMNavigatorDesktopNotification.h"
 #include "nsIDOMClientInformation.h"
 #include "nsIDOMNavigatorBattery.h"
-#include "nsMouseLockable.h"
+#include "nsDOMMouseLockable.h"
 #include "nsAutoPtr.h"
 
 class nsPluginArray;

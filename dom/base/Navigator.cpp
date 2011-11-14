@@ -70,7 +70,7 @@
 #include "mozilla/Telemetry.h"
 #include "BatteryManager.h"
 #include "nsIDOMMouseLockable.h"
-#include "nsMouseLockable.h"
+#include "nsDOMMouseLockable.h"
 
 // This should not be in the namespace.
 DOMCI_DATA(Navigator, mozilla::dom::Navigator)
