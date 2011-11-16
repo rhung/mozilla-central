@@ -239,7 +239,6 @@ NS_METHOD nsDOMMouseEvent::GetScreenX(PRInt32* aScreenX)
 {
   NS_ENSURE_ARG_POINTER(aScreenX);
   *aScreenX = GetScreenPoint().x;
-
   return NS_OK;
 }
 
@@ -248,7 +247,6 @@ nsDOMMouseEvent::GetScreenY(PRInt32* aScreenY)
 {
   NS_ENSURE_ARG_POINTER(aScreenY);
   *aScreenY = GetScreenPoint().y;
-
   return NS_OK;
 }
 
