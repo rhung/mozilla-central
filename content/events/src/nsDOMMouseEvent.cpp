@@ -52,8 +52,6 @@ nsDOMMouseEvent::nsDOMMouseEvent(nsPresContext* aPresContext,
   // It's not that important, though, since a scroll event is not a real
   // DOM event.
   
-  printf("\n\nnsDOMMouseEvent Constructor\n\n");
-
   if (aEvent) {
     mEventIsInternal = false;
   }
@@ -79,7 +77,6 @@ nsDOMMouseEvent::nsDOMMouseEvent(nsPresContext* aPresContext,
 
 nsDOMMouseEvent::~nsDOMMouseEvent()
 {
-  printf("\n\nnsDOMMouseEvent Destructor\n\n");
   if (mEventIsInternal && mEvent) {
     switch (mEvent->eventStructType)
     {
@@ -113,8 +110,6 @@ nsDOMMouseEvent::InitMouseEvent(const nsAString & aType, bool aCanBubble, bool a
 {
   nsresult rv = nsDOMUIEvent::InitUIEvent(aType, aCanBubble, aCancelable, aView, aDetail);
   NS_ENSURE_SUCCESS(rv, rv);
-
-  printf("\n\nnsDOMMouseEvent InitUIEvent\n\n");
 
   switch(mEvent->eventStructType)
   {
@@ -162,8 +157,6 @@ nsDOMMouseEvent::InitNSMouseEvent(const nsAString & aType, bool aCanBubble, bool
                                                 aClientX, aClientY, aCtrlKey, aAltKey, aShiftKey,
                                                 aMetaKey, aButton, aRelatedTarget);
   NS_ENSURE_SUCCESS(rv, rv);
-
-  printf("\n\nnsDOMMouseEvent InitNSUIEvent\n\n");
 
   static_cast<nsMouseEvent_base*>(mEvent)->pressure = aPressure;
   static_cast<nsMouseEvent_base*>(mEvent)->inputSource = aInputSource;
@@ -230,8 +223,6 @@ NS_METHOD nsDOMMouseEvent::GetMovementX(PRInt32* aMovementX)
   NS_ENSURE_ARG_POINTER(aMovementX);
   *aMovementX = GetScreenPoint().x;
 
-  printf("\n\nnsDOMMouseEvent GetMovementX\n\n");
-
   return NS_OK;
 }
 
@@ -241,8 +232,6 @@ nsDOMMouseEvent::GetMovementY(PRInt32* aMovementY)
   NS_ENSURE_ARG_POINTER(aMovementY);
   *aMovementY = GetScreenPoint().y;
 
-  printf("\n\nnsDOMMouseEvent GetMovementX\n\n");
-
   return NS_OK;
 }
 
@@ -250,8 +239,6 @@ NS_METHOD nsDOMMouseEvent::GetScreenX(PRInt32* aScreenX)
 {
   NS_ENSURE_ARG_POINTER(aScreenX);
   *aScreenX = GetScreenPoint().x;
-
-  printf("\n\nnsDOMMouseEvent GetScreenX\n\n");
 
   return NS_OK;
 }
@@ -261,8 +248,6 @@ nsDOMMouseEvent::GetScreenY(PRInt32* aScreenY)
 {
   NS_ENSURE_ARG_POINTER(aScreenY);
   *aScreenY = GetScreenPoint().y;
-
-  printf("\n\nnsDOMMouseEvent GetScreenY\n\n");
 
   return NS_OK;
 }
