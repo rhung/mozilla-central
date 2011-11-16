@@ -3163,9 +3163,8 @@ var bookmarksButtonObserver = {
                                        , hiddenRows: [ "description"
                                                      , "location"
                                                      , "loadInSidebar"
-                                                     , "folderPicker"
                                                      , "keyword" ]
-                                       });
+                                       }, window);
     } catch(ex) { }
   },
 
@@ -4586,7 +4585,7 @@ var XULBrowserWindow = {
     }
   },
 
-  onLocationChange: function (aWebProgress, aRequest, aLocationURI) {
+  onLocationChange: function (aWebProgress, aRequest, aLocationURI, aFlags) {
     var location = aLocationURI ? aLocationURI.spec : "";
     this._hostChanged = true;
 
@@ -5052,7 +5051,8 @@ var TabsProgressListener = {
     }
   },
 
-  onLocationChange: function (aBrowser, aWebProgress, aRequest, aLocationURI) {
+  onLocationChange: function (aBrowser, aWebProgress, aRequest, aLocationURI,
+                              aFlags) {
     // Filter out any sub-frame loads
     if (aBrowser.contentWindow == aWebProgress.DOMWindow)
       FullZoom.onLocationChange(aLocationURI, false, aBrowser);
@@ -5791,9 +5791,8 @@ function contentAreaClick(event, isPanelClick)
                                        , loadBookmarkInSidebar: true
                                        , hiddenRows: [ "description"
                                                      , "location"
-                                                     , "folderPicker"
                                                      , "keyword" ]
-                                       });
+                                       }, window);
       event.preventDefault();
       return true;
     }
@@ -6838,9 +6837,10 @@ function AddKeywordForSearchField() {
                                    , postData: postData
                                    , charSet: charset
                                    , hiddenRows: [ "location"
-                                                 , "loadInSidebar"
-                                                 , "folderPicker" ]
-                                   });
+                                                 , "description"
+                                                 , "tags"
+                                                 , "loadInSidebar" ]
+                                   }, window);
 }
 
 function SwitchDocumentDirection(aWindow) {
