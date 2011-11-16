@@ -62,6 +62,7 @@ nsDOMMouseLockable::~nsDOMMouseLockable()
 /* void unlock (); */
 NS_IMETHODIMP nsDOMMouseLockable::Unlock()
 {
+  printf("\nnsDOMMouseLockable::Unlock()\n");
   mIsLocked = PR_TRUE;
   return NS_OK;
 }
@@ -69,6 +70,7 @@ NS_IMETHODIMP nsDOMMouseLockable::Unlock()
 /* bool islocked (); */
 NS_IMETHODIMP nsDOMMouseLockable::Islocked(bool *_retval NS_OUTPARAM)
 {
+  printf("\nnsDOMMouseLockable::IsLocked(bool *_retval NS_OUTPARAM)\n");
   *_retval = mIsLocked;
   return NS_OK;
 }
