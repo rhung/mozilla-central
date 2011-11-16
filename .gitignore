@@ -1,16 +1,3 @@
-
-
-
-
-
-
-<<<<<<< HEAD
-
-
-=======
-=======
-# .gitignore - List of filenames git should ignore
-
 # Filenames that should be ignored wherever they appear
 *~
 *.pyc
@@ -24,11 +11,12 @@ ID
 .*.sw[a-z]
 
 # User files that may appear at the root
-/.mozconfig*
-/mozconfig
-/configure
-/config.cache
-/config.log
+.mozconfig
+.mozconfig.mk
+mozconfig
+configure
+config.cache
+config.log
 
 # Empty marker file that's generated when we check out NSS
 security/manager/.nss.checkout
@@ -50,5 +38,3 @@ js/src/tests/results-*.txt
 # Java HTML5 parser classes
 parser/html/java/htmlparser/
 parser/html/java/javaparser/
->>>>>>> de4c09a6eb3b7be77616deaa8ffdbfbbb7570ec9
->>>>>>> 437bebc38602b2ec14f02d30880bf682934467cf

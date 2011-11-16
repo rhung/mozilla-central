@@ -38,8 +38,9 @@
  * ***** END LICENSE BLOCK ***** */
 
 #include "domstubs.idl"
+#include "nsIDOMMouseLockable.idl"
 
-[scriptable, uuid(B8EE0374-5F47-4ED0-B9B0-BDE3E6D81FF5)]
+[scriptable, uuid(C2163BDA-359F-4883-95DE-916562F489E4)]
 interface nsIDOMNavigator : nsISupports
 {
   readonly attribute DOMString           appCodeName;
@@ -59,7 +60,7 @@ interface nsIDOMNavigator : nsISupports
   readonly attribute boolean             onLine;
   readonly attribute DOMString           buildID;
   readonly attribute DOMString           doNotTrack;
+  readonly attribute nsIDOMMouseLockable pointer;
 
   boolean                   javaEnabled();
 };
-
