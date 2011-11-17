@@ -39,7 +39,6 @@
 #include "nsDOMMouseLockable.h"
 #include "nsContentUtils.h"
 #include "nsIInterfaceRequestorUtils.h"
-//#include "nsWindowMediator.h"
 
 DOMCI_DATA(MouseLockable, nsDOMMouseLockable)
 
@@ -64,15 +63,6 @@ nsDOMMouseLockable::~nsDOMMouseLockable()
 /* void unlock (); */
 NS_IMETHODIMP nsDOMMouseLockable::Unlock()
 {
-  printf("\nnsDOMMouseLockable::Unlock()\n");
-
-  //nsWindowMediator = new nsWindowMediator();
-  //nsIDOMWindow** window = new nsIDOMWindow()*[0];
-
-  bool* isFullScreen = new bool;
-  mOwner->GetFullScreen(isFullScreen);
-  printf("\nisFullScreen? %s\n", *isFullScreen ? "true" : "false");
-
   mIsLocked = PR_TRUE;
   return NS_OK;
 }
@@ -80,7 +70,6 @@ NS_IMETHODIMP nsDOMMouseLockable::Unlock()
 /* bool islocked (); */
 NS_IMETHODIMP nsDOMMouseLockable::Islocked(bool *_retval NS_OUTPARAM)
 {
-  printf("\nnsDOMMouseLockable::IsLocked(bool *_retval NS_OUTPARAM)\n");
   *_retval = mIsLocked;
   return NS_OK;
 }
@@ -88,17 +77,11 @@ NS_IMETHODIMP nsDOMMouseLockable::Islocked(bool *_retval NS_OUTPARAM)
 nsresult
 nsDOMMouseLockable::Init(nsIDOMWindow* aContentDom)
 {
-  bool* isFullScreen = new bool;
-  //nsCOMPtr<nsPIDOMWindow> window = do_QueryInterface(aContentDom);
   nsCOMPtr<nsIDOMWindow> window = do_GetInterface(aContentDom);
   if (window) {
-    printf("\nwindow is true\n");
     window->GetFullScreen(isFullScreen);
   }
-  printf("\nisFullScreen? %s\n", *isFullScreen ? "true" : "false");
 
-  //mOwner = do_GetWeakReference(window->GetCurrentInnerWindow());
-  //mOwner = do_GetWeakReference(window);
   mOwner = window;
   return NS_OK;
 }

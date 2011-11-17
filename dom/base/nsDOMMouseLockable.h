@@ -40,7 +40,6 @@
 #define nsDOMMouseLockable_h___
 
 #include "nsIDOMMouseLockable.h"
-#include "nsWeakPtr.h"
 
 class nsDOMMouseLockable : public nsIDOMMouseLockable
 {
@@ -55,7 +54,6 @@ private:
   ~nsDOMMouseLockable();
   bool mIsLocked;
   nsCOMPtr<nsIDOMWindow> mOwner;
-  //nsWeakPtr mOwner;
 
 protected:
   /* additional members */
