@@ -783,7 +783,6 @@ Navigator::GetPointer(nsIDOMMouseLockable** aPointer)
     return NS_ERROR_FAILURE;
   }
 
-
   NS_ADDREF(*aPointer = mPointer);
   return NS_OK;
 }
