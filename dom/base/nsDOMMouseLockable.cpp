@@ -38,6 +38,7 @@
 
 #include "nsDOMMouseLockable.h"
 #include "nsContentUtils.h"
+#include "nsIInterfaceRequestorUtils.h"
 
 DOMCI_DATA(MouseLockable, nsDOMMouseLockable)
 
@@ -62,7 +63,7 @@ nsDOMMouseLockable::~nsDOMMouseLockable()
 /* void unlock (); */
 NS_IMETHODIMP nsDOMMouseLockable::Unlock()
 {
-  mIsLocked = PR_TRUE;
+  mIsLocked = PR_FALSE;
   return NS_OK;
 }
 
@@ -70,6 +71,18 @@ NS_IMETHODIMP nsDOMMouseLockable::Unlock()
 NS_IMETHODIMP nsDOMMouseLockable::Islocked(bool *_retval NS_OUTPARAM)
 {
   *_retval = mIsLocked;
+  return NS_OK;
+}
+
+nsresult
+nsDOMMouseLockable::Init(nsIDOMWindow* aContentDom)
+{
+  nsCOMPtr<nsIDOMWindow> window = do_GetInterface(aContentDom);
+  if (window) {
+    window->GetFullScreen(isFullScreen);
+  }
+
+  mOwner = window;
   return NS_OK;
 }
 
