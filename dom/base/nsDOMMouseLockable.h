@@ -49,12 +49,12 @@ public:
   NS_DECL_NSIDOMMOUSELOCKABLE
 
   nsDOMMouseLockable();
-  nsresult Init(nsIDOMWindow* contentDom=nsnull);
+  nsresult Init(nsIDOMWindow*);
 
 private:
   ~nsDOMMouseLockable();
   bool mIsLocked;
-  nsCOMPtr<nsIDOMWindow> mOwner;
+  nsCOMPtr<nsIDOMWindow> mWindow;
   //nsWeakPtr mOwner;
 
 protected:
