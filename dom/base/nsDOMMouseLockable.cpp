@@ -63,7 +63,7 @@ nsDOMMouseLockable::~nsDOMMouseLockable()
 /* void unlock (); */
 NS_IMETHODIMP nsDOMMouseLockable::Unlock()
 {
-  mIsLocked = PR_TRUE;
+  mIsLocked = PR_FALSE;
   return NS_OK;
 }
 
