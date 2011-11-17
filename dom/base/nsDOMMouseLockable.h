@@ -40,6 +40,7 @@
 #define nsDOMMouseLockable_h___
 
 #include "nsIDOMMouseLockable.h"
+#include "nsWeakPtr.h"
 
 class nsDOMMouseLockable : public nsIDOMMouseLockable
 {
