@@ -4445,7 +4445,6 @@ nsGlobalWindow::GetNearestWidget()
 NS_IMETHODIMP
 nsGlobalWindow::SetFullScreen(bool aFullScreen)
 {
-  printf("\nnsGlobalWindow::SetFullScreen(bool aFullScreen)\n");
   FORWARD_TO_OUTER(SetFullScreen, (aFullScreen), NS_ERROR_NOT_INITIALIZED);
 
   NS_ENSURE_TRUE(mDocShell, NS_ERROR_FAILURE);
@@ -4520,7 +4519,6 @@ nsGlobalWindow::SetFullScreen(bool aFullScreen)
 NS_IMETHODIMP
 nsGlobalWindow::GetFullScreen(bool* aFullScreen)
 {
-  printf("\nnsGlobalWindow::GetFullScreen(bool* aFullScreen)\n");
   FORWARD_TO_OUTER(GetFullScreen, (aFullScreen), NS_ERROR_NOT_INITIALIZED);
 
   // Get the fullscreen value of the root window, to always have the value
