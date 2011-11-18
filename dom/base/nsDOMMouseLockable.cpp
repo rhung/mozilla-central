@@ -38,6 +38,10 @@
 
 #include "nsDOMMouseLockable.h"
 #include "nsContentUtils.h"
+#include "nsIBaseWindow.h"
+#include "nsIWidget.h"
+#include "nsPIDOMWindow.h"
+#include "nsIDocShell.h"
 
 DOMCI_DATA(MouseLockable, nsDOMMouseLockable)
 
@@ -83,9 +87,28 @@ nsDOMMouseLockable::Init(nsIDOMWindow* aContentWindow)
   return NS_OK;
 }
 
-/* TODO: lock();
-  // Check the status of the window
-  bool isFullScreen;
-  mWindow->GetFullScreen(&isFullScreen);
-  printf("\nisFullScreen? %s\n", *isFullScreen ? "true" : "false");
-*/
+NS_IMETHODIMP nsDOMMouseLockable::Lock()
+{
+    // Decided to use isFullScreen instead of mIsLocked
+    // because I assume we should try to keep the values
+    // of mIsLocked to PR_FALSE and PR_TRUE
+    bool isFullScreen;
+    mWindow->GetFullScreen(&isFullScreen);
+    if(isFullScreen)
+    {
+        mIsLocked = PR_TRUE;
+        nsCOMPtr<nsPIDOMWindow> domWindow( do_QueryInterface( mWindow ) );
+        if (!domWindow)
+            return NULL;
+        
+        nsCOMPtr<nsIBaseWindow> baseWindow = do_QueryInterface( domWindow->GetDocShell() );
+        if (!baseWindow)
+            return NULL;
+
+        nsCOMPtr<nsIWidget> widget;
+        baseWindow->GetMainWidget(getter_AddRefs(widget));
+
+        widget->SetCursor(eCursor_none);
+    }
+    return NS_OK;
+}
