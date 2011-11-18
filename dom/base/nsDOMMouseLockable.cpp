@@ -59,6 +59,13 @@ nsDOMMouseLockable::~nsDOMMouseLockable()
 {
 }
 
+NS_IMETHODIMP nsDOMMouseLockable::Lock()
+{
+  // If window is in fullscreen mode mIsLocked is set to true
+  mWindow->GetFullScreen(&mIsLocked);
+  return NS_OK;
+}
+
 /* void unlock (); */
 NS_IMETHODIMP nsDOMMouseLockable::Unlock()
 {
@@ -83,9 +90,3 @@ nsDOMMouseLockable::Init(nsIDOMWindow* aContentWindow)
   return NS_OK;
 }
 
-/* TODO: lock();
-  // Check the status of the window
-  bool isFullScreen;
-  mWindow->GetFullScreen(&isFullScreen);
-  printf("\nisFullScreen? %s\n", *isFullScreen ? "true" : "false");
-*/

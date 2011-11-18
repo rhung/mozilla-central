@@ -198,8 +198,10 @@ public:
     eDOMEvents_animationend,
     eDOMEvents_animationiteration,
     eDOMEvents_devicemotion,
-    eDOMEvents_deviceorientation
+    eDOMEvents_deviceorientation,
+    eDOMEvents_mouselocklost
   };
+		
 
   nsDOMEvent(nsPresContext* aPresContext, nsEvent* aEvent);
   virtual ~nsDOMEvent();
