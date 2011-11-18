@@ -8430,6 +8430,7 @@ nsIDocument::SizeOf() const
 static void
 DispatchFullScreenChange(nsINode* aTarget)
 {
+  printf("\nDispatchFullScreenChange\n");
   nsRefPtr<nsPLDOMEvent> e =
     new nsPLDOMEvent(aTarget,
                      NS_LITERAL_STRING("mozfullscreenchange"),

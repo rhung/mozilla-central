@@ -266,7 +266,6 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 // nsIDOMEventInterface
 NS_METHOD nsDOMEvent::GetType(nsAString& aType)
 {
-	printf("\nnsDOMEvent::GetType\n");
   if (!mCachedType.IsEmpty()) {
     aType = mCachedType;
     return NS_OK;
@@ -448,7 +447,6 @@ static void
 ReportUseOfDeprecatedMethod(nsEvent* aEvent, nsIDOMEvent* aDOMEvent,
                             const char* aWarning)
 {
-	printf("\nReporUseOfDeprecatedMethod\n");
   nsCOMPtr<nsIDocument> doc(GetDocumentForReport(aEvent));
 
   nsAutoString type;
@@ -1117,18 +1115,13 @@ nsDOMEvent::Shutdown()
 // static
 const char* nsDOMEvent::GetEventName(PRUint32 aEventType)
 {
-	printf("\nnsDOMEvent::GetEventName(PRUint32 aEventType)\n");
-	printf("\naEventType: %d\n", aEventType);
 
   switch(aEventType) {
   case NS_MOUSE_BUTTON_DOWN:
-		printf("\nmousebutton down event invoked\n");
     return sEventNames[eDOMEvents_mousedown];
   case NS_MOUSE_BUTTON_UP:
-		printf("\nmousebutton up event invoked\n");
     return sEventNames[eDOMEvents_mouseup];
   case NS_MOUSE_CLICK:
-		printf("\nmouse click event invoked\n");
     return sEventNames[eDOMEvents_click];
   case NS_MOUSE_DOUBLECLICK:
     return sEventNames[eDOMEvents_dblclick];
@@ -1143,7 +1136,6 @@ const char* nsDOMEvent::GetEventName(PRUint32 aEventType)
   case NS_MOUSE_MOZHITTEST:
     return sEventNames[eDOMEvents_MozMouseHittest];
   case NS_MOUSE_MOVE:
-		printf("\nmouse move event invoked\n");
     return sEventNames[eDOMEvents_mousemove];
   case NS_KEY_UP:
     return sEventNames[eDOMEvents_keyup];
@@ -1431,7 +1423,6 @@ nsDOMEvent::GetDefaultPrevented(bool* aReturn)
 void
 nsDOMEvent::Serialize(IPC::Message* aMsg, bool aSerializeInterfaceType)
 {
-	printf("\nnsDOMEvent::Serialize\n");
   if (aSerializeInterfaceType) {
     IPC::WriteParam(aMsg, NS_LITERAL_STRING("event"));
   }
