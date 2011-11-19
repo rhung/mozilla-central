@@ -39,7 +39,6 @@
 #include "nsDOMMouseLockable.h"
 #include "nsContentUtils.h"
 #include "nsEventStateManager.h"
-#include "nsIBaseWindow.h"
 #include "nsIWidget.h"
 #include "nsPIDOMWindow.h"
 #include "nsIDocShell.h"
@@ -104,20 +103,16 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock()
         if (!domWindow)
             return NULL;
         
+        // I should probalby do a check after each but I'm lazy
         nsRefPtr<nsPresContext> presContext;
         domWindow->GetDocShell()->GetPresContext(getter_AddRefs(presContext));
-        presContext->EventStateManager()->SetCursor(NS_STYLE_CURSOR_NONE, nsnull, false, 0.0f, 0.0f, nsnull, true);
-        /*        
-        nsCOMPtr<nsIBaseWindow> baseWindow = do_QueryInterface( domWindow->GetDocShell() );
-        if (!baseWindow)
-            return NULL;
 
-        nsCOMPtr<nsIWidget> widget;
-        baseWindow->GetMainWidget(getter_AddRefs(widget));
-
-        widget->SetCursor(eCursor_none);
-        */
+        nsCOMPtr<nsIPresShell> shell = presContext->PresShell();
+        nsCOMPtr<nsIWidget> widget = shell->GetRootFrame()->GetNearestWidget();
+        
+        presContext->EventStateManager()->SetCursor(NS_STYLE_CURSOR_NONE, 
+                                                    nsnull, false, 0.0f, 
+                                                    0.0f, widget, true);
     }
     return NS_OK;
 }
-
