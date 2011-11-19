@@ -1,6 +1,7 @@
 . $topsrcdir/browser/config/mozconfig
-mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj
+mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/ff-dbg2-objdir
+mk_add_options MOZ_MAKE_FLAGS=-j2
+ac_add_options --enable-application=browser
 ac_add_options --enable-debug
 ac_add_options --disable-optimize
-ac_add_options --enable-tests
-ac_add_options --enable-debug-symbols
+ac_add_options --disable-tests

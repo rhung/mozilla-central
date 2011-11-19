@@ -72,13 +72,14 @@ nsDOMMouseLockable::Init(nsIDOMWindow* aContentWindow)
 NS_IMETHODIMP nsDOMMouseLockable::Lock()
 {
   mWindow->GetFullScreen(&mIsLocked);  
+  mIsLocked = PR_TRUE;
   return NS_OK;
 }
 
 /* void unlock (); */
 NS_IMETHODIMP nsDOMMouseLockable::Unlock()
 {
-  mIsLocked = PR_TRUE;
+  mIsLocked = PR_FALSE;
   return NS_OK;
 }
 
