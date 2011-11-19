@@ -112,3 +112,4 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock()
     }
     return NS_OK;
 }
+
