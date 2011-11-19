@@ -4421,9 +4421,7 @@ nsDocument::CreateElementNS(const nsAString& aNamespaceURI,
                                                      getter_AddRefs(nodeInfo));
   NS_ENSURE_SUCCESS(rv, rv);
 
-  PRInt32 ns = nodeInfo->NamespaceID();
-  return NS_NewElement(aReturn, ns,
-                       nodeInfo.forget(), NOT_FROM_PARSER);
+  return NS_NewElement(aReturn, nodeInfo.forget(), NOT_FROM_PARSER);
 }
 
 NS_IMETHODIMP
@@ -6754,8 +6752,7 @@ nsDocument::CreateElem(const nsAString& aName, nsIAtom *aPrefix, PRInt32 aNamesp
                                 getter_AddRefs(nodeInfo));
   NS_ENSURE_TRUE(nodeInfo, NS_ERROR_OUT_OF_MEMORY);
 
-  return NS_NewElement(aResult, aNamespaceID, nodeInfo.forget(),
-                       NOT_FROM_PARSER);
+  return NS_NewElement(aResult, nodeInfo.forget(), NOT_FROM_PARSER);
 }
 
 bool
@@ -8431,7 +8428,7 @@ nsIDocument::SizeOf() const
 }
 
 static void
-DispatchFullScreenChange(nsINode* aTarget)
+DispatchFullScreenChange(nsIDocument* aTarget)
 {
   nsRefPtr<nsPLDOMEvent> e =
     new nsPLDOMEvent(aTarget,
@@ -8655,7 +8652,7 @@ nsDocument::RequestFullScreen(Element* aElement, bool aWasCallerChrome)
   // element, and the full-screen-ancestor styles on ancestors of the element
   // in this document.
   if (SetFullScreenState(aElement, true)) {
-    DispatchFullScreenChange(aElement);
+    DispatchFullScreenChange(aElement->OwnerDoc());
   }
 
   // Propagate up the document hierarchy, setting the full-screen element as
@@ -8668,7 +8665,7 @@ nsDocument::RequestFullScreen(Element* aElement, bool aWasCallerChrome)
   while ((parent = child->GetParentDocument())) {
     Element* element = parent->FindContentForSubDocument(child)->AsElement();
     if (::SetFullScreenState(parent, element, true)) {
-      DispatchFullScreenChange(element);
+      DispatchFullScreenChange(element->OwnerDoc());
     }
     child = parent;
   }
