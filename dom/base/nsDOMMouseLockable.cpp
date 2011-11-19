@@ -38,10 +38,12 @@
 
 #include "nsDOMMouseLockable.h"
 #include "nsContentUtils.h"
+#include "nsEventStateManager.h"
 #include "nsIBaseWindow.h"
 #include "nsIWidget.h"
 #include "nsPIDOMWindow.h"
 #include "nsIDocShell.h"
+#include "nsAutoPtr.h"
 
 DOMCI_DATA(MouseLockable, nsDOMMouseLockable)
 
@@ -97,10 +99,15 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock()
     if(isFullScreen)
     {
         mIsLocked = PR_TRUE;
+        
         nsCOMPtr<nsPIDOMWindow> domWindow( do_QueryInterface( mWindow ) );
         if (!domWindow)
             return NULL;
         
+        nsRefPtr<nsPresContext> presContext;
+        domWindow->GetDocShell()->GetPresContext(getter_AddRefs(presContext));
+        presContext->EventStateManager()->SetCursor(NS_STYLE_CURSOR_NONE, nsnull, false, 0.0f, 0.0f, nsnull, true);
+        /*        
         nsCOMPtr<nsIBaseWindow> baseWindow = do_QueryInterface( domWindow->GetDocShell() );
         if (!baseWindow)
             return NULL;
@@ -109,6 +116,7 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock()
         baseWindow->GetMainWidget(getter_AddRefs(widget));
 
         widget->SetCursor(eCursor_none);
+        */
     }
     return NS_OK;
 }
