@@ -155,7 +155,7 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget)
   return NS_OK;
 }
 
-  static void
+static void
 DispatchMouseLockLost(nsINode* aTarget)
 {
     printf("\nDispatchMouseLockLost\n");
