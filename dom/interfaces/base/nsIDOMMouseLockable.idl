@@ -46,6 +46,5 @@ interface nsIDOMMouseLockable : nsISupports
    void lock(in nsIDOMElement target);
 
    void unlock();
-   void lock();
    boolean islocked();
 };
