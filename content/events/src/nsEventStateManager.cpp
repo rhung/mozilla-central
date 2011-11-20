@@ -160,6 +160,7 @@ bool nsEventStateManager::sNormalLMouseEventInProcess = false;
 nsEventStateManager* nsEventStateManager::sActiveESM = nsnull;
 nsIDocument* nsEventStateManager::sMouseOverDocument = nsnull;
 nsWeakFrame nsEventStateManager::sLastDragOverFrame = nsnull;
+nsIntPoint nsEventStateManager::sLastRefPoint = nsIntPoint(0,0);
 nsCOMPtr<nsIContent> nsEventStateManager::sDragOverContent = nsnull;
 
 static PRUint32 gMouseOrKeyboardEventCounter = 0;
@@ -4053,6 +4054,21 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
 
   // reset mCurretTargetContent to what it was
   mCurrentTargetContent = targetBeforeEvent;
+
+//  fprintf(stderr, "nsEventStateManager::GenerateMouseEnterExit aEvent->refPoint.x=%d aEvent->refPoint.y=%d sLastRefPoint.x=%d sLastRefPoint.y=%d\n",
+//          aEvent->refPoint.x, aEvent->refPoint.x, sLastRefPoint.x, sLastRefPoint.y);
+
+  // Remember the current event's screenX/Y
+  nsIntPoint offset = aEvent->refPoint + ((nsGUIEvent*)aEvent)->widget->WidgetToScreenOffset();
+  nscoord factor = mPresContext->DeviceContext()->UnscaledAppUnitsPerDevPixel();
+  nsIntPoint newRefPoint = nsIntPoint(nsPresContext::AppUnitsToIntCSSPixels(offset.x * factor),
+                                      nsPresContext::AppUnitsToIntCSSPixels(offset.y * factor));
+
+  fprintf(stderr, "movementX=%d movementY=%d\n", newRefPoint.x - sLastRefPoint.x, newRefPoint.y - sLastRefPoint.y);
+
+  sLastRefPoint = nsIntPoint(newRefPoint.x, newRefPoint.y);
+
+//  sLastRefPoint = aEvent->refPoint + aEvent->widget->WidgetToScreenOffset(); //nsIntPoint(aEvent->refPoint.x, aEvent->refPoint.y);
 }
 
 void
