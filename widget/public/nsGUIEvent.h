@@ -264,6 +264,7 @@ class nsHashKey;
 #define NS_MOUSE_MOZHITTEST             (NS_MOUSE_MESSAGE_START + 33)
 #define NS_MOUSEENTER                   (NS_MOUSE_MESSAGE_START + 34)
 #define NS_MOUSELEAVE                   (NS_MOUSE_MESSAGE_START + 35)
+#define NS_MOUSELOCKLOST                (NS_MOUSE_MESSAGE_START + 36)
 
 #define NS_CONTEXTMENU_MESSAGE_START    500
 #define NS_CONTEXTMENU                  (NS_CONTEXTMENU_MESSAGE_START)

@@ -43,6 +43,10 @@
 #include "nsPIDOMWindow.h"
 #include "nsIDocShell.h"
 #include "nsAutoPtr.h"
+#include "nsIDOMHTMLElement.h"
+#include "nsINode.h"
+#include "nsPLDOMEvent.h"
+#include "nsIInterfaceRequestorUtils.h"
 
 DOMCI_DATA(MouseLockable, nsDOMMouseLockable)
 
@@ -64,9 +68,19 @@ nsDOMMouseLockable::~nsDOMMouseLockable()
 {
 }
 
+NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget)
+{
+  // If window is in fullscreen mode mIsLocked is set to true
+  mWindow->GetFullScreen(&mIsLocked);
+  mTarget = aTarget;
+  return NS_OK;
+}
+
 /* void unlock (); */
 NS_IMETHODIMP nsDOMMouseLockable::Unlock()
 {
+  nsCOMPtr<nsINode> node = do_GetInterface(mTarget);
+  DispatchMouseLockLost(node);
   mIsLocked = PR_FALSE;
   return NS_OK;
 }
@@ -116,3 +130,13 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock()
     }
     return NS_OK;
 }
+
+  static void
+DispatchMouseLockLost(nsINode* aTarget)
+{
+    printf("\nDispatchMouseLockLost\n");
+    nsRefPtr<nsPLDOMEvent> e = new nsPLDOMEvent(aTarget,
+      NS_LITERAL_STRING("mouselocklost"), true, false);
+    e->PostDOMEvent();
+}
+
