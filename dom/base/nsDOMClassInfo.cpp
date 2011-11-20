@@ -511,6 +511,7 @@
 
 #include "nsIDOMBatteryManager.h"
 #include "BatteryManager.h"
+#include "nsIDOMMouseLockable.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -1386,6 +1387,9 @@ static nsDOMClassInfoData sClassInfoData[] = {
                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
 
   NS_DEFINE_CLASSINFO_DATA(BatteryManager, nsDOMGenericSH,
+                           DOM_DEFAULT_SCRIPTABLE_FLAGS)
+
+  NS_DEFINE_CLASSINFO_DATA(MouseLockable, nsDOMGenericSH,
                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
 
   NS_DEFINE_CLASSINFO_DATA(CSSFontFaceRule, nsDOMGenericSH,
@@ -2289,6 +2293,10 @@ nsDOMClassInfo::Init()
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMClientInformation)
     DOM_CLASSINFO_MAP_CONDITIONAL_ENTRY(nsIDOMNavigatorBattery,
                                         battery::BatteryManager::HasSupport())
+  DOM_CLASSINFO_MAP_END
+
+  DOM_CLASSINFO_MAP_BEGIN(MouseLockable, nsIDOMMouseLockable)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMMouseLockable)
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(Plugin, nsIDOMPlugin)

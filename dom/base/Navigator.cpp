@@ -69,6 +69,8 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/Telemetry.h"
 #include "BatteryManager.h"
+#include "nsIDOMMouseLockable.h"
+#include "nsDOMMouseLockable.h"
 
 // This should not be in the namespace.
 DOMCI_DATA(Navigator, mozilla::dom::Navigator)
@@ -758,6 +760,33 @@ Navigator::GetMozBattery(nsIDOMBatteryManager** aBattery)
   return NS_OK;
 }
 
+NS_IMETHODIMP
+Navigator::GetPointer(nsIDOMMouseLockable** aPointer)
+{
+  NS_ENSURE_ARG_POINTER(aPointer);
+
+  if (!mPointer) {
+    mPointer = new nsDOMMouseLockable();
+  }
+
+  if (!mDocShell) {
+    return NS_ERROR_FAILURE;
+  }
+
+  nsCOMPtr<nsIDOMWindow> contentDOMWindow = do_GetInterface(mDocShell);
+  if (!contentDOMWindow) {
+    return NS_ERROR_FAILURE;
+  }
+
+  if (NS_FAILED(mPointer->Init(contentDOMWindow))) {
+    mPointer = nsnull;
+    return NS_ERROR_FAILURE;
+  }
+
+  NS_ADDREF(*aPointer = mPointer);
+  return NS_OK;
+}
+
 PRInt64
 Navigator::SizeOf() const
 {
@@ -889,3 +918,4 @@ NS_GetNavigatorAppName(nsAString& aAppName)
   aAppName.AssignLiteral("Netscape");
   return NS_OK;
 }
+

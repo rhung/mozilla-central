@@ -123,6 +123,7 @@ CPPSRCS =			\
 	nsPerformance.cpp	\
 	nsDOMMemoryReporter.cpp \
 	Navigator.cpp \
+	nsDOMMouseLockable.cpp \
 	$(NULL)
 
 include $(topsrcdir)/dom/dom-config.mk

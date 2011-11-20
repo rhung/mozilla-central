@@ -427,6 +427,7 @@ DOMCI_CLASS(GeoPositionAddress)
 DOMCI_CLASS(GeoPositionError)
 
 DOMCI_CLASS(BatteryManager)
+DOMCI_CLASS(MouseLockable)
 
 // @font-face in CSS
 DOMCI_CLASS(CSSFontFaceRule)

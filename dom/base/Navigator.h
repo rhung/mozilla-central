@@ -48,6 +48,7 @@
 #include "nsIDOMNavigatorDesktopNotification.h"
 #include "nsIDOMClientInformation.h"
 #include "nsIDOMNavigatorBattery.h"
+#include "nsDOMMouseLockable.h"
 #include "nsAutoPtr.h"
 
 class nsPluginArray;
@@ -108,6 +109,7 @@ private:
   nsRefPtr<nsDesktopNotificationCenter> mNotification;
   nsRefPtr<battery::BatteryManager> mBatteryManager;
   nsIDocShell* mDocShell; // weak reference
+  nsRefPtr<nsDOMMouseLockable> mPointer;
 };
 
 } // namespace dom
