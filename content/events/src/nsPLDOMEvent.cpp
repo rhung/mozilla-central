@@ -84,7 +84,6 @@ NS_IMETHODIMP nsPLDOMEvent::Run()
 
 nsresult nsPLDOMEvent::PostDOMEvent()
 {
-	printf("\nPostDOMEvent\n");
   return NS_DispatchToCurrentThread(this);
 }
 

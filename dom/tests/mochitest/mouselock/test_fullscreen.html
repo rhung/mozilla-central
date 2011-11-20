@@ -1,0 +1,75 @@
+<!DOCTYPE HTML>
+<html>
+<!--
+https://bugzilla.mozilla.org/show_bug.cgi?id=92264
+-->
+<head>
+  <title>Test for Bug 92264</title>
+  <script src="/tests/SimpleTest/SimpleTest.js"></script>
+	<script src="/tests/SimpleTest/EventUtils.js"></script>
+  <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
+</head>
+<body>
+	<a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">Mozilla Bug 633602</a>
+
+	<p id="display"></p>
+
+	<div id="content" style="display: none">
+	</div>
+	
+	<canvas id="canvas" width="150" height="150"></canvas>
+
+	<pre id="test">
+		<script>
+
+			SimpleTest.waitForExplicitFinish();
+
+			var pointer = navigator.pointer;
+			var canvas = document.getElementById("canvas");
+			// How many times will test fullscreen
+			var totalTests = 2;
+			// Keep track of how many tests were completed
+			var nTests = 0;
+
+			SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only", false);
+
+			document.addEventListener("mozfullscreenchange", function (e) {     
+      	if (document.mozFullScreen) {
+        	if (document.mozFullScreenElement === canvas) {
+						// Mouse should be lock if the element is in fullscreen mode
+						pointer.lock(canvas);
+						is(pointer.islocked(), true, "Mouse should be locked");
+						nTests += 1;
+						document.mozCancelFullScreen();
+        	}
+        	else {
+						// Mouse shoudn't lock if element isn't in fullscreen mode
+						pointer.lock(canvas);
+						isnot(pointer.islocked(), true, "Mouse should only be locked if the locked element is in fullscreen mode");
+						nTests += 1;
+						document.mozCancelFullScreen();
+        	}
+      	} 
+				else {
+					// Mouse should be unlocked if winodw is not in fullscreen mode
+					is(pointer.islocked(), false, "Mouse should be unlocked if winodw is not in fullscreen mode");
+
+					if (nTests === totalTests) {
+						// Finish test
+	  				SimpleTest.finish();
+
+					}
+				}
+    	}, false);
+
+			//Can't lock the mouse if an element is not in fullscreen mode
+			pointer.lock(canvas);			
+			isnot(pointer.islocked(), true, "Mouse can't be locked if an element isn't in fullscreen mode");
+			
+			canvas.mozRequestFullScreen();
+			setTimeout("document.body.mozRequestFullScreen();", 300);
+
+		</script>
+	</pre>
+</body>
+</html>
