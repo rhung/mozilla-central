@@ -123,6 +123,36 @@ NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION_INHERITED(nsDOMUIEvent)
 NS_INTERFACE_MAP_END_INHERITING(nsDOMEvent)
 
 nsIntPoint
+nsDOMUIEvent::GetMovementPoint()
+{
+  if (!mEvent ||
+       (mEvent->eventStructType != NS_MOUSE_EVENT &&
+        mEvent->eventStructType != NS_POPUP_EVENT &&
+        mEvent->eventStructType != NS_MOUSE_SCROLL_EVENT &&
+        mEvent->eventStructType != NS_MOZTOUCH_EVENT &&
+        mEvent->eventStructType != NS_DRAG_EVENT &&
+        mEvent->eventStructType != NS_SIMPLE_GESTURE_EVENT)) {
+    return nsIntPoint(0, 0);
+  }
+
+  if (!((nsGUIEvent*)mEvent)->widget ) {
+    return mEvent->lastRefPoint; // XXXhump: lastRefPoint - refPoint??
+  }
+
+  // Calculate the delta between the previous screen point and the current one.
+  nsIntPoint currentPoint = GetScreenPoint();
+
+  // Adjust previous event's refPoint so it compares to current screenX, screenY
+  nsIntPoint offset = mEvent->lastRefPoint +
+    ((nsGUIEvent*)mEvent)->widget->WidgetToScreenOffset();
+  nscoord factor = mPresContext->DeviceContext()->UnscaledAppUnitsPerDevPixel();
+  nsIntPoint lastPoint = nsIntPoint(nsPresContext::AppUnitsToIntCSSPixels(offset.x * factor),
+                                    nsPresContext::AppUnitsToIntCSSPixels(offset.y * factor));
+
+  return currentPoint - lastPoint;
+}
+
+nsIntPoint
 nsDOMUIEvent::GetScreenPoint()
 {
   if (!mEvent || 

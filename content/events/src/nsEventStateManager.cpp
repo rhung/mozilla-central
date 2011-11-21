@@ -4018,6 +4018,9 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
   // Hold onto old target content through the event and reset after.
   nsCOMPtr<nsIContent> targetBeforeEvent = mCurrentTargetContent;
 
+  // Remember the previous event's refPoint so we can calculate movement deltas.
+  aEvent->lastRefPoint = nsIntPoint(sLastRefPoint.x, sLastRefPoint.y);
+
   switch(aEvent->message) {
   case NS_MOUSE_MOVE:
     {
@@ -4055,20 +4058,8 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
   // reset mCurretTargetContent to what it was
   mCurrentTargetContent = targetBeforeEvent;
 
-//  fprintf(stderr, "nsEventStateManager::GenerateMouseEnterExit aEvent->refPoint.x=%d aEvent->refPoint.y=%d sLastRefPoint.x=%d sLastRefPoint.y=%d\n",
-//          aEvent->refPoint.x, aEvent->refPoint.x, sLastRefPoint.x, sLastRefPoint.y);
-
-  // Remember the current event's screenX/Y
-  nsIntPoint offset = aEvent->refPoint + ((nsGUIEvent*)aEvent)->widget->WidgetToScreenOffset();
-  nscoord factor = mPresContext->DeviceContext()->UnscaledAppUnitsPerDevPixel();
-  nsIntPoint newRefPoint = nsIntPoint(nsPresContext::AppUnitsToIntCSSPixels(offset.x * factor),
-                                      nsPresContext::AppUnitsToIntCSSPixels(offset.y * factor));
-
-  fprintf(stderr, "movementX=%d movementY=%d\n", newRefPoint.x - sLastRefPoint.x, newRefPoint.y - sLastRefPoint.y);
-
-  sLastRefPoint = nsIntPoint(newRefPoint.x, newRefPoint.y);
-
-//  sLastRefPoint = aEvent->refPoint + aEvent->widget->WidgetToScreenOffset(); //nsIntPoint(aEvent->refPoint.x, aEvent->refPoint.y);
+  // Update the last known refPoint with the current refPoint.
+  sLastRefPoint = nsIntPoint(aEvent->refPoint.x, aEvent->refPoint.y);
 }
 
 void
