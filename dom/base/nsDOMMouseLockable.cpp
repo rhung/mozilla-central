@@ -140,6 +140,11 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget)
     if (!presContext)
       return NULL;
 
+    // Attempt at getting the nsGenericHTMLElement
+    nsCOMPtr<nsIDocument> nDoc = presContext->Document();
+    nsIDocument::Element* check = nDoc->GetFullScreenElement();
+
+
     nsCOMPtr<nsIPresShell> shell = presContext->PresShell();
     if (!shell)
       return NULL;
