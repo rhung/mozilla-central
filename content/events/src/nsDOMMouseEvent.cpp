@@ -52,6 +52,17 @@ nsDOMMouseEvent::nsDOMMouseEvent(nsPresContext* aPresContext,
   // It's not that important, though, since a scroll event is not a real
   // DOM event.
   
+  if (mView) {
+   PRInt32 screenPosX, screenPosY, lastScreenPosX, lastScreenPosY;
+   GetScreenX(&screenPosX);
+   GetScreenY(&screenPosY);
+   mView->GetLastScreenX(&lastScreenPosX);
+   mView->GetLastScreenY(&lastScreenPosY);
+   mMovement.x = screenPosX - lastScreenPosX;
+   mMovement.y = screenPosY - lastScreenPosY;
+   fprintf(stderr, "Current Mouse Position: %d,%d\nLast Mouse Position: %d,%d\n\n", screenPosX, screenPosY, lastScreenPosX, lastScreenPosY);
+   mView->SaveScreenPosition(screenPosX, screenPosY);
+  }
   if (aEvent) {
     mEventIsInternal = false;
   }
@@ -221,7 +232,7 @@ nsDOMMouseEvent::GetRelatedTarget(nsIDOMEventTarget** aRelatedTarget)
 NS_METHOD nsDOMMouseEvent::GetMovementX(PRInt32* aMovementX)
 {
   NS_ENSURE_ARG_POINTER(aMovementX);
-  *aMovementX = GetScreenPoint().x;
+  *aMovementX = mMovement.x;
 
   return NS_OK;
 }
@@ -230,7 +241,7 @@ NS_IMETHODIMP
 nsDOMMouseEvent::GetMovementY(PRInt32* aMovementY)
 {
   NS_ENSURE_ARG_POINTER(aMovementY);
-  *aMovementY = GetScreenPoint().y;
+  *aMovementY = mMovement.y;
 
   return NS_OK;
 }
