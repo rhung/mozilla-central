@@ -70,8 +70,8 @@
 #include "nsCExternalHandlerService.h"
 #include "nsIVariant.h"
 #include "xpcprivate.h"
-#include "XPCQuickStubs.h"
 #include "nsIParser.h"
+#include "XPCQuickStubs.h"
 #include "nsStringStream.h"
 #include "nsIStreamConverterService.h"
 #include "nsICachingChannel.h"
@@ -103,6 +103,7 @@
 #include "nsStringBuffer.h"
 #include "nsDOMFile.h"
 #include "nsIFileChannel.h"
+#include "mozilla/Telemetry.h"
 
 using namespace mozilla;
 
@@ -1485,6 +1486,8 @@ nsXMLHttpRequest::Open(const nsACString& method, const nsACString& url,
     // No optional arguments were passed in. Default async to true.
     async = true;
   }
+  Telemetry::Accumulate(Telemetry::XMLHTTPREQUEST_ASYNC_OR_SYNC,
+                        async ? 0 : 1);
 
   NS_ENSURE_TRUE(mPrincipal, NS_ERROR_NOT_INITIALIZED);
 
