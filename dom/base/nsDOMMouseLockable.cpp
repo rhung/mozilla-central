@@ -74,6 +74,11 @@ NS_IMETHODIMP nsDOMMouseLockable::Unlock()
   // No point doing this if mIslocked is already false,
   // plus it won't crash this way.
   if (mIsLocked) {
+    
+    //Not working!
+    //nsCOMPtr<nsINode> node = do_GetInterface(mTarget);
+    //DispatchMouseLockLost(node);
+    
     // Making the mouse reappear
     nsCOMPtr<nsPIDOMWindow> domWindow( do_QueryInterface( mWindow ) );
     if (!domWindow)
