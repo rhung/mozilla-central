@@ -207,6 +207,9 @@
 #include "imgILoader.h"
 #include "nsWrapperCacheInlines.h"
 
+#include "nsDOMMouseLockable.h"
+#include "Navigator.h"
+
 using namespace mozilla;
 using namespace mozilla::dom;
 
@@ -8471,6 +8474,7 @@ SetFullScreenState(nsIDocument* aDoc, Element* aElement, bool aIsFullScreen)
 NS_IMETHODIMP
 nsDocument::MozCancelFullScreen()
 {
+  printf("\nnsDocument::MozCancelFullScreen()\n");
   if (!nsContentUtils::IsRequestFullScreenAllowed()) {
     return NS_OK;
   }
@@ -8510,6 +8514,7 @@ SetWindowFullScreen(nsIDocument* aDoc, bool aValue)
 void
 nsDocument::CancelFullScreen()
 {
+  printf("\nnsDocument::CancelFullScreen()\n");
   NS_ASSERTION(!IsFullScreenDoc() || sFullScreenDoc != nsnull,
                "Should have a full-screen doc when full-screen!");
 
@@ -8517,10 +8522,40 @@ nsDocument::CancelFullScreen()
     return;
   }
 
+  printf("Getting the window...\n");
+  nsGlobalWindow* window = static_cast<nsGlobalWindow*>(GetWindow());
+  nsGlobalWindow* win_outer = window->GetOuterWindowInternal();
+  printf("win_outer->mWindowID: %d\n", (int)(win_outer->WindowID()));
+  printf("innerWindowID(): %d\n", InnerWindowID());
+
   // Reset full-screen state in all full-screen documents.
   nsCOMPtr<nsIDocument> doc(do_QueryReferent(sFullScreenDoc));
   while (doc != nsnull) {
+    printf("\ndoc != null\n");
     if (::SetFullScreenState(doc, nsnull, false)) {
+      printf("::SetFullScreenState(doc, nsnull, false)\n");
+
+      printf("outter window id: %d\n", (int)(doc->OuterWindowID()));
+      printf("inner window id: %d\n", (int)(doc->InnerWindowID()));
+
+      printf("\nGetting the navigator...\n");
+      nsCOMPtr<nsIDOMWindow> window = doc->GetWindow();
+      nsCOMPtr<nsIDOMNavigator> navigator;
+      window->GetNavigator(getter_AddRefs(navigator));
+      //NS_ENSURE_ARG_POINTER(navigator);
+ 
+      if (navigator) {
+        printf("\nGetting the pointer...\n");
+        nsCOMPtr<nsIDOMMouseLockable> pointer;
+        navigator->GetPointer(getter_AddRefs(pointer));
+        //NS_ENSURE_ARG_POINTER(pointer);
+        if (pointer) {
+          printf("\npointer exists, now unlocking  the mouse\n");
+          pointer->Unlock();
+        }
+      }
+
+      printf("DispatchFullScreenChange(doc)\n");
       DispatchFullScreenChange(doc);
     }
     doc = doc->GetParentDocument();
