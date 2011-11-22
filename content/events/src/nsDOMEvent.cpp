@@ -115,8 +115,7 @@ static const char* const sEventNames[] = {
   "animationend",
   "animationiteration",
   "devicemotion",
-  "deviceorientation",
-	"mouselocklost"
+  "deviceorientation"
 };
 
 static char *sPopupAllowedEvents;
@@ -1115,7 +1114,6 @@ nsDOMEvent::Shutdown()
 // static
 const char* nsDOMEvent::GetEventName(PRUint32 aEventType)
 {
-
   switch(aEventType) {
   case NS_MOUSE_BUTTON_DOWN:
     return sEventNames[eDOMEvents_mousedown];
@@ -1388,13 +1386,9 @@ const char* nsDOMEvent::GetEventName(PRUint32 aEventType)
   case NS_DEVICE_ORIENTATION:
     return sEventNames[eDOMEvents_deviceorientation];
   case NS_FULLSCREENCHANGE:
-		printf("\nfullscreen changed event invoked\n");
     return sEventNames[eDOMEvents_mozfullscreenchange];
   case NS_FULLSCREENERROR:
     return sEventNames[eDOMEvents_mozfullscreenerror];
-  case NS_MOUSELOCKLOST:
-		printf("\nmouselocklost event invoked\n");
-    return sEventNames[eDOMEvents_mouselocklost];
   default:
     break;
   }

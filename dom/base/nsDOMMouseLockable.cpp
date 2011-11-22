@@ -75,8 +75,9 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget)
 /* void unlock (); */
 NS_IMETHODIMP nsDOMMouseLockable::Unlock()
 {
-  nsCOMPtr<nsINode> node = do_GetInterface(mTarget);
-  DispatchMouseLockLost(node);
+  //Not working!
+  //nsCOMPtr<nsINode> node = do_GetInterface(mTarget);
+  //DispatchMouseLockLost(node);
   mIsLocked = PR_FALSE;
   return NS_OK;
 }
@@ -98,6 +99,8 @@ nsDOMMouseLockable::Init(nsIDOMWindow* aContentWindow)
   return NS_OK;
 }
 
+
+// Not working!
 static void
 DispatchMouseLockLost(nsINode* aTarget)
 {
