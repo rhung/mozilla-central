@@ -99,6 +99,8 @@ NS_IMETHODIMP nsDOMMouseLockable::Unlock()
     presContext->EventStateManager()->SetCursor(NS_STYLE_CURSOR_AUTO, 
                                                 nsnull, false, 0.0f, 
                                                 0.0f, widget, true);
+                                                
+    mIsLocked = PR_FALSE;                                            
   }
   return NS_OK;
 }
