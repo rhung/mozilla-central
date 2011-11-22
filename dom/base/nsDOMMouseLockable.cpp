@@ -74,10 +74,6 @@ NS_IMETHODIMP nsDOMMouseLockable::Unlock()
   // No point doing this if mIslocked is already false,
   // plus it won't crash this way.
   if (mIsLocked) {
-    nsCOMPtr<nsINode> node = do_GetInterface(mTarget);
-    DispatchMouseLockLost(node);
-    mIsLocked = PR_FALSE;
-
     // Making the mouse reappear
     nsCOMPtr<nsPIDOMWindow> domWindow( do_QueryInterface( mWindow ) );
     if (!domWindow)
@@ -115,6 +111,7 @@ nsDOMMouseLockable::Init(nsIDOMWindow* aContentWindow)
 {
   NS_ENSURE_ARG_POINTER(aContentWindow);
   // Hang on to the window so we can check for fullscreen
+  mWindow = aContentWindow;
   mWindow = aContentWindow;
   return NS_OK;
 }
@@ -155,6 +152,7 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget)
   return NS_OK;
 }
 
+// Not working!
 static void
 DispatchMouseLockLost(nsINode* aTarget)
 {
