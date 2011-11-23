@@ -457,6 +457,8 @@ nsWindow::nsWindow() : nsBaseWidget()
 
   mIdleService = nsnull;
 
+  mMouseLock = false;
+  
   sInstanceCount++;
 }
 
@@ -4066,6 +4068,30 @@ bool nsWindow::DispatchMouseEvent(PRUint32 aEventType, WPARAM wParam,
     }
 
     result = DispatchWindowEvent(&event);
+  
+    // Mouse Lock implementation for WIN32
+    
+    if (aEventType == NS_MOUSE_MOVE) 
+    {
+      mMousePos = eventPoint + WidgetToScreenOffset();
+      if (mMouseLock == true) {
+        RECT windowRect;
+        ::GetWindowRect(mWnd, &windowRect);
+        bool mouseChanged = false;
+        // If the mouse position isn't in the middle of x or y, recenter it.
+        if (mMousePos.x != windowRect.right/2) {
+          mMousePos.x = windowRect.right/2;
+          mouseChanged = true;
+        }
+        if (mMousePos.y != windowRect.bottom/2) {
+          mMousePos.y = windowRect.bottom/2;
+          mouseChanged = true;
+        }
+        if (mouseChanged == true) {
+          ::SetCursorPos(mMousePos.x, mMousePos.y);
+        }
+      }
+    }
 
     if (nsToolkit::gMouseTrailer)
       nsToolkit::gMouseTrailer->Enable();
@@ -9146,6 +9172,12 @@ LPARAM nsWindow::lParamToClient(LPARAM lParam)
   pt.y = GET_Y_LPARAM(lParam);
   ::ScreenToClient(mWnd, &pt);
   return MAKELPARAM(pt.x, pt.y);
+}
+
+nsIntPoint              
+nsWindow::GetMouseMovement()
+{
+  return mMovement;
 }
 
 /**************************************************************

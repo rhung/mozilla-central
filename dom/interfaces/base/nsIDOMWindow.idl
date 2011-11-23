@@ -273,11 +273,15 @@ interface nsIDOMWindow : nsISupports
    * the current scroll position.
    */
   void                      scrollBy(in long xScrollDif, in long yScrollDif);
+  
+  [noscript] void           saveScreenPosition(in long x, in long y);
 
 
   // client
            attribute long                        screenX;
            attribute long                        screenY;
+  readonly attribute long                        lastScreenX;
+  readonly attribute long                        lastScreenY;
            attribute long                        outerWidth;
            attribute long                        outerHeight;
 
