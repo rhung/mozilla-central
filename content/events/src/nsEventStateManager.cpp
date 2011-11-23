@@ -4022,31 +4022,31 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
 
   switch(aEvent->message) {
   case NS_MOUSE_MOVE:
-    {
-      // Get the target content target (mousemove target == mouseover target)
-      nsCOMPtr<nsIContent> targetElement = GetEventTargetContent(aEvent);
-	  
-	  bool mouseLocked = false;
-	  // Tell the widget if mouse lock is on
-      if (aEvent->widget) {
-        nsIFocusManager* fm = nsFocusManager::GetFocusManager();
-        if (fm) {
-          nsCOMPtr<nsIDOMWindow> currentWindow;
-          fm->GetFocusedWindow(getter_AddRefs(currentWindow));
-          if (currentWindow) {
-            nsCOMPtr<nsIDOMNavigator> navigator;
-            currentWindow->GetNavigator(getter_AddRefs(navigator));
-            if (navigator) {
-              nsCOMPtr<nsIDOMMouseLockable> lockable;
-              navigator->GetPointer(getter_AddRefs(lockable));
-              if (lockable) {
-                lockable->Islocked(&mouseLocked);
-				aEvent->widget->mMouseLock = mouseLocked;
-              }
+  {
+    // Get the target content target (mousemove target == mouseover target)
+    nsCOMPtr<nsIContent> targetElement = GetEventTargetContent(aEvent);
+  
+    bool mouseLocked = false;
+    // Tell the widget if mouse lock is on
+    if (aEvent->widget) {
+      nsIFocusManager* fm = nsFocusManager::GetFocusManager();
+      if (fm) {
+        nsCOMPtr<nsIDOMWindow> currentWindow;
+        fm->GetFocusedWindow(getter_AddRefs(currentWindow));
+        if (currentWindow) {
+          nsCOMPtr<nsIDOMNavigator> navigator;
+          currentWindow->GetNavigator(getter_AddRefs(navigator));
+          if (navigator) {
+            nsCOMPtr<nsIDOMMouseLockable> lockable;
+            navigator->GetPointer(getter_AddRefs(lockable));
+            if (lockable) {
+              lockable->Islocked(&mouseLocked);
+              aEvent->widget->mMouseLock = mouseLocked;
             }
           }
         }
-	  }
+      }
+    }
 	  
 	  // Remember the previous event's refPoint so we can calculate movement deltas.
 	  if (mouseLocked && aEvent->widget) {

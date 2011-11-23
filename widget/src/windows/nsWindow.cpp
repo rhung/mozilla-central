@@ -4088,11 +4088,7 @@ bool nsWindow::DispatchMouseEvent(PRUint32 aEventType, WPARAM wParam,
           mouseChanged = true;
         }
         if (mouseChanged == true) {
-          RECT r = { windowRect.left+10, windowRect.top+10, windowRect.right-10, windowRect.bottom-10 };
-          ::ClipCursor(&r); // Clip it slightly so the mouse doesn't accidently leave.
           ::SetCursorPos(mMousePos.x, mMousePos.y);
-          sCurrentWindow->DispatchMouseEvent(aEventType, wParam, lParam, aIsContextMenuKey,
-											 aButton, aInputSource);
         }
       }
     }
