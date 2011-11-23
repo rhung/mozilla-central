@@ -78,7 +78,6 @@ interface nsIInlineEventHandlers : nsISupports
   [implicit_jscontext] attribute jsval onmouseout;
   [implicit_jscontext] attribute jsval onmouseover;
   [implicit_jscontext] attribute jsval onmouseup;
-  [implicit_jscontext] attribute jsval onmouselocklost;
   // Not supported yet
   // [implicit_jscontext] attribute jsval onmousewheel;
   [implicit_jscontext] attribute jsval onmozfullscreenchange;

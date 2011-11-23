@@ -47,6 +47,9 @@
 #include "nsINode.h"
 #include "nsPLDOMEvent.h"
 #include "nsIInterfaceRequestorUtils.h"
+#include "nsIDocument.h"
+#include "mozilla/dom/Element.h"
+
 
 DOMCI_DATA(MouseLockable, nsDOMMouseLockable)
 
@@ -75,9 +78,8 @@ NS_IMETHODIMP nsDOMMouseLockable::Unlock()
   // plus it won't crash this way.
   if (mIsLocked) {
     
-    //Not working!
-    //nsCOMPtr<nsINode> node = do_GetInterface(mTarget);
-    //DispatchMouseLockLost(node);
+    nsCOMPtr<nsINode> node = do_QueryInterface(mTarget);
+    DispatchMouseLockLost(node);
     
     // Making the mouse reappear
     nsCOMPtr<nsPIDOMWindow> domWindow( do_QueryInterface( mWindow ) );
@@ -125,12 +127,24 @@ nsDOMMouseLockable::Init(nsIDOMWindow* aContentWindow)
 
 NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget)
 {
+  
+  nsCOMPtr<nsIDOMDocument> domDoc;
+  mWindow->GetDocument(getter_AddRefs(domDoc));
+  NS_ENSURE_ARG_POINTER(domDoc);
+
+  nsCOMPtr<nsIDocument> iDoc = do_QueryInterface(domDoc);;
+  NS_ENSURE_ARG_POINTER(iDoc);
+
+  mozilla::dom::Element* element = iDoc->GetFullScreenElement();
+  nsCOMPtr<nsIDOMElement> domElement = do_QueryInterface(element);;
+
   // Decided to use isFullScreen instead of mIsLocked
   // because I assume we should try to keep the values
   // of mIsLocked to PR_FALSE and PR_TRUE
-  bool isFullScreen;
-  mWindow->GetFullScreen(&isFullScreen);
-  if(isFullScreen)
+  //bool isFullScreen;
+  //mWindow->GetFullScreen(&isFullScreen);
+  //if(isFullScreen)
+  if (domElement == aTarget)
   {
     mIsLocked = PR_TRUE;
     mTarget = aTarget;
@@ -159,13 +173,14 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget)
   return NS_OK;
 }
 
-// Not working!
 static void
 DispatchMouseLockLost(nsINode* aTarget)
 {
-    printf("\nDispatchMouseLockLost\n");
-    nsRefPtr<nsPLDOMEvent> e = new nsPLDOMEvent(aTarget,
-      NS_LITERAL_STRING("mouselocklost"), true, false);
+    nsRefPtr<nsPLDOMEvent> e = 
+      new nsPLDOMEvent(aTarget,
+                      NS_LITERAL_STRING("mouselocklost"), 
+                      true, 
+                      false);
     e->PostDOMEvent();
 }
 
