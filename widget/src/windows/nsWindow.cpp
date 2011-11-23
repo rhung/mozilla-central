@@ -457,7 +457,6 @@ nsWindow::nsWindow() : nsBaseWidget()
 
   mIdleService = nsnull;
 
-  // For testing purposes, default mouse lock to true.
   mMouseLock = false;
   
   sInstanceCount++;
@@ -3894,35 +3893,6 @@ bool nsWindow::DispatchMouseEvent(PRUint32 aEventType, WPARAM wParam,
   event.isAlt     = IS_VK_DOWN(NS_VK_ALT);
   event.button    = aButton;
   event.inputSource = aInputSource;
-  
-  // Mouse Lock implementation for WIN32
-  
-  nsIntPoint oldMousePos = mMousePos;
-  mMousePos = eventPoint + WidgetToScreenOffset();
-  mMovement.x = mMousePos.x - oldMousePos.x;
-  mMovement.y = mMousePos.y - oldMousePos.y;
-  //fprintf(stderr, "In nsWindow::DispatchMouseEvent\n");
-  //fprintf(stderr, "Original Cursor: %d,%d\nLast Cursor: %d,%d\n", mMousePos.x, mMousePos.y, oldMousePos.x, oldMousePos.y);
-  //fprintf(stderr, "Mouse Movement: %d,%d\n", mMovement.x, mMovement.y);
-  if (mMouseLock == true) {
-      RECT windowRect;
-      ::GetWindowRect(mWnd, &windowRect);
-      bool mouseChanged = false;
-      // If the mouse position isn't in the middle of x or y, recenter it.
-      if (mMousePos.x != windowRect.right/2) {
-        mMousePos.x = windowRect.right/2;
-        //fprintf(stderr, "X Axis Locked back to the middle this frame.\n");
-        mouseChanged = true;
-      }
-      if (mMousePos.y != windowRect.bottom/2) {
-        mMousePos.y = windowRect.bottom/2;
-        //fprintf(stderr, "Y Axis Locked back to the middle this frame.\n");
-        mouseChanged = true;
-      }
-      if (mouseChanged == true)
-        SetCursorPos(mMousePos.x, mMousePos.y);
-  }
-  //fprintf(stderr, "\n");
 
   nsIntPoint mpScreen = eventPoint + WidgetToScreenOffset();
 
@@ -4098,6 +4068,34 @@ bool nsWindow::DispatchMouseEvent(PRUint32 aEventType, WPARAM wParam,
     }
 
     result = DispatchWindowEvent(&event);
+  
+    // Mouse Lock implementation for WIN32
+    
+    if (aEventType == NS_MOUSE_MOVE) 
+    {
+      mMousePos = eventPoint + WidgetToScreenOffset();
+      if (mMouseLock == true) {
+        RECT windowRect;
+        ::GetWindowRect(mWnd, &windowRect);
+        bool mouseChanged = false;
+        // If the mouse position isn't in the middle of x or y, recenter it.
+        if (mMousePos.x != windowRect.right/2) {
+          mMousePos.x = windowRect.right/2;
+          mouseChanged = true;
+        }
+        if (mMousePos.y != windowRect.bottom/2) {
+          mMousePos.y = windowRect.bottom/2;
+          mouseChanged = true;
+        }
+        if (mouseChanged == true) {
+          RECT r = { windowRect.left+10, windowRect.top+10, windowRect.right-10, windowRect.bottom-10 };
+          ::ClipCursor(&r); // Clip it slightly so the mouse doesn't accidently leave.
+          ::SetCursorPos(mMousePos.x, mMousePos.y);
+          sCurrentWindow->DispatchMouseEvent(aEventType, wParam, lParam, aIsContextMenuKey,
+											 aButton, aInputSource);
+        }
+      }
+    }
 
     if (nsToolkit::gMouseTrailer)
       nsToolkit::gMouseTrailer->Enable();

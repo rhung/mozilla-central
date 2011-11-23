@@ -102,6 +102,8 @@
 #include "nsIDOMUIEvent.h"
 #include "nsDOMDragEvent.h"
 #include "nsIDOMNSEditableElement.h"
+#include "nsIDOMMouseLockable.h"
+#include "nsIDOMNavigator.h"
 
 #include "nsCaret.h"
 
@@ -160,6 +162,7 @@ bool nsEventStateManager::sNormalLMouseEventInProcess = false;
 nsEventStateManager* nsEventStateManager::sActiveESM = nsnull;
 nsIDocument* nsEventStateManager::sMouseOverDocument = nsnull;
 nsWeakFrame nsEventStateManager::sLastDragOverFrame = nsnull;
+nsIntPoint nsEventStateManager::sLastRefPoint = nsIntPoint(0,0);
 nsCOMPtr<nsIContent> nsEventStateManager::sDragOverContent = nsnull;
 
 static PRUint32 gMouseOrKeyboardEventCounter = 0;
@@ -4013,7 +4016,7 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
   EnsureDocument(mPresContext);
   if (!mDocument)
     return;
-
+  
   // Hold onto old target content through the event and reset after.
   nsCOMPtr<nsIContent> targetBeforeEvent = mCurrentTargetContent;
 
@@ -4022,6 +4025,37 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
     {
       // Get the target content target (mousemove target == mouseover target)
       nsCOMPtr<nsIContent> targetElement = GetEventTargetContent(aEvent);
+	  
+	  bool mouseLocked = false;
+	  // Tell the widget if mouse lock is on
+      if (aEvent->widget) {
+        nsIFocusManager* fm = nsFocusManager::GetFocusManager();
+        if (fm) {
+          nsCOMPtr<nsIDOMWindow> currentWindow;
+          fm->GetFocusedWindow(getter_AddRefs(currentWindow));
+          if (currentWindow) {
+            nsCOMPtr<nsIDOMNavigator> navigator;
+            currentWindow->GetNavigator(getter_AddRefs(navigator));
+            if (navigator) {
+              nsCOMPtr<nsIDOMMouseLockable> lockable;
+              navigator->GetPointer(getter_AddRefs(lockable));
+              if (lockable) {
+                lockable->Islocked(&mouseLocked);
+				aEvent->widget->mMouseLock = mouseLocked;
+              }
+            }
+          }
+        }
+	  }
+	  
+	  // Remember the previous event's refPoint so we can calculate movement deltas.
+	  if (mouseLocked && aEvent->widget) {
+	    nsIntRect bounds;
+		aEvent->widget->GetScreenBounds(bounds);
+        aEvent->lastRefPoint = nsIntPoint(bounds.width/2, bounds.height/2);
+	  } else {
+        aEvent->lastRefPoint = nsIntPoint(sLastRefPoint.x, sLastRefPoint.y);
+	  }
       if (!targetElement) {
         // We're always over the document root, even if we're only
         // over dead space in a page (whose frame is not associated with
@@ -4053,6 +4087,9 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
 
   // reset mCurretTargetContent to what it was
   mCurrentTargetContent = targetBeforeEvent;
+
+  // Update the last known refPoint with the current refPoint.
+  sLastRefPoint = nsIntPoint(aEvent->refPoint.x, aEvent->refPoint.y);
 }
 
 void

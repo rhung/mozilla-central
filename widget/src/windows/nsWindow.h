@@ -542,7 +542,6 @@ protected:
   DWORD                 mAssumeWheelIsZoomUntil;
   nsIntPoint            mMousePos;
   nsIntPoint            mMovement;
-  bool                  mMouseLock;
   static bool           sDropShadowEnabled;
   static PRUint32       sInstanceCount;
   static TriStateBool   sCanQuit;
