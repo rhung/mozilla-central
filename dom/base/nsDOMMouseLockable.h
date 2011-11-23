@@ -41,6 +41,7 @@
 
 #include "nsIDOMMouseLockable.h"
 #include "nsWeakPtr.h"
+#include "nsINode.h"
 
 class nsDOMMouseLockable : public nsIDOMMouseLockable
 {
@@ -55,9 +56,11 @@ private:
   ~nsDOMMouseLockable();
   bool mIsLocked;
   nsCOMPtr<nsIDOMWindow> mWindow;
+  nsIDOMElement* mTarget;
 
 protected:
   /* additional members */
 };
+static void DispatchMouseLockLost(nsINode*);
 
 #endif /* nsDOMMouseLockable_h___ */

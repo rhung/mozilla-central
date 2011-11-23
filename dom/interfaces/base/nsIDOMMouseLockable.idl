@@ -43,7 +43,8 @@ interface nsIDOMMouseLockable : nsISupports
 {
    // TODO:
    // void lock (in Element target, optional in VoidCallback successCallback, optional in VoidCallback failureCallback);
-   void unlock();
+   void lock(in nsIDOMElement target);
 
+   void unlock();
    boolean islocked();
 };
