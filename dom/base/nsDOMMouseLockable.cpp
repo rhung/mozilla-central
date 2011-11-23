@@ -38,6 +38,10 @@
 
 #include "nsDOMMouseLockable.h"
 #include "nsContentUtils.h"
+#include "nsEventStateManager.h"
+#include "nsIWidget.h"
+#include "nsPIDOMWindow.h"
+#include "nsIDocShell.h"
 #include "nsAutoPtr.h"
 #include "nsIDOMHTMLElement.h"
 #include "nsINode.h"
@@ -64,22 +68,39 @@ nsDOMMouseLockable::~nsDOMMouseLockable()
 {
 }
 
-NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget)
-{
-  // If window is in fullscreen mode mIsLocked is set to true
-  mWindow->GetFullScreen(&mIsLocked);
-  mTarget = aTarget;
-  return NS_OK;
-}
-
 /* void unlock (); */
 NS_IMETHODIMP nsDOMMouseLockable::Unlock()
 {
+  // No point doing this if mIslocked is already false,
+  // plus it won't crash this way.
   if (mIsLocked) {
+    
     nsCOMPtr<nsINode> node = do_QueryInterface(mTarget);
     DispatchMouseLockLost(node);
+    
+    // Making the mouse reappear
+    nsCOMPtr<nsPIDOMWindow> domWindow( do_QueryInterface( mWindow ) );
+    if (!domWindow)
+      return NULL;
+        
+    nsRefPtr<nsPresContext> presContext;
+    domWindow->GetDocShell()->GetPresContext(getter_AddRefs(presContext));
+    if (!presContext)
+      return NULL;
+
+    nsCOMPtr<nsIPresShell> shell = presContext->PresShell();
+    if (!shell)
+      return NULL;
+    nsCOMPtr<nsIWidget> widget = shell->GetRootFrame()->GetNearestWidget();
+    if (!widget)
+      return NULL;
+        
+    presContext->EventStateManager()->SetCursor(NS_STYLE_CURSOR_AUTO, 
+                                                nsnull, false, 0.0f, 
+                                                0.0f, widget, true);
+                                                
+    mIsLocked = PR_FALSE;                                            
   }
-  mIsLocked = PR_FALSE;
   return NS_OK;
 }
 
@@ -97,9 +118,45 @@ nsDOMMouseLockable::Init(nsIDOMWindow* aContentWindow)
   NS_ENSURE_ARG_POINTER(aContentWindow);
   // Hang on to the window so we can check for fullscreen
   mWindow = aContentWindow;
+  mWindow = aContentWindow;
   return NS_OK;
 }
 
+NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget)
+{
+  // Decided to use isFullScreen instead of mIsLocked
+  // because I assume we should try to keep the values
+  // of mIsLocked to PR_FALSE and PR_TRUE
+  bool isFullScreen;
+  mWindow->GetFullScreen(&isFullScreen);
+  if(isFullScreen)
+  {
+    mIsLocked = PR_TRUE;
+    mTarget = aTarget;
+
+    nsCOMPtr<nsPIDOMWindow> domWindow( do_QueryInterface( mWindow ) );
+    if (!domWindow)
+      return NULL;
+        
+    nsRefPtr<nsPresContext> presContext;
+    domWindow->GetDocShell()->GetPresContext(getter_AddRefs(presContext));
+    if (!presContext)
+      return NULL;
+
+    nsCOMPtr<nsIPresShell> shell = presContext->PresShell();
+    if (!shell)
+      return NULL;
+
+    nsCOMPtr<nsIWidget> widget = shell->GetRootFrame()->GetNearestWidget();
+    if (!widget)
+      return NULL;
+        
+    presContext->EventStateManager()->SetCursor(NS_STYLE_CURSOR_NONE, 
+                                                nsnull, false, 0.0f, 
+                                                0.0f, widget, true);
+  }
+  return NS_OK;
+}
 
 static void
 DispatchMouseLockLost(nsINode* aTarget)

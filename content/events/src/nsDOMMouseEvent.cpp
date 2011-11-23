@@ -221,7 +221,7 @@ nsDOMMouseEvent::GetRelatedTarget(nsIDOMEventTarget** aRelatedTarget)
 NS_METHOD nsDOMMouseEvent::GetMovementX(PRInt32* aMovementX)
 {
   NS_ENSURE_ARG_POINTER(aMovementX);
-  *aMovementX = GetScreenPoint().x;
+  *aMovementX = GetMovementPoint().x;
 
   return NS_OK;
 }
@@ -230,7 +230,7 @@ NS_IMETHODIMP
 nsDOMMouseEvent::GetMovementY(PRInt32* aMovementY)
 {
   NS_ENSURE_ARG_POINTER(aMovementY);
-  *aMovementY = GetScreenPoint().y;
+  *aMovementY = GetMovementPoint().y;
 
   return NS_OK;
 }

@@ -573,6 +573,7 @@ protected:
     : eventStructType(structType),
       message(msg),
       refPoint(0, 0),
+      lastRefPoint(0, 0),
       time(0),
       flags(isTrusted ? NS_EVENT_FLAG_TRUSTED : NS_EVENT_FLAG_NONE),
       userType(0)
@@ -589,6 +590,7 @@ public:
     : eventStructType(NS_EVENT),
       message(msg),
       refPoint(0, 0),
+      lastRefPoint(0, 0),
       time(0),
       flags(isTrusted ? NS_EVENT_FLAG_TRUSTED : NS_EVENT_FLAG_NONE),
       userType(0)
@@ -608,6 +610,8 @@ public:
   // Relative to the widget of the event, or if there is no widget then it is
   // in screen coordinates. Not modified by layout code.
   nsIntPoint  refPoint;
+  // The previous refPoint, if known, used to calculate mouse movement deltas.
+  nsIntPoint  lastRefPoint;
   // Elapsed time, in milliseconds, from a platform-specific zero time
   // to the time the message was created
   PRUint64    time;

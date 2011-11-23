@@ -160,6 +160,7 @@ bool nsEventStateManager::sNormalLMouseEventInProcess = false;
 nsEventStateManager* nsEventStateManager::sActiveESM = nsnull;
 nsIDocument* nsEventStateManager::sMouseOverDocument = nsnull;
 nsWeakFrame nsEventStateManager::sLastDragOverFrame = nsnull;
+nsIntPoint nsEventStateManager::sLastRefPoint = nsIntPoint(0,0);
 nsCOMPtr<nsIContent> nsEventStateManager::sDragOverContent = nsnull;
 
 static PRUint32 gMouseOrKeyboardEventCounter = 0;
@@ -4017,6 +4018,9 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
   // Hold onto old target content through the event and reset after.
   nsCOMPtr<nsIContent> targetBeforeEvent = mCurrentTargetContent;
 
+  // Remember the previous event's refPoint so we can calculate movement deltas.
+  aEvent->lastRefPoint = nsIntPoint(sLastRefPoint.x, sLastRefPoint.y);
+
   switch(aEvent->message) {
   case NS_MOUSE_MOVE:
     {
@@ -4053,6 +4057,9 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
 
   // reset mCurretTargetContent to what it was
   mCurrentTargetContent = targetBeforeEvent;
+
+  // Update the last known refPoint with the current refPoint.
+  sLastRefPoint = nsIntPoint(aEvent->refPoint.x, aEvent->refPoint.y);
 }
 
 void
