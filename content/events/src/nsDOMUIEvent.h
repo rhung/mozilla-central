@@ -68,6 +68,7 @@ protected:
   // Internal helper functions
   nsIntPoint GetClientPoint();
   nsIntPoint GetScreenPoint();
+  nsIntPoint GetMovementPoint();
   nsIntPoint GetLayerPoint();
   nsIntPoint GetPagePoint();
 
