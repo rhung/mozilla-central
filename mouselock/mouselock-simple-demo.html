@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+  <head>
+		<title>Mouselock: Simple demo</title>
+  </head>
+  <body> 
+		<div>
+			<p>Click to enter mouselock, click again to unlock, click again to exit full screen. </p>
+
+		</div>
+		<canvas style="background-color:blue; width:500px; height:500px;" id="canvas">
+		</canvas>
+		<script>
+			var ele = document.getElementById('canvas');
+			var pointer = navigator.pointer;
+			document.body.addEventListener('click', function() {
+				if (!document.mozFullScreen){
+					ele.mozRequestFullScreen();
+					var t = setTimeout("pointer.lock(ele)", 300)
+				} else if (pointer.islocked()) {
+					pointer.unlock();
+				} else {
+					document.mozCancelFullScreen();
+				}
+			}, false)
+
+			// Mouse move event listener
+			ele.addEventListener('mousemove', function(e) {
+				if (pointer.islocked()) {
+					console.log('Movement X: %d		Movement Y: %d		Client X: %d		Client Y: %d		Screen X:	%d		Screen Y: %d', 
+											e.movementX, e.movementY, e.clientX, e.clientY, e.screenX, e.screenY);
+				}
+			} ,false);
+			
+			ele.addEventListener('mouselocklost', function() {
+				console.log('=== Mouse lock lost! ===')
+			}, false)
+			
+		</script>
+  </body>
+ 
+</html>
