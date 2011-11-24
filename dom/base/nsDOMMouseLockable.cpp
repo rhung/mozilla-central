@@ -101,6 +101,7 @@ NS_IMETHODIMP nsDOMMouseLockable::Unlock()
                                                 0.0f, widget, true);
                                                 
     mIsLocked = PR_FALSE;                                            
+    presContext->EventStateManager()->mMouseLocked = false;
   }
   return NS_OK;
 }
@@ -118,7 +119,6 @@ nsDOMMouseLockable::Init(nsIDOMWindow* aContentWindow)
 {
   NS_ENSURE_ARG_POINTER(aContentWindow);
   // Hang on to the window so we can check for fullscreen
-  mWindow = aContentWindow;
   mWindow = aContentWindow;
   return NS_OK;
 }
@@ -159,6 +159,7 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget)
     presContext->EventStateManager()->SetCursor(NS_STYLE_CURSOR_NONE, 
                                                 nsnull, false, 0.0f, 
                                                 0.0f, widget, true);
+    presContext->EventStateManager()->mMouseLocked = true;
   }
   return NS_OK;
 }

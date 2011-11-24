@@ -6883,3 +6883,16 @@ nsWindow::ClearCachedResources()
         }
     }
 }
+
+nsresult 
+nsWindow::SynthesizeNativeMouseEvent(nsIntPoint aPoint, 
+                           PRUint32 aNativeMessage,
+                           PRUint32 aModifierFlags)
+{
+  if (mGdkWindow) {
+    GdkDisplay* display = gdk_window_get_display(mGdkWindow);
+    GdkScreen* screen = gdk_window_get_screen(mGdkWindow);
+    gdk_display_warp_pointer(display, screen, aPoint.x, aPoint.y);
+  }
+  return NS_OK;
+}
