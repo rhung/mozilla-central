@@ -4036,7 +4036,7 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
         nativeMessage = MOUSEEVENTF_MOVE;
 #elif defined(XP_MACOSX)
         nativeMessage = NSMouseMoved;
-#elif defined(XP_UNIX)
+#elif defined(MOZ_WIDGET_GTK2)
         nativeMessage = GDK_MOTION_NOTIFY;
 #endif
         if (nativeMessage)
