@@ -140,6 +140,10 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/LookAndFeel.h"
 
+#ifdef MOZ_WIDGET_GTK2
+#include <gdk/gdk.h>
+#endif
+
 #ifdef XP_MACOSX
 #import <ApplicationServices/ApplicationServices.h>
 #endif
@@ -4027,20 +4031,23 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
       // Get the target content target (mousemove target == mouseover target)
       nsCOMPtr<nsIContent> targetElement = GetEventTargetContent(aEvent);
       // Remember the previous event's refPoint so we can calculate movement deltas.
+      
+      PRUint32 nativeMessage = 0;
       if (mMouseLocked && aEvent->widget) {
         nsIntRect bounds;
         aEvent->widget->GetScreenBounds(bounds);
         aEvent->lastRefPoint = nsIntPoint(bounds.width/2, bounds.height/2);
-        PRUint32 nativeMessage = 0;
 #if defined(XP_WIN)
-        nativeMessage = MOUSEEVENTF_MOVE;
+          nativeMessage = MOUSEEVENTF_MOVE;
 #elif defined(XP_MACOSX)
-        nativeMessage = NSMouseMoved;
+          nativeMessage = NSMouseMoved;
 #elif defined(MOZ_WIDGET_GTK2)
-        nativeMessage = GDK_MOTION_NOTIFY;
+          nativeMessage = GDK_MOTION_NOTIFY;
 #endif
-        if (nativeMessage)
-          aEvent->widget->SynthesizeNativeMouseEvent(aEvent->lastRefPoint, nativeMessage, 0);
+      }
+      // Center the mouse if the mouse is locked and moved.
+      if (nativeMessage) {
+        aEvent->widget->SynthesizeNativeMouseEvent(aEvent->lastRefPoint, nativeMessage, 0);
       } else {
         aEvent->lastRefPoint = nsIntPoint(sLastRefPoint.x, sLastRefPoint.y);
       }
