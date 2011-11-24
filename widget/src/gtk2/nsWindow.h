@@ -347,6 +347,10 @@ public:
 #ifdef ACCESSIBILITY
     static bool        sAccessibilityEnabled;
 #endif
+
+    virtual nsresult SynthesizeNativeMouseEvent(nsIntPoint aPoint,
+                                                PRUint32 aNativeMessage,
+                                                PRUint32 aModifierFlags);
 protected:
     // Helper for SetParent and ReparentNativeWidget.
     void ReparentNativeWidgetInternal(nsIWidget* aNewParent,
