@@ -2157,7 +2157,7 @@ JS_StringToVersion(const char *string);
                                                    of the input string */
 /* JS_BIT(10) is currently unused. */
 
-#define JSOPTION_JIT            JS_BIT(11)      /* Enable JIT compilation. */
+#define JSOPTION_JIT            JS_BIT(11)      /* Deprecated; does nothing */
 
 #define JSOPTION_NO_SCRIPT_RVAL JS_BIT(12)      /* A promise to the compiler
                                                    that a null rval out-param
@@ -5019,6 +5019,12 @@ JS_ScheduleGC(JSContext *cx, uint32 count, JSBool compartment);
  */
 extern JS_PUBLIC_API(JSBool)
 JS_IndexToId(JSContext *cx, uint32 index, jsid *id);
+
+/*
+ *  Test if the given string is a valid ECMAScript identifier
+ */
+extern JS_PUBLIC_API(JSBool)
+JS_IsIdentifier(JSContext *cx, JSString *str, JSBool *isIdentifier);
 
 JS_END_EXTERN_C
 

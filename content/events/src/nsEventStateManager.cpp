@@ -68,8 +68,6 @@
 #include "nsIDOMXULControlElement.h"
 #include "nsINameSpaceManager.h"
 #include "nsIBaseWindow.h"
-#include "nsIView.h"
-#include "nsIViewManager.h"
 #include "nsISelection.h"
 #include "nsFrameSelection.h"
 #include "nsIPrivateDOMEvent.h"
@@ -1031,8 +1029,7 @@ nsresult
 nsEventStateManager::PreHandleEvent(nsPresContext* aPresContext,
                                     nsEvent *aEvent,
                                     nsIFrame* aTargetFrame,
-                                    nsEventStatus* aStatus,
-                                    nsIView* aView)
+                                    nsEventStatus* aStatus)
 {
   NS_ENSURE_ARG_POINTER(aStatus);
   NS_ENSURE_ARG(aPresContext);
@@ -3030,8 +3027,7 @@ nsresult
 nsEventStateManager::PostHandleEvent(nsPresContext* aPresContext,
                                      nsEvent *aEvent,
                                      nsIFrame* aTargetFrame,
-                                     nsEventStatus* aStatus,
-                                     nsIView* aView)
+                                     nsEventStatus* aStatus)
 {
   NS_ENSURE_ARG(aPresContext);
   NS_ENSURE_ARG_POINTER(aStatus);
