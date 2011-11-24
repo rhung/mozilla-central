@@ -98,6 +98,7 @@ NS_IMETHODIMP nsDOMMouseLockable::Unlock()
     presContext->EventStateManager()->SetCursor(NS_STYLE_CURSOR_AUTO, 
                                                 nsnull, false, 0.0f, 
                                                 0.0f, widget, true);
+    presContext->EventStateManager()->mMouseLocked = false;
   }
   return NS_OK;
 }
@@ -156,6 +157,7 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget)
     presContext->EventStateManager()->SetCursor(NS_STYLE_CURSOR_NONE, 
                                                 nsnull, false, 0.0f, 
                                                 0.0f, widget, true);
+    presContext->EventStateManager()->mMouseLocked = true;
   }
   return NS_OK;
 }

@@ -787,7 +787,8 @@ nsEventStateManager::nsEventStateManager()
     m_haveShutdown(false),
     mLastLineScrollConsumedX(false),
     mLastLineScrollConsumedY(false),
-    mClickHoldContextMenu(false)
+    mClickHoldContextMenu(false),
+    mMouseLocked(false)
 {
   if (sESMInstanceCount == 0) {
     gUserInteractionTimerCallback = new nsUITimerCallback();
@@ -4022,40 +4023,27 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
 
   switch(aEvent->message) {
   case NS_MOUSE_MOVE:
-  {
-    // Get the target content target (mousemove target == mouseover target)
-    nsCOMPtr<nsIContent> targetElement = GetEventTargetContent(aEvent);
-  
-    bool mouseLocked = false;
-    // Tell the widget if mouse lock is on
-    if (aEvent->widget) {
-      nsIFocusManager* fm = nsFocusManager::GetFocusManager();
-      if (fm) {
-        nsCOMPtr<nsIDOMWindow> currentWindow;
-        fm->GetFocusedWindow(getter_AddRefs(currentWindow));
-        if (currentWindow) {
-          nsCOMPtr<nsIDOMNavigator> navigator;
-          currentWindow->GetNavigator(getter_AddRefs(navigator));
-          if (navigator) {
-            nsCOMPtr<nsIDOMMouseLockable> lockable;
-            navigator->GetPointer(getter_AddRefs(lockable));
-            if (lockable) {
-              lockable->Islocked(&mouseLocked);
-              aEvent->widget->mMouseLock = mouseLocked;
-            }
-          }
-        }
-      }
-    }
-	  
-	  // Remember the previous event's refPoint so we can calculate movement deltas.
-	  if (mouseLocked && aEvent->widget) {
-	    nsIntRect bounds;
-		aEvent->widget->GetScreenBounds(bounds);
+    {
+      // Get the target content target (mousemove target == mouseover target)
+      nsCOMPtr<nsIContent> targetElement = GetEventTargetContent(aEvent);
+      // Remember the previous event's refPoint so we can calculate movement deltas.
+      if (mMouseLocked && aEvent->widget) {
+        nsIntRect bounds;
+        aEvent->widget->GetScreenBounds(bounds);
         aEvent->lastRefPoint = nsIntPoint(bounds.width/2, bounds.height/2);
-	  } else {
+        PRUint32 nativeMessage = 0;
+#if defined(XP_WIN)
+        nativeMessage = MOUSEEVENTF_MOVE;
+#elif defined(XP_MACOSX)
+        nativeMessage = NSMouseMoved;
+#elif defined(XP_UNIX)
+        nativeMessage = GDK_MOTION_NOTIFY;
+#endif
+        if (nativeMessage)
+          aEvent->widget->SynthesizeNativeMouseEvent(aEvent->lastRefPoint, nativeMessage, 0);
+      } else {
         aEvent->lastRefPoint = nsIntPoint(sLastRefPoint.x, sLastRefPoint.y);
-	  }
+      }
       if (!targetElement) {
         // We're always over the document root, even if we're only
         // over dead space in a page (whose frame is not associated with

@@ -1425,8 +1425,6 @@ class nsIWidget : public nsISupports {
      *                   parent widget
      */
     NS_IMETHOD ReparentNativeWidget(nsIWidget* aNewParent) = 0;
-    
-    bool mMouseLock;
 protected:
 
     // keep the list of children.  We also keep track of our siblings.
