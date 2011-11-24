@@ -4037,15 +4037,18 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
         nsIntRect bounds;
         aEvent->widget->GetScreenBounds(bounds);
         aEvent->lastRefPoint = nsIntPoint(bounds.width/2, bounds.height/2);
+        // refPoint should not be the center on mousemove
+        if (aEvent->refPoint.x == aEvent->lastRefPoint.x && aEvent->refPoint.y == aEvent->lastRefPoint.y) {
+          aEvent->refPoint = sLastRefPoint;
+        }
 #if defined(XP_WIN)
-          nativeMessage = MOUSEEVENTF_MOVE;
+        nativeMessage = MOUSEEVENTF_MOVE;
 #elif defined(XP_MACOSX)
-          nativeMessage = NSMouseMoved;
+        nativeMessage = NSMouseMoved;
 #elif defined(MOZ_WIDGET_GTK2)
-          nativeMessage = GDK_MOTION_NOTIFY;
+        nativeMessage = GDK_MOTION_NOTIFY;
 #endif
       }
-      // Center the mouse if the mouse is locked and moved.
       if (nativeMessage) {
         aEvent->widget->SynthesizeNativeMouseEvent(aEvent->lastRefPoint, nativeMessage, 0);
       } else {
@@ -4060,8 +4063,10 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
       if (targetElement) {
         NotifyMouseOver(aEvent, targetElement);
       }
+      // Update the last known refPoint with the current refPoint.
+      sLastRefPoint = nsIntPoint(aEvent->refPoint.x, aEvent->refPoint.y);
+      break;
     }
-    break;
   case NS_MOUSE_EXIT:
     {
       // This is actually the window mouse exit event. We're not moving
@@ -4082,9 +4087,6 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
 
   // reset mCurretTargetContent to what it was
   mCurrentTargetContent = targetBeforeEvent;
-
-  // Update the last known refPoint with the current refPoint.
-  sLastRefPoint = nsIntPoint(aEvent->refPoint.x, aEvent->refPoint.y);
 }
 
 void
