@@ -8,15 +8,18 @@
 			<p>Click to enter mouselock, click again to unlock, click again to exit full screen. </p>
 
 		</div>
-		<canvas style="background-color:blue; width:500px; height:500px;" id="canvas">
-		</canvas>
+		<div style="background-color:blue; width:500px; height:500px;" id="div">
+			<p style="color:White" id='info'>Demo page</p>
+		</div>
 		<script>
-			var ele = document.getElementById('canvas');
+			var ele = document.getElementById('div');
 			var pointer = navigator.pointer;
+			var infoText = document.getElementById('info');
 			document.body.addEventListener('click', function() {
 				if (!document.mozFullScreen){
 					ele.mozRequestFullScreen();
 					window.setTimeout("pointer.lock(ele)", 300);
+					console.log('=== Mouse lock Entered! ===');
 				} else if (pointer.islocked()) {
 					pointer.unlock();
 				} else {
@@ -27,8 +30,7 @@
 			// Mouse move event listener
 			ele.addEventListener('mousemove', function(e) {
 				if (pointer.islocked()) {
-					console.log('Movement X: %d		Movement Y: %d		Client X: %d		Client Y: %d		Screen X:	%d		Screen Y: %d', 
-											e.movementX, e.movementY, e.clientX, e.clientY, e.screenX, e.screenY);
+					infoText.innerHTML = 'Movement X: ' + e.movementX + '	Movement Y: '+ e.movementY + '	Client X: ' + e.clientX + '		Client Y: ' + e.clientY + '	Screen X:	' + e.screenX + '	Screen Y: ' + e.screenY;
 				}
 			} ,false);
 			
