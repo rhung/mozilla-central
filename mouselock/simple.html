@@ -5,13 +5,13 @@
 function fullAndLock() {
   var div = document.getElementById('div');
 
-  div.onmozfullscreenchange = function() {
+  div.addEventListener('mozfullscreenchange', function() {
     navigator.pointer.lock(div);
 
-    div.onmousemove = function(e) {
+    div.addEventListener('mousemove', function(e) {
       div.innerHTML = "movementX=" + e.movementX + ", movementY=" + e.movementY;
-    };
-  };
+    }, false);
+  }, false);
 }
 </script>
 </head>
