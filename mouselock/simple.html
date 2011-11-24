@@ -1,0 +1,23 @@
+<html>
+<head>
+<title>Simple Mouse Lock Demo</title>
+<script>
+function fullAndLock() {
+  var div = document.getElementById('div');
+
+  div.onmozfullscreenchange = function() {
+    navigator.pointer.lock(div);
+
+    div.onmousemove = function(e) {
+      div.innerHTML = "movementX=" + e.movementX + ", movementY=" + e.movementY;
+    };
+  };
+}
+</script>
+</head>
+<body>
+<p>Click the button to go into fullscreen and lock the mouse.  The 'div' div will become the fullscreen, mouse locked element.</p>
+<button onclick="fullAndLock();">Mouse Lock</button>
+<div id="div"></div>
+</body>
+</html>
