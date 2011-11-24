@@ -123,7 +123,9 @@ nsDOMMouseLockable::Init(nsIDOMWindow* aContentWindow)
   return NS_OK;
 }
 
-NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget)
+NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
+  nsIDOMMouseLockableCallback* callback,
+  nsIDOMMouseLockableErrorCallback* errorCallback)
 {
   
   nsCOMPtr<nsIDOMDocument> domDoc;
