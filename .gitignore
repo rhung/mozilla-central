@@ -1,0 +1,13 @@
+*~
+.mozconfig
+.mozconfig.mk
+.mozconfig~
+build/
+config/
+configure
+content/
+ipc/
+js/
+objdir-debug/
+other-licenses/
+xpcom/
