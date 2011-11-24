@@ -470,7 +470,6 @@ protected:
   bool HandleCrossProcessEvent(nsEvent *aEvent,
                                  nsIFrame* aTargetFrame,
                                  nsEventStatus *aStatus);
-
 private:
   static inline void DoStateChange(mozilla::dom::Element* aElement,
                                    nsEventStates aState, bool aAddState);
@@ -561,6 +560,7 @@ public:
   void KillClickHoldTimer ( ) ;
   void FireContextClick ( ) ;
   static void sClickHoldCallback ( nsITimer* aTimer, void* aESM ) ;
+  bool mMouseLocked;
 };
 
 /**
