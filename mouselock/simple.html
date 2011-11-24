@@ -12,12 +12,14 @@ function fullAndLock() {
       div.innerHTML = "movementX=" + e.movementX + ", movementY=" + e.movementY;
     }, false);
   }, false);
+
+  div.mozRequestFullScreen();
 }
 </script>
 </head>
 <body>
 <p>Click the button to go into fullscreen and lock the mouse.  The 'div' div will become the fullscreen, mouse locked element.</p>
 <button onclick="fullAndLock();">Mouse Lock</button>
-<div id="div"></div>
+<div id="div">This is the 'div' div.</div>
 </body>
 </html>
