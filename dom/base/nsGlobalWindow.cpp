@@ -766,7 +766,6 @@ nsPIDOMWindow::nsPIDOMWindow(nsPIDOMWindow *aOuterWindow)
   mRunningTimeout(nsnull), mMutationBits(0), mIsDocumentLoaded(false),
   mIsHandlingResizeEvent(false), mIsInnerWindow(aOuterWindow != nsnull),
   mMayHavePaintEventListener(false), mMayHaveTouchEventListener(false),
-  mMayHaveAudioAvailableEventListener(false),
   mMayHaveMouseEnterLeaveEventListener(false),
   mIsModalContentWindow(false),
   mIsActive(false), mIsBackground(false),
@@ -1558,10 +1557,7 @@ nsGlobalWindow::EnsureScriptEnvironment(PRUint32 aLangID)
   nsresult rv = NS_GetScriptRuntimeByID(aLangID, getter_AddRefs(scriptRuntime));
   NS_ENSURE_SUCCESS(rv, rv);
 
-  nsCOMPtr<nsIScriptContext> context;
-  rv = scriptRuntime->CreateContext(getter_AddRefs(context));
-  NS_ENSURE_SUCCESS(rv, rv);
-
+  nsCOMPtr<nsIScriptContext> context = scriptRuntime->CreateContext();
   return SetScriptContext(aLangID, context);
 }
 
@@ -7380,6 +7376,8 @@ nsGlobalWindow::RemoveEventListener(const nsAString& aType,
   return NS_OK;
 }
 
+NS_IMPL_REMOVE_SYSTEM_EVENT_LISTENER(nsGlobalWindow)
+
 NS_IMETHODIMP
 nsGlobalWindow::DispatchEvent(nsIDOMEvent* aEvent, bool* aRetVal)
 {
@@ -7431,6 +7429,32 @@ nsGlobalWindow::AddEventListener(const nsAString& aType,
   NS_ENSURE_STATE(manager);
   manager->AddEventListener(aType, aListener, aUseCapture, aWantsUntrusted);
   return NS_OK;
+}
+
+NS_IMETHODIMP
+nsGlobalWindow::AddSystemEventListener(const nsAString& aType,
+                                       nsIDOMEventListener *aListener,
+                                       bool aUseCapture,
+                                       bool aWantsUntrusted,
+                                       PRUint8 aOptionalArgc)
+{
+  NS_ASSERTION(!aWantsUntrusted || aOptionalArgc > 1,
+               "Won't check if this is chrome, you want to set "
+               "aWantsUntrusted to false or make the aWantsUntrusted "
+               "explicit by making optional_argc non-zero.");
+
+  if (IsOuterWindow() && mInnerWindow &&
+      !nsContentUtils::CanCallerAccess(mInnerWindow)) {
+    return NS_ERROR_DOM_SECURITY_ERR;
+  }
+
+  if (!aWantsUntrusted &&
+      (aOptionalArgc < 2 && !nsContentUtils::IsChromeDoc(mDoc))) {
+    aWantsUntrusted = true;
+  }
+
+  return NS_AddSystemEventListener(this, aType, aListener, aUseCapture,
+                                   aWantsUntrusted);
 }
 
 nsEventListenerManager*
@@ -10677,6 +10701,14 @@ nsGlobalModalWindow::SetNewDocument(nsIDocument *aDocument,
 
   return nsGlobalWindow::SetNewDocument(aDocument, aState,
                                         aForceReuseInnerWindow);
+}
+
+void
+nsGlobalWindow::SetHasAudioAvailableEventListeners()
+{
+  if (mDoc) {
+    mDoc->NotifyAudioAvailableListener();
+  }
 }
 
 //*****************************************************************************

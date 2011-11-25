@@ -1,6 +1,5 @@
-/* -*- Mode: C; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- *
- * ***** BEGIN LICENSE BLOCK *****
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
+/* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
  * The contents of this file are subject to the Mozilla Public License Version
@@ -428,15 +427,6 @@ xpc_qsDefineQuickStubs(JSContext *cx, JSObject *proto, uintN flags,
                         if (!JS_DefineFunction(cx, proto, fs->name,
                                                reinterpret_cast<JSNative>(fs->native),
                                                fs->arity, flags))
-                            return JS_FALSE;
-                    }
-                }
-
-                const xpc_qsTraceableSpec *ts = entry->traceables;
-                if (ts) {
-                    for (; ts->name; ts++) {
-                        if (!JS_DefineFunction(cx, proto, ts->name, ts->native, ts->arity,
-                                               flags | JSFUN_STUB_GSOPS | JSFUN_TRCINFO))
                             return JS_FALSE;
                     }
                 }
@@ -1001,7 +991,7 @@ xpc_qsJsvalToCharStr(JSContext *cx, jsval v, JSAutoByteString *bytes)
 }
 
 JSBool
-xpc_qsJsvalToWcharStr(JSContext *cx, jsval v, jsval *pval, PRUnichar **pstr)
+xpc_qsJsvalToWcharStr(JSContext *cx, jsval v, jsval *pval, const PRUnichar **pstr)
 {
     JSString *str;
 
@@ -1020,8 +1010,7 @@ xpc_qsJsvalToWcharStr(JSContext *cx, jsval v, jsval *pval, PRUnichar **pstr)
     if (!chars)
         return JS_FALSE;
 
-    // XXXbz this is casting away constness too...  That seems like a bad idea.
-    *pstr = const_cast<jschar *>(chars);
+    *pstr = static_cast<const PRUnichar *>(chars);
     return JS_TRUE;
 }
 

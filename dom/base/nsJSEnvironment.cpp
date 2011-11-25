@@ -927,8 +927,6 @@ static const char js_zeal_option_str[]        = JS_OPTIONS_DOT_STR "gczeal";
 static const char js_zeal_frequency_str[]     = JS_OPTIONS_DOT_STR "gczeal.frequency";
 static const char js_zeal_compartment_str[]   = JS_OPTIONS_DOT_STR "gczeal.compartment_gc";
 #endif
-static const char js_tracejit_content_str[]   = JS_OPTIONS_DOT_STR "tracejit.content";
-static const char js_tracejit_chrome_str[]    = JS_OPTIONS_DOT_STR "tracejit.chrome";
 static const char js_methodjit_content_str[]  = JS_OPTIONS_DOT_STR "methodjit.content";
 static const char js_methodjit_chrome_str[]   = JS_OPTIONS_DOT_STR "methodjit.chrome";
 static const char js_profiling_content_str[]  = JS_OPTIONS_DOT_STR "jitprofiling.content";
@@ -960,9 +958,6 @@ nsJSContext::JSOptionChangedCallback(const char *pref, void *data)
   // XXX components be covered by the chrome pref instead of the content one?
   nsCOMPtr<nsIDOMChromeWindow> chromeWindow(do_QueryInterface(global));
 
-  bool useTraceJIT = Preferences::GetBool(chromeWindow ?
-                                              js_tracejit_chrome_str :
-                                              js_tracejit_content_str);
   bool useMethodJIT = Preferences::GetBool(chromeWindow ?
                                                js_methodjit_chrome_str :
                                                js_methodjit_content_str);
@@ -980,7 +975,6 @@ nsJSContext::JSOptionChangedCallback(const char *pref, void *data)
     bool safeMode = false;
     xr->GetInSafeMode(&safeMode);
     if (safeMode) {
-      useTraceJIT = false;
       useMethodJIT = false;
       useProfiling = false;
       usePCCounts = false;
@@ -989,11 +983,6 @@ nsJSContext::JSOptionChangedCallback(const char *pref, void *data)
       useHardening = false;
     }
   }    
-
-  if (useTraceJIT)
-    newDefaultJSOptions |= JSOPTION_JIT;
-  else
-    newDefaultJSOptions &= ~JSOPTION_JIT;
 
   if (useMethodJIT)
     newDefaultJSOptions |= JSOPTION_METHODJIT;
@@ -1196,16 +1185,19 @@ nsJSContext::GetCCRefcnt()
 
 nsresult
 nsJSContext::EvaluateStringWithValue(const nsAString& aScript,
-                                     void *aScopeObject,
+                                     JSObject* aScopeObject,
                                      nsIPrincipal *aPrincipal,
                                      const char *aURL,
                                      PRUint32 aLineNo,
                                      PRUint32 aVersion,
-                                     void* aRetValue,
+                                     JS::Value* aRetValue,
                                      bool* aIsUndefined)
 {
   NS_TIME_FUNCTION_MIN_FMT(1.0, "%s (line %d) (url: %s, line: %d)", MOZ_FUNCTION_NAME,
                            __LINE__, aURL, aLineNo);
+
+  NS_ABORT_IF_FALSE(aScopeObject,
+    "Shouldn't call EvaluateStringWithValue with null scope object.");
 
   NS_ENSURE_TRUE(mIsInitialized, NS_ERROR_NOT_INITIALIZED);
 
@@ -1217,15 +1209,12 @@ nsJSContext::EvaluateStringWithValue(const nsAString& aScript,
     return NS_OK;
   }
 
-  nsresult rv;
-  if (!aScopeObject)
-    aScopeObject = ::JS_GetGlobalObject(mContext);
-
   // Safety first: get an object representing the script's principals, i.e.,
   // the entities who signed this script, or the fully-qualified-domain-name
   // or "codebase" from which it was loaded.
   JSPrincipals *jsprin;
   nsIPrincipal *principal = aPrincipal;
+  nsresult rv;
   if (!aPrincipal) {
     nsIScriptGlobalObject *global = GetGlobalObject();
     if (!global)
@@ -1277,7 +1266,7 @@ nsJSContext::EvaluateStringWithValue(const nsAString& aScript,
     JSAutoRequest ar(mContext);
 
     JSAutoEnterCompartment ac;
-    if (!ac.enter(mContext, (JSObject *)aScopeObject)) {
+    if (!ac.enter(mContext, aScopeObject)) {
       JSPRINCIPALS_DROP(mContext, jsprin);
       stack->Pop(nsnull);
       return NS_ERROR_FAILURE;
@@ -1286,9 +1275,9 @@ nsJSContext::EvaluateStringWithValue(const nsAString& aScript,
     ++mExecuteDepth;
 
     ok = ::JS_EvaluateUCScriptForPrincipalsVersion(mContext,
-                                                   (JSObject *)aScopeObject,
+                                                   aScopeObject,
                                                    jsprin,
-                                                   (jschar*)PromiseFlatString(aScript).get(),
+                                                   static_cast<const jschar*>(PromiseFlatString(aScript).get()),
                                                    aScript.Length(),
                                                    aURL,
                                                    aLineNo,
@@ -1315,7 +1304,7 @@ nsJSContext::EvaluateStringWithValue(const nsAString& aScript,
       *aIsUndefined = JSVAL_IS_VOID(val);
     }
 
-    *static_cast<jsval*>(aRetValue) = val;
+    *aRetValue = val;
     // XXX - nsScriptObjectHolder should be used once this method moves to
     // the new world order. However, use of 'jsval' appears to make this
     // tricky...
@@ -1545,7 +1534,6 @@ nsJSContext::EvaluateString(const nsAString& aScript,
 nsresult
 nsJSContext::CompileScript(const PRUnichar* aText,
                            PRInt32 aTextLength,
-                           void *aScopeObject,
                            nsIPrincipal *aPrincipal,
                            const char *aURL,
                            PRUint32 aLineNo,
@@ -1554,11 +1542,9 @@ nsJSContext::CompileScript(const PRUnichar* aText,
 {
   NS_ENSURE_TRUE(mIsInitialized, NS_ERROR_NOT_INITIALIZED);
 
-  nsresult rv;
   NS_ENSURE_ARG_POINTER(aPrincipal);
 
-  if (!aScopeObject)
-    aScopeObject = ::JS_GetGlobalObject(mContext);
+  JSObject* scopeObject = ::JS_GetGlobalObject(mContext);
 
   JSPrincipals *jsprin;
   aPrincipal->GetJSPrincipals(mContext, &jsprin);
@@ -1566,7 +1552,7 @@ nsJSContext::CompileScript(const PRUnichar* aText,
 
   bool ok = false;
 
-  rv = sSecurityManager->CanExecuteScripts(mContext, aPrincipal, &ok);
+  nsresult rv = sSecurityManager->CanExecuteScripts(mContext, aPrincipal, &ok);
   if (NS_FAILED(rv)) {
     JSPRINCIPALS_DROP(mContext, jsprin);
     return NS_ERROR_FAILURE;
@@ -1582,9 +1568,9 @@ nsJSContext::CompileScript(const PRUnichar* aText,
 
     JSScript* script =
         ::JS_CompileUCScriptForPrincipalsVersion(mContext,
-                                                 (JSObject *)aScopeObject,
+                                                 scopeObject,
                                                  jsprin,
-                                                 (jschar*) aText,
+                                                 static_cast<const jschar*>(aText),
                                                  aTextLength,
                                                  aURL,
                                                  aLineNo,
@@ -3512,15 +3498,11 @@ NS_INTERFACE_MAP_END
 NS_IMPL_ADDREF(nsJSRuntime)
 NS_IMPL_RELEASE(nsJSRuntime)
 
-nsresult
-nsJSRuntime::CreateContext(nsIScriptContext **aContext)
+already_AddRefed<nsIScriptContext>
+nsJSRuntime::CreateContext()
 {
-  nsCOMPtr<nsIScriptContext> scriptContext;
-
-  *aContext = new nsJSContext(sRuntime);
-  NS_ENSURE_TRUE(*aContext, NS_ERROR_OUT_OF_MEMORY);
-  NS_ADDREF(*aContext);
-  return NS_OK;
+  nsCOMPtr<nsIScriptContext> scriptContext = new nsJSContext(sRuntime);
+  return scriptContext.forget();
 }
 
 nsresult

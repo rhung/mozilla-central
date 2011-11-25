@@ -96,7 +96,7 @@
 #include "nsReadableUtils.h"
 #include "nsXPIDLString.h"
 #include "nsAutoJSValHolder.h"
-#include "mozilla/AutoRestore.h"
+#include "mozilla/GuardObjects.h"
 #include "mozilla/ReentrantMonitor.h"
 #include "mozilla/Mutex.h"
 #include "nsDataHashtable.h"
@@ -595,6 +595,8 @@ public:
       return gReportAllJSExceptions > 0;
     }
 
+    static void CheckForDebugMode(JSRuntime *rt);
+
 protected:
     nsXPConnect();
 
@@ -624,7 +626,6 @@ private:
     static PRUint32 gReportAllJSExceptions;
     static JSBool gDebugMode;
     static JSBool gDesiredDebugMode;
-    static inline void CheckForDebugMode(JSRuntime *rt);
 
 public:
     static nsIScriptSecurityManager *gScriptSecurityManager;
@@ -1685,9 +1686,6 @@ private:
 
     JSBool mNewDOMBindingsEnabled;
 };
-
-JSObject* xpc_CloneJSFunction(XPCCallContext &ccx, JSObject *funobj,
-                              JSObject *parent);
 
 /***************************************************************************/
 // XPCNativeMember represents a single idl declared method, attribute or

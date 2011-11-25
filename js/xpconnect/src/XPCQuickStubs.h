@@ -71,7 +71,6 @@ struct xpc_qsHashEntry {
     nsID iid;
     const xpc_qsPropertySpec *properties;
     const xpc_qsFunctionSpec *functions;
-    const xpc_qsTraceableSpec *traceables;
     // These last two fields index to other entries in the same table.
     // XPC_QS_NULL_ENTRY indicates there are no more entries in the chain.
     size_t parentInterface;
@@ -467,7 +466,7 @@ JSBool
 xpc_qsJsvalToCharStr(JSContext *cx, jsval v, JSAutoByteString *bytes);
 
 JSBool
-xpc_qsJsvalToWcharStr(JSContext *cx, jsval v, jsval *pval, PRUnichar **pstr);
+xpc_qsJsvalToWcharStr(JSContext *cx, jsval v, jsval *pval, const PRUnichar **pstr);
 
 
 /** Convert an nsString to jsval, returning JS_TRUE on success.
