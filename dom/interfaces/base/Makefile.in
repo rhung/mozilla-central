@@ -89,6 +89,7 @@ XPIDLSRCS =					\
 	nsIDOMPerformanceTiming.idl		\
 	nsIDOMPerformanceNavigation.idl		\
 	nsIDOMMouseLockable.idl \
+	nsIDOMMouseLockableCallback.idl \
 	$(NULL)
 
 include $(topsrcdir)/config/rules.mk

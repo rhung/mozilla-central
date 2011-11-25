@@ -40,6 +40,7 @@
 #define nsDOMMouseLockable_h___
 
 #include "nsIDOMMouseLockable.h"
+#include "nsIDOMMouseLockableCallback.h"
 #include "nsWeakPtr.h"
 #include "nsINode.h"
 
@@ -63,4 +64,8 @@ protected:
 };
 static void DispatchMouseLockLost(nsINode*);
 
+
+
 #endif /* nsDOMMouseLockable_h___ */
+
+

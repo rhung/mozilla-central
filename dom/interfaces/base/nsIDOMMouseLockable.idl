@@ -39,7 +39,6 @@
 #include "domstubs.idl"
 
 interface nsIDOMMouseLockableCallback;
-interface nsIDOMMouseLockableErrorCallback;
 
 [scriptable, uuid(12c0cd86-7cd6-4355-8e0a-6b42486f2b32)]
 interface nsIDOMMouseLockable : nsISupports
@@ -47,8 +46,7 @@ interface nsIDOMMouseLockable : nsISupports
    // TODO:
    // void lock (in Element target, optional in VoidCallback successCallback, optional in VoidCallback failureCallback);
    void lock(in nsIDOMElement target,
-             [optional] in nsIDOMMouseLockableCallback successCallback,
-             [optional] in nsIDOMMouseLockableErrorCallback errorCallback);
+             [optional] in nsIDOMMouseLockableCallback successCallback);
 
    void unlock();
    boolean islocked();

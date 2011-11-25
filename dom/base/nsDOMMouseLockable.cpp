@@ -49,6 +49,7 @@
 #include "nsIInterfaceRequestorUtils.h"
 
 
+
 DOMCI_DATA(MouseLockable, nsDOMMouseLockable)
 
 NS_INTERFACE_MAP_BEGIN(nsDOMMouseLockable)
@@ -59,6 +60,36 @@ NS_INTERFACE_MAP_END
 
 NS_IMPL_ADDREF(nsDOMMouseLockable)
 NS_IMPL_RELEASE(nsDOMMouseLockable)
+
+
+class RequestSendCallback : public nsRunnable
+{
+public:
+  // a bit funky.  if locator is passed, that means this
+  // event should remove the request from it.  If we ever
+  // have to do more, then we can change this around.
+  RequestSendCallback(nsIDOMMouseLockableCallback* aCallback)
+    : mCallback(aCallback)
+  {
+    printf("\nRequestSendCallback::RequestSenCallback\n");
+  }
+ 
+  NS_IMETHOD Run() {
+    printf("\nRequestSendCallback::Run\n");
+    mCallback->HandleEvent();
+    return NS_OK;
+  }
+
+  ~RequestSendCallback()
+  {
+    printf("\nRequestSendCallback::~RequestSenCallback\n");
+  }
+     
+private:
+  nsCOMPtr<nsIDOMMouseLockableCallback> mCallback;
+};
+
+
 
 nsDOMMouseLockable::nsDOMMouseLockable() :
   mIsLocked(PR_FALSE)
@@ -123,11 +154,16 @@ nsDOMMouseLockable::Init(nsIDOMWindow* aContentWindow)
   return NS_OK;
 }
 
+// Change callback and errorCallback to aCallback and aErrorCallback
 NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
-  nsIDOMMouseLockableCallback* callback,
-  nsIDOMMouseLockableErrorCallback* errorCallback)
+  nsIDOMMouseLockableCallback* callback)
 {
   
+  printf("\nDispatching callback to main thread\n");
+  nsCOMPtr<nsIRunnable> ev = new RequestSendCallback(callback);
+  NS_DispatchToMainThread(ev);
+  printf("\nRequest dispatched\n");
+
   nsCOMPtr<nsIDOMDocument> domDoc;
   mWindow->GetDocument(getter_AddRefs(domDoc));
   NS_ENSURE_ARG_POINTER(domDoc);
@@ -162,8 +198,10 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
                                                 nsnull, false, 0.0f, 
                                                 0.0f, widget, true);
   }
+  printf("\nReturning from lock\n");
   return NS_OK;
 }
+
 
 static void
 DispatchMouseLockLost(nsINode* aTarget)
@@ -175,4 +213,5 @@ DispatchMouseLockLost(nsINode* aTarget)
                       false);
     e->PostDOMEvent();
 }
+
 
