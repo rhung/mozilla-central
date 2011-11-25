@@ -40,9 +40,27 @@
 #define nsDOMMouseLockable_h___
 
 #include "nsIDOMMouseLockable.h"
-#include "nsIDOMMouseLockableCallback.h"
+#include "nsIDOMMouseLockableSuccessCallback.h"
+#include "nsIDOMMouseLockableFailureCallback.h"
 #include "nsWeakPtr.h"
 #include "nsINode.h"
+#include "nsAutoPtr.h"
+#include "nsCOMPtr.h"
+
+
+
+class nsDOMMouseLockableRequest
+{
+public:
+  nsDOMMouseLockableRequest(nsIDOMMouseLockableSuccessCallback* aSuccessCallback, nsIDOMMouseLockableFailureCallback* aFailureCallback);
+  void SendSuccess();
+  void SendFailure();
+private:
+  ~nsDOMMouseLockableRequest();
+  nsCOMPtr<nsIDOMMouseLockableSuccessCallback> mSuccessCallback;
+  nsCOMPtr<nsIDOMMouseLockableFailureCallback> mFailureCallback;
+};
+
 
 class nsDOMMouseLockable : public nsIDOMMouseLockable
 {
@@ -55,6 +73,8 @@ public:
 
 private:
   ~nsDOMMouseLockable();
+  bool ShouldLock(nsIDOMElement*);
+
   bool mIsLocked;
   nsCOMPtr<nsIDOMWindow> mWindow;
   nsIDOMElement* mTarget;
@@ -62,7 +82,6 @@ private:
 protected:
   /* additional members */
 };
-static void DispatchMouseLockLost(nsINode*);
 
 
 

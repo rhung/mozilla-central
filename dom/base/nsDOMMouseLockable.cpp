@@ -62,32 +62,86 @@ NS_IMPL_ADDREF(nsDOMMouseLockable)
 NS_IMPL_RELEASE(nsDOMMouseLockable)
 
 
-class RequestSendCallback : public nsRunnable
+
+static void
+DispatchMouseLockLost(nsINode* aTarget)
+{
+    nsRefPtr<nsPLDOMEvent> e = 
+      new nsPLDOMEvent(aTarget,
+                      NS_LITERAL_STRING("mouselocklost"), 
+                      true, 
+                      false);
+    e->PostDOMEvent();
+}
+
+
+class RequestMouseLockEvent : public nsRunnable
 {
 public:
-  // a bit funky.  if locator is passed, that means this
-  // event should remove the request from it.  If we ever
-  // have to do more, then we can change this around.
-  RequestSendCallback(nsIDOMMouseLockableCallback* aCallback)
-    : mCallback(aCallback)
+  RequestMouseLockEvent(bool aAllow, nsDOMMouseLockableRequest* aRequest)
+    : mAllow(aAllow),
+      mRequest(aRequest)
   {
-    printf("\nRequestSendCallback::RequestSenCallback\n");
+    printf("\nRequestMouseLockEvent::RequestMouseLockEvent\n");
   }
- 
+
   NS_IMETHOD Run() {
-    printf("\nRequestSendCallback::Run\n");
-    mCallback->HandleEvent();
+    printf("\nRequestAllowMouseLockEvent::Run\n");
+    if (mAllow) {
+      mRequest->SendSuccess();
+    }
+    else {
+      mRequest->SendFailure();
+    }
     return NS_OK;
   }
 
-  ~RequestSendCallback()
+  ~RequestMouseLockEvent()
   {
-    printf("\nRequestSendCallback::~RequestSenCallback\n");
+    printf("\nRequestMouseLockEvent::~RequestMouseLockEvent\n");
   }
-     
 private:
-  nsCOMPtr<nsIDOMMouseLockableCallback> mCallback;
+  nsDOMMouseLockableRequest* mRequest;
+  bool mAllow;
+
 };
+
+
+
+nsDOMMouseLockableRequest::nsDOMMouseLockableRequest(
+    nsIDOMMouseLockableSuccessCallback* aSuccessCallback,
+    nsIDOMMouseLockableFailureCallback* aFailureCallback)
+    : mSuccessCallback(aSuccessCallback),
+      mFailureCallback(aFailureCallback)
+{
+  printf("\nnsDOMMouseLockableRequest::nsDOMMouseLockableRequest\n");
+}
+
+nsDOMMouseLockableRequest::~nsDOMMouseLockableRequest()
+{
+  printf("\nnsDOMMouseLockableRequest::~nsDOMMouseLockableRequest\n");
+}
+
+
+void
+nsDOMMouseLockableRequest::SendSuccess()
+{
+  printf("\nnsDOMMouseLockableRequest::SendSuccess\n");
+  if (mSuccessCallback) {
+    printf("\ndispatching success callback\n");
+    mSuccessCallback->HandleEvent();
+  }
+}
+
+void
+nsDOMMouseLockableRequest::SendFailure()
+{
+  printf("\nnsDOMMouseLockableRequest::SendFailure\n");
+  if (mFailureCallback) {
+    printf("\ndispatching failure callback\n");
+    mFailureCallback->HandleEvent();
+  }
+}
 
 
 
@@ -154,25 +208,37 @@ nsDOMMouseLockable::Init(nsIDOMWindow* aContentWindow)
   return NS_OK;
 }
 
-// Change callback and errorCallback to aCallback and aErrorCallback
-NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
-  nsIDOMMouseLockableCallback* callback)
+bool
+nsDOMMouseLockable::ShouldLock(nsIDOMElement* aTarget)
 {
-  
-  printf("\nDispatching callback to main thread\n");
-  nsCOMPtr<nsIRunnable> ev = new RequestSendCallback(callback);
-  NS_DispatchToMainThread(ev);
-  printf("\nRequest dispatched\n");
-
   nsCOMPtr<nsIDOMDocument> domDoc;
   mWindow->GetDocument(getter_AddRefs(domDoc));
   NS_ENSURE_ARG_POINTER(domDoc);
 
   nsCOMPtr<nsIDOMHTMLElement> lockedElement;
   domDoc->GetMozFullScreenElement(getter_AddRefs(lockedElement));
-
-
+  
   if (lockedElement == aTarget)
+  {
+    // Check if element is in the DOM tree
+    // Check if element is in focus
+    // Check if MouseLock preference is set to true
+    return true;
+  }
+
+  return false;
+}
+
+
+NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
+  nsIDOMMouseLockableSuccessCallback* aSuccessCallback,
+  nsIDOMMouseLockableFailureCallback* aFailureCallback)
+{
+  
+  nsDOMMouseLockableRequest* request = new nsDOMMouseLockableRequest(aSuccessCallback, aFailureCallback);
+  nsCOMPtr<nsIRunnable> ev;
+
+  if (ShouldLock(aTarget))
   {
     mIsLocked = PR_TRUE;
     mTarget = aTarget;
@@ -197,21 +263,22 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
     presContext->EventStateManager()->SetCursor(NS_STYLE_CURSOR_NONE, 
                                                 nsnull, false, 0.0f, 
                                                 0.0f, widget, true);
+    printf("\nDispatching success callback to main thread\n");
+    ev = new RequestMouseLockEvent(true, request);
+    printf("\nSuccess request dispatched\n");
   }
+  else
+  {
+    printf("\nDispatching failure callback to main thread\n");
+    ev = new RequestMouseLockEvent(false, request);
+    printf("\nFailure request dispatched\n");
+
+  }
+  NS_DispatchToMainThread(ev);
+
   printf("\nReturning from lock\n");
   return NS_OK;
 }
 
-
-static void
-DispatchMouseLockLost(nsINode* aTarget)
-{
-    nsRefPtr<nsPLDOMEvent> e = 
-      new nsPLDOMEvent(aTarget,
-                      NS_LITERAL_STRING("mouselocklost"), 
-                      true, 
-                      false);
-    e->PostDOMEvent();
-}
 
 
