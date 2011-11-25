@@ -101,7 +101,7 @@ NS_IMETHODIMP nsDOMMouseLockable::Unlock()
                                                 0.0f, widget, true);
                                                 
     mIsLocked = PR_FALSE;                                            
-    presContext->EventStateManager()->mMouseLocked = false;
+    presContext->EventStateManager()->SetMouseLock(false, widget);
   }
   return NS_OK;
 }
@@ -155,11 +155,12 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget)
     nsCOMPtr<nsIWidget> widget = shell->GetRootFrame()->GetNearestWidget();
     if (!widget)
       return NULL;
-        
+
+	// Hide the cursor upon entering mouse lock
     presContext->EventStateManager()->SetCursor(NS_STYLE_CURSOR_NONE, 
                                                 nsnull, false, 0.0f, 
                                                 0.0f, widget, true);
-    presContext->EventStateManager()->mMouseLocked = true;
+    presContext->EventStateManager()->SetMouseLock(true, widget);
   }
   return NS_OK;
 }

@@ -481,6 +481,7 @@ private:
                                   bool aAddState);
 
   PRInt32     mLockCursor;
+  bool mMouseLocked;
 
   nsWeakFrame mCurrentTarget;
   nsCOMPtr<nsIContent> mCurrentTargetContent;
@@ -559,8 +560,8 @@ public:
                               nsGUIEvent* inMouseDownEvent ) ;
   void KillClickHoldTimer ( ) ;
   void FireContextClick ( ) ;
-  static void sClickHoldCallback ( nsITimer* aTimer, void* aESM ) ;
-  bool mMouseLocked;
+  static void sClickHoldCallback ( nsITimer* aTimer, void* aESM );
+  void SetMouseLock( bool locked, nsIWidget* widget );
 };
 
 /**

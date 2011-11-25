@@ -136,7 +136,6 @@ public:
   NS_IMETHOD              GetScreenBounds(nsIntRect &aRect);
   NS_IMETHOD              GetClientBounds(nsIntRect &aRect);
   virtual nsIntPoint      GetClientOffset();
-  nsIntPoint              GetMouseMovement();
   NS_IMETHOD              SetBackgroundColor(const nscolor &aColor);
   NS_IMETHOD              SetCursor(imgIContainer* aCursor,
                                     PRUint32 aHotspotX, PRUint32 aHotspotY);
@@ -540,8 +539,6 @@ protected:
   nsSizeMode            mOldSizeMode;
   WindowHook            mWindowHook;
   DWORD                 mAssumeWheelIsZoomUntil;
-  nsIntPoint            mMousePos;
-  nsIntPoint            mMovement;
   static bool           sDropShadowEnabled;
   static PRUint32       sInstanceCount;
   static TriStateBool   sCanQuit;

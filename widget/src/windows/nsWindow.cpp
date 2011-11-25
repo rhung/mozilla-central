@@ -9148,12 +9148,6 @@ LPARAM nsWindow::lParamToClient(LPARAM lParam)
   return MAKELPARAM(pt.x, pt.y);
 }
 
-nsIntPoint              
-nsWindow::GetMouseMovement()
-{
-  return mMovement;
-}
-
 /**************************************************************
  **************************************************************
  **
