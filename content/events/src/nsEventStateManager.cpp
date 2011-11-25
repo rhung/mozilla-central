@@ -4017,7 +4017,7 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
   EnsureDocument(mPresContext);
   if (!mDocument)
     return;
-  
+
   // Hold onto old target content through the event and reset after.
   nsCOMPtr<nsIContent> targetBeforeEvent = mCurrentTargetContent;
 
@@ -4029,16 +4029,20 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
         nsIntRect bounds;
         aEvent->widget->GetScreenBounds(bounds);
         aEvent->lastRefPoint = nsIntPoint(bounds.width/2, bounds.height/2);
-        // refPoint should not be the center on mousemove
+
+        // refPoint should not be the centre on mousemove
         if (aEvent->refPoint.x == aEvent->lastRefPoint.x && aEvent->refPoint.y == aEvent->lastRefPoint.y) {
-           aEvent->refPoint = sLastRefPoint;
+          aEvent->refPoint = sLastRefPoint;
+        } else {
+          aEvent->widget->SynthesizeNativeMouseMove(aEvent->lastRefPoint);
         }
-        aEvent->widget->SynthesizeNativeMouseMove(aEvent->lastRefPoint);
       } else {
         aEvent->lastRefPoint = nsIntPoint(sLastRefPoint.x, sLastRefPoint.y);
       }
+
       // Update the last known refPoint with the current refPoint.
       sLastRefPoint = nsIntPoint(aEvent->refPoint.x, aEvent->refPoint.y);
+
       // Get the target content target (mousemove target == mouseover target)
       nsCOMPtr<nsIContent> targetElement = GetEventTargetContent(aEvent);
       if (!targetElement) {
@@ -4075,9 +4079,10 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
 }
 
 void
-nsEventStateManager::SetMouseLock(bool locked, 
+nsEventStateManager::SetMouseLock(bool locked,
                                   nsIWidget* widget)
 {
+  // TODO: should do error checks, return nsresult...
   mMouseLocked = locked;
   if (widget && mMouseLocked) {
     // Set the initial mouse lock movement (before the first mouse move event), to 0,0

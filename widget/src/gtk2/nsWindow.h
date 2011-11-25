@@ -351,6 +351,10 @@ public:
     virtual nsresult SynthesizeNativeMouseEvent(nsIntPoint aPoint,
                                                 PRUint32 aNativeMessage,
                                                 PRUint32 aModifierFlags);
+
+    virtual nsresult SynthesizeNativeMouseMove(nsIntPoint aPoint)
+    { SynthesizeNativeMouseEvent(aPoint, GDK_MOTION_NOTIFY, 0); }
+
 protected:
     // Helper for SetParent and ReparentNativeWidget.
     void ReparentNativeWidgetInternal(nsIWidget* aNewParent,
