@@ -52,6 +52,9 @@
 class nsDOMMouseLockableRequest
 {
 public:
+
+  NS_DECL_ISUPPORTS
+
   nsDOMMouseLockableRequest(nsIDOMMouseLockableSuccessCallback* aSuccessCallback, nsIDOMMouseLockableFailureCallback* aFailureCallback);
   void SendSuccess();
   void SendFailure();
@@ -70,7 +73,6 @@ public:
 
   nsDOMMouseLockable();
   nsresult Init(nsIDOMWindow*);
-
 private:
   ~nsDOMMouseLockable();
   bool ShouldLock(nsIDOMElement*);

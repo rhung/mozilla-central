@@ -63,6 +63,7 @@ NS_IMPL_RELEASE(nsDOMMouseLockable)
 
 
 
+
 static void
 DispatchMouseLockLost(nsINode* aTarget)
 {
@@ -78,6 +79,8 @@ DispatchMouseLockLost(nsINode* aTarget)
 class RequestMouseLockEvent : public nsRunnable
 {
 public:
+
+
   RequestMouseLockEvent(bool aAllow, nsDOMMouseLockableRequest* aRequest)
     : mAllow(aAllow),
       mRequest(aRequest)
@@ -101,7 +104,7 @@ public:
     printf("\nRequestMouseLockEvent::~RequestMouseLockEvent\n");
   }
 private:
-  nsDOMMouseLockableRequest* mRequest;
+  nsRefPtr<nsDOMMouseLockableRequest> mRequest;
   bool mAllow;
 
 };
@@ -122,6 +125,9 @@ nsDOMMouseLockableRequest::~nsDOMMouseLockableRequest()
   printf("\nnsDOMMouseLockableRequest::~nsDOMMouseLockableRequest\n");
 }
 
+
+NS_IMPL_ADDREF(nsDOMMouseLockableRequest)
+NS_IMPL_RELEASE(nsDOMMouseLockableRequest)
 
 void
 nsDOMMouseLockableRequest::SendSuccess()
@@ -235,7 +241,7 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
   nsIDOMMouseLockableFailureCallback* aFailureCallback)
 {
   
-  nsDOMMouseLockableRequest* request = new nsDOMMouseLockableRequest(aSuccessCallback, aFailureCallback);
+  nsRefPtr<nsDOMMouseLockableRequest> request = new nsDOMMouseLockableRequest(aSuccessCallback, aFailureCallback);
   nsCOMPtr<nsIRunnable> ev;
 
   if (ShouldLock(aTarget))
