@@ -140,10 +140,6 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/LookAndFeel.h"
 
-#ifdef MOZ_WIDGET_GTK2
-#include <gdk/gdk.h>
-#endif
-
 #ifdef XP_MACOSX
 #import <ApplicationServices/ApplicationServices.h>
 #endif
@@ -4028,32 +4024,23 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
   switch(aEvent->message) {
   case NS_MOUSE_MOVE:
     {
-      // Get the target content target (mousemove target == mouseover target)
-      nsCOMPtr<nsIContent> targetElement = GetEventTargetContent(aEvent);
-      // Remember the previous event's refPoint so we can calculate movement deltas.
-      
-      PRUint32 nativeMessage = 0;
       if (mMouseLocked && aEvent->widget) {
+        // Perform mouse lock by recentering the mouse directly, then remembering the deltas.
         nsIntRect bounds;
         aEvent->widget->GetScreenBounds(bounds);
         aEvent->lastRefPoint = nsIntPoint(bounds.width/2, bounds.height/2);
         // refPoint should not be the center on mousemove
         if (aEvent->refPoint.x == aEvent->lastRefPoint.x && aEvent->refPoint.y == aEvent->lastRefPoint.y) {
-          aEvent->refPoint = sLastRefPoint;
+           aEvent->refPoint = sLastRefPoint;
         }
-#if defined(XP_WIN)
-        nativeMessage = MOUSEEVENTF_MOVE;
-#elif defined(XP_MACOSX)
-        nativeMessage = NSMouseMoved;
-#elif defined(MOZ_WIDGET_GTK2)
-        nativeMessage = GDK_MOTION_NOTIFY;
-#endif
-      }
-      if (nativeMessage) {
-        aEvent->widget->SynthesizeNativeMouseEvent(aEvent->lastRefPoint, nativeMessage, 0);
+        aEvent->widget->SynthesizeNativeMouseMove(aEvent->lastRefPoint);
       } else {
         aEvent->lastRefPoint = nsIntPoint(sLastRefPoint.x, sLastRefPoint.y);
       }
+      // Update the last known refPoint with the current refPoint.
+      sLastRefPoint = nsIntPoint(aEvent->refPoint.x, aEvent->refPoint.y);
+      // Get the target content target (mousemove target == mouseover target)
+      nsCOMPtr<nsIContent> targetElement = GetEventTargetContent(aEvent);
       if (!targetElement) {
         // We're always over the document root, even if we're only
         // over dead space in a page (whose frame is not associated with
@@ -4063,8 +4050,6 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
       if (targetElement) {
         NotifyMouseOver(aEvent, targetElement);
       }
-      // Update the last known refPoint with the current refPoint.
-      sLastRefPoint = nsIntPoint(aEvent->refPoint.x, aEvent->refPoint.y);
       break;
     }
   case NS_MOUSE_EXIT:
@@ -4087,6 +4072,20 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
 
   // reset mCurretTargetContent to what it was
   mCurrentTargetContent = targetBeforeEvent;
+}
+
+void
+nsEventStateManager::SetMouseLock(bool locked, 
+                                  nsIWidget* widget)
+{
+  mMouseLocked = locked;
+  if (widget && mMouseLocked) {
+    // Set the initial mouse lock movement (before the first mouse move event), to 0,0
+    nsIntRect bounds;
+    widget->GetScreenBounds(bounds);
+    sLastRefPoint = nsIntPoint(bounds.width/2, bounds.height/2);
+    widget->SynthesizeNativeMouseMove(sLastRefPoint);
+  }
 }
 
 void

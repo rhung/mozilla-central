@@ -56,6 +56,10 @@
 #include "nsIGfxInfo.h"
 #include "npapi.h"
 
+#ifdef MOZ_WIDGET_GTK2
+#include <gdk/gdk.h>
+#endif
+
 #ifdef DEBUG
 #include "nsIObserver.h"
 
@@ -1184,6 +1188,22 @@ nsBaseWidget::GetIMEEnabled(PRUint32* aState)
   NS_ENSURE_SUCCESS(rv, rv);
 
   *aState = context.mStatus;
+  return NS_OK;
+}
+
+nsresult 
+nsBaseWidget::SynthesizeNativeMouseMove(nsIntPoint aPoint) {
+  PRUint32 nativeMessage = 0;
+#if defined(XP_WIN)
+  nativeMessage = MOUSEEVENTF_MOVE;
+#elif defined(XP_MACOSX)
+  nativeMessage = NSMouseMoved;
+#elif defined(MOZ_WIDGET_GTK2)
+  nativeMessage = GDK_MOTION_NOTIFY;
+#endif
+  if (nativeMessage) {
+    SynthesizeNativeMouseEvent(aPoint, nativeMessage, 0);
+  }
   return NS_OK;
 }
  
