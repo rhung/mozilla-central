@@ -353,7 +353,7 @@ public:
                                                 PRUint32 aModifierFlags);
 
     virtual nsresult SynthesizeNativeMouseMove(nsIntPoint aPoint)
-    { SynthesizeNativeMouseEvent(aPoint, GDK_MOTION_NOTIFY, 0); }
+    { return SynthesizeNativeMouseEvent(aPoint, GDK_MOTION_NOTIFY, 0); }
 
 protected:
     // Helper for SetParent and ReparentNativeWidget.
