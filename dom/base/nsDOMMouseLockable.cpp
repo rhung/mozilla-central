@@ -48,8 +48,6 @@
 #include "nsPLDOMEvent.h"
 #include "nsIInterfaceRequestorUtils.h"
 
-
-
 DOMCI_DATA(MouseLockable, nsDOMMouseLockable)
 
 NS_INTERFACE_MAP_BEGIN(nsDOMMouseLockable)
@@ -61,95 +59,16 @@ NS_INTERFACE_MAP_END
 NS_IMPL_ADDREF(nsDOMMouseLockable)
 NS_IMPL_RELEASE(nsDOMMouseLockable)
 
-
-
-
 static void
 DispatchMouseLockLost(nsINode* aTarget)
 {
-    nsRefPtr<nsPLDOMEvent> e = 
-      new nsPLDOMEvent(aTarget,
-                      NS_LITERAL_STRING("mouselocklost"), 
-                      true, 
-                      false);
-    e->PostDOMEvent();
+  nsRefPtr<nsPLDOMEvent> e = 
+    new nsPLDOMEvent(aTarget,
+                     NS_LITERAL_STRING("mouselocklost"), 
+                     true, 
+                     false);
+  e->PostDOMEvent();
 }
-
-
-class RequestMouseLockEvent : public nsRunnable
-{
-public:
-
-
-  RequestMouseLockEvent(bool aAllow, nsDOMMouseLockableRequest* aRequest)
-    : mAllow(aAllow),
-      mRequest(aRequest)
-  {
-    printf("\nRequestMouseLockEvent::RequestMouseLockEvent\n");
-  }
-
-  NS_IMETHOD Run() {
-    printf("\nRequestAllowMouseLockEvent::Run\n");
-    if (mAllow) {
-      mRequest->SendSuccess();
-    }
-    else {
-      mRequest->SendFailure();
-    }
-    return NS_OK;
-  }
-
-  ~RequestMouseLockEvent()
-  {
-    printf("\nRequestMouseLockEvent::~RequestMouseLockEvent\n");
-  }
-private:
-  nsRefPtr<nsDOMMouseLockableRequest> mRequest;
-  bool mAllow;
-
-};
-
-
-
-nsDOMMouseLockableRequest::nsDOMMouseLockableRequest(
-    nsIDOMMouseLockableSuccessCallback* aSuccessCallback,
-    nsIDOMMouseLockableFailureCallback* aFailureCallback)
-    : mSuccessCallback(aSuccessCallback),
-      mFailureCallback(aFailureCallback)
-{
-  printf("\nnsDOMMouseLockableRequest::nsDOMMouseLockableRequest\n");
-}
-
-nsDOMMouseLockableRequest::~nsDOMMouseLockableRequest()
-{
-  printf("\nnsDOMMouseLockableRequest::~nsDOMMouseLockableRequest\n");
-}
-
-
-NS_IMPL_ADDREF(nsDOMMouseLockableRequest)
-NS_IMPL_RELEASE(nsDOMMouseLockableRequest)
-
-void
-nsDOMMouseLockableRequest::SendSuccess()
-{
-  printf("\nnsDOMMouseLockableRequest::SendSuccess\n");
-  if (mSuccessCallback) {
-    printf("\ndispatching success callback\n");
-    mSuccessCallback->HandleEvent();
-  }
-}
-
-void
-nsDOMMouseLockableRequest::SendFailure()
-{
-  printf("\nnsDOMMouseLockableRequest::SendFailure\n");
-  if (mFailureCallback) {
-    printf("\ndispatching failure callback\n");
-    mFailureCallback->HandleEvent();
-  }
-}
-
-
 
 nsDOMMouseLockable::nsDOMMouseLockable() :
   mIsLocked(PR_FALSE)
@@ -235,13 +154,13 @@ nsDOMMouseLockable::ShouldLock(nsIDOMElement* aTarget)
   return false;
 }
 
-
 NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
   nsIDOMMouseLockableSuccessCallback* aSuccessCallback,
   nsIDOMMouseLockableFailureCallback* aFailureCallback)
 {
   
-  nsRefPtr<nsDOMMouseLockableRequest> request = new nsDOMMouseLockableRequest(aSuccessCallback, aFailureCallback);
+  nsRefPtr<nsMouseLockableRequest> request =
+    new nsMouseLockableRequest(aSuccessCallback, aFailureCallback);
   nsCOMPtr<nsIRunnable> ev;
 
   if (ShouldLock(aTarget))
@@ -270,13 +189,13 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
                                                 nsnull, false, 0.0f, 
                                                 0.0f, widget, true);
     printf("\nDispatching success callback to main thread\n");
-    ev = new RequestMouseLockEvent(true, request);
+    ev = new nsRequestMouseLockEvent(true, request);
     printf("\nSuccess request dispatched\n");
   }
   else
   {
     printf("\nDispatching failure callback to main thread\n");
-    ev = new RequestMouseLockEvent(false, request);
+    ev = new nsRequestMouseLockEvent(false, request);
     printf("\nFailure request dispatched\n");
 
   }
@@ -286,5 +205,55 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
   return NS_OK;
 }
 
+// nsMouseLockableRequest
+NS_IMPL_THREADSAFE_ISUPPORTS0(nsMouseLockableRequest)
 
+nsMouseLockableRequest::nsMouseLockableRequest(
+  nsIDOMMouseLockableSuccessCallback* aSuccessCallback,
+  nsIDOMMouseLockableFailureCallback* aFailureCallback)
+  : mSuccessCallback(aSuccessCallback),
+    mFailureCallback(aFailureCallback)
+{
+  printf("\nnsMouseLockableRequest::nsMouseLockableRequest\n");
+}
 
+/**
+nsMouseLockableRequest::~nsMouseLockableRequest()
+{
+  printf("\nnsMouseLockableRequest::~nsMouseLockableRequest\n");
+}
+**/
+
+void
+nsMouseLockableRequest::SendSuccess()
+{
+  printf("\nnsMouseLockableRequest::SendSuccess\n");
+  if (mSuccessCallback) {
+    printf("\ndispatching success callback\n");
+    mSuccessCallback->HandleEvent();
+  }
+}
+
+void
+nsMouseLockableRequest::SendFailure()
+{
+  printf("\nnsMouseLockableRequest::SendFailure\n");
+  if (mFailureCallback) {
+    printf("\ndispatching failure callback\n");
+    mFailureCallback->HandleEvent();
+  }
+}
+
+// nsRequestMouseLockEvent
+NS_IMETHODIMP
+nsRequestMouseLockEvent::Run()
+{
+  printf("\nRequestAllowMouseLockEvent::Run\n");
+  if (mAllow) {
+    mRequest->SendSuccess();
+  }
+  else {
+    mRequest->SendFailure();
+  }
+  return NS_OK;
+}

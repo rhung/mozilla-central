@@ -46,27 +46,39 @@
 #include "nsINode.h"
 #include "nsAutoPtr.h"
 #include "nsCOMPtr.h"
+#include "nsThreadUtils.h"
 
-
-
-class nsDOMMouseLockableRequest
-{
+class nsMouseLockableRequest : public nsISupports {
 public:
-
   NS_DECL_ISUPPORTS
 
-  nsDOMMouseLockableRequest(nsIDOMMouseLockableSuccessCallback* aSuccessCallback, nsIDOMMouseLockableFailureCallback* aFailureCallback);
+  nsMouseLockableRequest(nsIDOMMouseLockableSuccessCallback* aSuccessCallback,
+                         nsIDOMMouseLockableFailureCallback* aFailureCallback);
   void SendSuccess();
   void SendFailure();
 private:
-  ~nsDOMMouseLockableRequest();
   nsCOMPtr<nsIDOMMouseLockableSuccessCallback> mSuccessCallback;
   nsCOMPtr<nsIDOMMouseLockableFailureCallback> mFailureCallback;
 };
 
 
-class nsDOMMouseLockable : public nsIDOMMouseLockable
-{
+class nsRequestMouseLockEvent : public nsRunnable {
+public:
+  nsRequestMouseLockEvent(bool aAllow,
+                        nsMouseLockableRequest* aRequest)
+    : mRequest(aRequest),
+      mAllow(aAllow) {
+    printf("\nnsRequestMouseLockEvent::nsRequestMouseLockEvent\n");
+  }
+
+  NS_IMETHOD Run();
+private:
+  nsRefPtr<nsMouseLockableRequest> mRequest;
+  bool mAllow;
+};
+
+
+class nsDOMMouseLockable : public nsIDOMMouseLockable {
 public:
   NS_DECL_ISUPPORTS
   NS_DECL_NSIDOMMOUSELOCKABLE
@@ -85,8 +97,4 @@ protected:
   /* additional members */
 };
 
-
-
 #endif /* nsDOMMouseLockable_h___ */
-
-
