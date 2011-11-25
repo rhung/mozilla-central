@@ -1186,7 +1186,7 @@ nsBaseWidget::GetIMEEnabled(PRUint32* aState)
   *aState = context.mStatus;
   return NS_OK;
 }
- 
+
 #ifdef DEBUG
 //////////////////////////////////////////////////////////////
 //

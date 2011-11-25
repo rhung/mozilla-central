@@ -62,10 +62,10 @@ NS_IMPL_RELEASE(nsDOMMouseLockable)
 static void
 DispatchMouseLockLost(nsINode* aTarget)
 {
-  nsRefPtr<nsPLDOMEvent> e = 
+  nsRefPtr<nsPLDOMEvent> e =
     new nsPLDOMEvent(aTarget,
-                     NS_LITERAL_STRING("mouselocklost"), 
-                     true, 
+                     NS_LITERAL_STRING("mouselocklost"),
+                     true,
                      false);
   e->PostDOMEvent();
 }
@@ -85,15 +85,15 @@ NS_IMETHODIMP nsDOMMouseLockable::Unlock()
   // No point doing this if mIslocked is already false,
   // plus it won't crash this way.
   if (mIsLocked) {
-    
+
     nsCOMPtr<nsINode> node = do_QueryInterface(mTarget);
     DispatchMouseLockLost(node);
-    
+
     // Making the mouse reappear
     nsCOMPtr<nsPIDOMWindow> domWindow( do_QueryInterface( mWindow ) );
     if (!domWindow)
       return NULL;
-        
+
     nsRefPtr<nsPresContext> presContext;
     domWindow->GetDocShell()->GetPresContext(getter_AddRefs(presContext));
     if (!presContext)
@@ -105,12 +105,13 @@ NS_IMETHODIMP nsDOMMouseLockable::Unlock()
     nsCOMPtr<nsIWidget> widget = shell->GetRootFrame()->GetNearestWidget();
     if (!widget)
       return NULL;
-        
-    presContext->EventStateManager()->SetCursor(NS_STYLE_CURSOR_AUTO, 
-                                                nsnull, false, 0.0f, 
+
+    presContext->EventStateManager()->SetCursor(NS_STYLE_CURSOR_AUTO,
+                                                nsnull, false, 0.0f,
                                                 0.0f, widget, true);
-                                                
-    mIsLocked = PR_FALSE;                                            
+
+    mIsLocked = PR_FALSE;
+    presContext->EventStateManager()->SetMouseLock(false, widget);
   }
   return NS_OK;
 }
@@ -129,7 +130,6 @@ nsDOMMouseLockable::Init(nsIDOMWindow* aContentWindow)
   NS_ENSURE_ARG_POINTER(aContentWindow);
   // Hang on to the window so we can check for fullscreen
   mWindow = aContentWindow;
-  mWindow = aContentWindow;
   return NS_OK;
 }
 
@@ -142,7 +142,7 @@ nsDOMMouseLockable::ShouldLock(nsIDOMElement* aTarget)
 
   nsCOMPtr<nsIDOMHTMLElement> lockedElement;
   domDoc->GetMozFullScreenElement(getter_AddRefs(lockedElement));
-  
+
   if (lockedElement == aTarget)
   {
     // Check if element is in the DOM tree
@@ -158,20 +158,20 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
   nsIDOMMouseLockableSuccessCallback* aSuccessCallback,
   nsIDOMMouseLockableFailureCallback* aFailureCallback)
 {
-  
+
   nsRefPtr<nsMouseLockableRequest> request =
     new nsMouseLockableRequest(aSuccessCallback, aFailureCallback);
   nsCOMPtr<nsIRunnable> ev;
 
-  if (ShouldLock(aTarget))
-  {
+  // TODO: what can we move off the main thread?
+  if (ShouldLock(aTarget)) {
     mIsLocked = PR_TRUE;
     mTarget = aTarget;
 
     nsCOMPtr<nsPIDOMWindow> domWindow( do_QueryInterface( mWindow ) );
     if (!domWindow)
       return NULL;
-        
+
     nsRefPtr<nsPresContext> presContext;
     domWindow->GetDocShell()->GetPresContext(getter_AddRefs(presContext));
     if (!presContext)
@@ -184,16 +184,18 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
     nsCOMPtr<nsIWidget> widget = shell->GetRootFrame()->GetNearestWidget();
     if (!widget)
       return NULL;
-        
-    presContext->EventStateManager()->SetCursor(NS_STYLE_CURSOR_NONE, 
-                                                nsnull, false, 0.0f, 
+
+	  // Hide the cursor upon entering mouse lock
+    presContext->EventStateManager()->SetCursor(NS_STYLE_CURSOR_NONE,
+                                                nsnull, false, 0.0f,
                                                 0.0f, widget, true);
+
+    presContext->EventStateManager()->SetMouseLock(true, widget);
+
     printf("\nDispatching success callback to main thread\n");
     ev = new nsRequestMouseLockEvent(true, request);
     printf("\nSuccess request dispatched\n");
-  }
-  else
-  {
+  } else {
     printf("\nDispatching failure callback to main thread\n");
     ev = new nsRequestMouseLockEvent(false, request);
     printf("\nFailure request dispatched\n");
@@ -216,13 +218,6 @@ nsMouseLockableRequest::nsMouseLockableRequest(
 {
   printf("\nnsMouseLockableRequest::nsMouseLockableRequest\n");
 }
-
-/**
-nsMouseLockableRequest::~nsMouseLockableRequest()
-{
-  printf("\nnsMouseLockableRequest::~nsMouseLockableRequest\n");
-}
-**/
 
 void
 nsMouseLockableRequest::SendSuccess()

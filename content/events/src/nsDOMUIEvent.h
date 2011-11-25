@@ -87,6 +87,7 @@ protected:
   // Screenpoint is mEvent->refPoint.
   nsIntPoint mLayerPoint;
   nsIntPoint mPagePoint;
+  nsIntPoint mMovement;
 };
 
 #define NS_FORWARD_TO_NSDOMUIEVENT \
