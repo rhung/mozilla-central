@@ -153,6 +153,8 @@
 
 #include "xpcpublic.h"
 
+#include "Navigator.h"
+
 using namespace mozilla;
 using namespace mozilla::dom;
 
@@ -520,6 +522,40 @@ nsINode::GetOwnerDocument(nsIDOMDocument** aOwnerDocument)
 nsresult
 nsINode::RemoveChild(nsINode *aOldChild)
 {
+  //printf("\nnsINode::RemoveChild()\n");
+
+  nsCOMPtr<nsIDOMNode> node = do_QueryInterface(aOldChild);
+  if (node) {
+    nsCOMPtr<nsIDOMDocument> domDoc;
+    node->GetOwnerDocument(getter_AddRefs(domDoc));
+    if (domDoc) {
+      nsCOMPtr<nsIDOMHTMLElement> lockedElement;
+      domDoc->GetMozFullScreenElement(getter_AddRefs(lockedElement));
+
+      nsCOMPtr<nsIDOMNode> lockedNode = do_QueryInterface(lockedElement);
+      // If the element being removed is the same element with the mouse locked
+      // Then unlock the element
+      if (node == lockedNode) {
+        // Get Window
+        nsCOMPtr<nsIDOMWindow> window;
+        domDoc->GetDefaultView(getter_AddRefs(window));
+        //Get Navigator
+        nsCOMPtr<nsIDOMNavigator> navigator;
+        window->GetNavigator(getter_AddRefs(navigator));
+        if (navigator) {
+          // Get Pointer
+          nsCOMPtr<nsIDOMMouseLockable> pointer;
+          navigator->GetPointer(getter_AddRefs(pointer));
+          if (pointer) {
+            // Unlock the mouse
+            pointer->Unlock();
+          }
+        }
+      }
+    }
+  }
+  
+
   if (!aOldChild) {
     return NS_ERROR_NULL_POINTER;
   }
@@ -3641,6 +3677,7 @@ nsINode::doInsertChildAt(nsIContent* aKid, PRUint32 aIndex,
 nsresult
 nsGenericElement::RemoveChildAt(PRUint32 aIndex, bool aNotify)
 {
+  //printf("\nnsGenericElement::RemoveChildAT()\n");
   nsCOMPtr<nsIContent> oldKid = mAttrsAndChildren.GetSafeChildAt(aIndex);
   NS_ASSERTION(oldKid == GetChildAt(aIndex), "Unexpected child in RemoveChildAt");
 
@@ -3655,6 +3692,7 @@ nsresult
 nsINode::doRemoveChildAt(PRUint32 aIndex, bool aNotify,
                          nsIContent* aKid, nsAttrAndChildArray& aChildArray)
 {
+  //printf("\nnsGenericElement::doRemoveChildAT()\n");
   NS_PRECONDITION(aKid && aKid->GetNodeParent() == this &&
                   aKid == GetChildAt(aIndex) &&
                   IndexOf(aKid) == (PRInt32)aIndex, "Bogus aKid");
