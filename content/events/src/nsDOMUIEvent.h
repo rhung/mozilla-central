@@ -88,6 +88,10 @@ protected:
   nsIntPoint mLayerPoint;
   nsIntPoint mPagePoint;
   nsIntPoint mMovement;
+
+private:
+  bool IsMouseLocked();
+  nsIntPoint ScreenPointInternal();
 };
 
 #define NS_FORWARD_TO_NSDOMUIEVENT \

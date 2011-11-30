@@ -51,6 +51,8 @@
 #include "nsIFrame.h"
 #include "nsLayoutUtils.h"
 #include "nsIScrollableFrame.h"
+#include "nsIDOMMouseLockable.h"
+#include "nsIDOMNavigator.h"
 
 nsDOMUIEvent::nsDOMUIEvent(nsPresContext* aPresContext, nsGUIEvent* aEvent)
   : nsDOMEvent(aPresContext, aEvent ?
@@ -122,6 +124,26 @@ NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION_INHERITED(nsDOMUIEvent)
   NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(UIEvent)
 NS_INTERFACE_MAP_END_INHERITING(nsDOMEvent)
 
+bool
+nsDOMUIEvent::IsMouseLocked()
+{
+  nsCOMPtr<nsIDOMNavigator> navigator;
+  mView->GetNavigator(getter_AddRefs(navigator));
+  if (!navigator) {
+    return false;
+  }
+
+  nsCOMPtr<nsIDOMMouseLockable> pointer;
+  navigator->GetPointer(getter_AddRefs(pointer));
+  if (!pointer) {
+    return false;
+  }
+
+  bool isLocked;
+  pointer->Islocked(&isLocked);
+  return isLocked;
+}
+
 nsIntPoint
 nsDOMUIEvent::GetMovementPoint()
 {
@@ -140,7 +162,7 @@ nsDOMUIEvent::GetMovementPoint()
   }
 
   // Calculate the delta between the previous screen point and the current one.
-  nsIntPoint currentPoint = GetScreenPoint();
+  nsIntPoint currentPoint = ScreenPointInternal();
 
   // Adjust previous event's refPoint so it compares to current screenX, screenY
   nsIntPoint offset = mEvent->lastRefPoint +
@@ -153,9 +175,9 @@ nsDOMUIEvent::GetMovementPoint()
 }
 
 nsIntPoint
-nsDOMUIEvent::GetScreenPoint()
+nsDOMUIEvent::ScreenPointInternal()
 {
-  if (!mEvent || 
+  if (!mEvent ||
        (mEvent->eventStructType != NS_MOUSE_EVENT &&
         mEvent->eventStructType != NS_POPUP_EVENT &&
         mEvent->eventStructType != NS_MOUSE_SCROLL_EVENT &&
@@ -169,7 +191,7 @@ nsDOMUIEvent::GetScreenPoint()
     return mEvent->refPoint;
   }
 
-  nsIntPoint offset = mEvent->refPoint + 
+  nsIntPoint offset = mEvent->refPoint +
     ((nsGUIEvent*)mEvent)->widget->WidgetToScreenOffset();
   nscoord factor = mPresContext->DeviceContext()->UnscaledAppUnitsPerDevPixel();
   return nsIntPoint(nsPresContext::AppUnitsToIntCSSPixels(offset.x * factor),
@@ -177,8 +199,22 @@ nsDOMUIEvent::GetScreenPoint()
 }
 
 nsIntPoint
+nsDOMUIEvent::GetScreenPoint()
+{
+  if (IsMouseLocked()) {
+    return nsIntPoint(0, 0);
+  }
+
+  return ScreenPointInternal();
+}
+
+nsIntPoint
 nsDOMUIEvent::GetClientPoint()
 {
+  if (IsMouseLocked()) {
+    return nsIntPoint(0, 0);
+  }
+
   if (!mEvent ||
       (mEvent->eventStructType != NS_MOUSE_EVENT &&
        mEvent->eventStructType != NS_POPUP_EVENT &&
