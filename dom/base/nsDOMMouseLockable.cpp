@@ -136,7 +136,6 @@ nsDOMMouseLockable::Init(nsIDOMWindow* aContentWindow)
 bool
 nsDOMMouseLockable::ShouldLock(nsIDOMElement* aTarget)
 {
-  printf("\nnsDOMMouseLockable::ShouldLock\n");
   nsCOMPtr<nsIDOMDocument> domDoc;
   mWindow->GetDocument(getter_AddRefs(domDoc));
   NS_ENSURE_ARG_POINTER(domDoc);
@@ -146,23 +145,18 @@ nsDOMMouseLockable::ShouldLock(nsIDOMElement* aTarget)
   nsCOMPtr<nsIDOMNode> parentNode;
   targetNode->GetParentNode(getter_AddRefs(parentNode));
   if (!parentNode) {
-    printf("\nElement is no in the DOM Tree, returning false....\n");
     return false;
   }
-  printf("\nElement is in the DOM Tree\n");
 
   // Check if element is in fullscreen mode
   nsCOMPtr<nsIDOMHTMLElement> lockedElement;
   domDoc->GetMozFullScreenElement(getter_AddRefs(lockedElement));
   if (lockedElement != aTarget) {
-    printf("\nElement is no int fullscreen mode, returning false...\n");
     return false;
   }
-  printf("\nElement is in fullscreen mode\n");
   // Check if window is in focus?
   // Check if MouseLock preference is set to true
 
-  printf("\nreturning true...\n");
   return true;
 }
 
@@ -170,15 +164,12 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
   nsIDOMMouseLockableSuccessCallback* aSuccessCallback,
   nsIDOMMouseLockableFailureCallback* aFailureCallback)
 {
-  printf("\nnsDOMMouseLockable::Lock\n");
   nsRefPtr<nsMouseLockableRequest> request =
     new nsMouseLockableRequest(aSuccessCallback, aFailureCallback);
   nsCOMPtr<nsIRunnable> ev;
 
   // TODO: what can we move off the main thread?
-  printf("\nCalling ShouldLock..\n");
   if (ShouldLock(aTarget)) {
-    printf("\nShouldLock returned true\n");
     mIsLocked = PR_TRUE;
     mTarget = aTarget;
 
@@ -206,18 +197,13 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
 
     presContext->EventStateManager()->SetMouseLock(true, widget);
 
-    printf("\nDispatching success callback to main thread\n");
     ev = new nsRequestMouseLockEvent(true, request);
-    printf("\nSuccess request dispatched\n");
   } else {
-    printf("\nDispatching failure callback to main thread\n");
     ev = new nsRequestMouseLockEvent(false, request);
-    printf("\nFailure request dispatched\n");
 
   }
   NS_DispatchToMainThread(ev);
 
-  printf("\nReturning from lock\n");
   return NS_OK;
 }
 
@@ -230,15 +216,12 @@ nsMouseLockableRequest::nsMouseLockableRequest(
   : mSuccessCallback(aSuccessCallback),
     mFailureCallback(aFailureCallback)
 {
-  printf("\nnsMouseLockableRequest::nsMouseLockableRequest\n");
 }
 
 void
 nsMouseLockableRequest::SendSuccess()
 {
-  printf("\nnsMouseLockableRequest::SendSuccess\n");
   if (mSuccessCallback) {
-    printf("\ndispatching success callback\n");
     mSuccessCallback->HandleEvent();
   }
 }
@@ -246,9 +229,7 @@ nsMouseLockableRequest::SendSuccess()
 void
 nsMouseLockableRequest::SendFailure()
 {
-  printf("\nnsMouseLockableRequest::SendFailure\n");
   if (mFailureCallback) {
-    printf("\ndispatching failure callback\n");
     mFailureCallback->HandleEvent();
   }
 }
@@ -257,7 +238,6 @@ nsMouseLockableRequest::SendFailure()
 NS_IMETHODIMP
 nsRequestMouseLockEvent::Run()
 {
-  printf("\nRequestAllowMouseLockEvent::Run\n");
   if (mAllow) {
     mRequest->SendSuccess();
   }
