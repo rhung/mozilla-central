@@ -79,62 +79,6 @@ nsDOMMouseLockable::~nsDOMMouseLockable()
 {
 }
 
-/* void unlock (); */
-NS_IMETHODIMP nsDOMMouseLockable::Unlock()
-{
-  // No point doing this if mIslocked is already false,
-  // plus it won't crash this way.
-  if (mIsLocked) {
-
-    nsCOMPtr<nsINode> node = do_QueryInterface(mTarget);
-    DispatchMouseLockLost(node);
-
-    // Making the mouse reappear
-    nsCOMPtr<nsPIDOMWindow> domWindow( do_QueryInterface( mWindow ) );
-    if (!domWindow) {
-  		NS_ERROR("Unlock(): No DOM found in nsCOMPtr<nsPIDOMWindow>");
-		  return NS_ERROR_UNEXPECTED;
-	  }
-
-    nsRefPtr<nsPresContext> presContext;
-    domWindow->GetDocShell()->GetPresContext(getter_AddRefs(presContext));
-    if (!presContext)	{
-		  NS_ERROR("Unlock(): Unable to get presContext in \
-			          domWindow->GetDocShell()->GetPresContext()");
-		  return NS_ERROR_UNEXPECTED;
-	  }
-
-    nsCOMPtr<nsIPresShell> shell = presContext->PresShell();
-    if (!shell)	{
-		  NS_ERROR("Unlock(): Unable to find presContext->PresShell()");
-		  return NS_ERROR_UNEXPECTED;
-	  }
-
-    nsCOMPtr<nsIWidget> widget = shell->GetRootFrame()->GetNearestWidget();
-    if (!widget) {
-		  NS_ERROR("Unlock(): Unable to find widget in \
-			          shell->GetRootFrame()->GetNearestWidget();");
-		  return NS_ERROR_UNEXPECTED;
-	  }
-
-    presContext->EventStateManager()->SetCursor(NS_STYLE_CURSOR_AUTO,
-                                                nsnull, false, 0.0f,
-                                                0.0f, widget, true);
-
-    mIsLocked = PR_FALSE;
-    presContext->EventStateManager()->SetMouseLock(false, widget);
-  }
-  return NS_OK;
-}
-
-/* bool islocked (); */
-NS_IMETHODIMP nsDOMMouseLockable::Islocked(bool *_retval NS_OUTPARAM)
-{
-  NS_ENSURE_ARG_POINTER(_retval);
-  *_retval = mIsLocked;
-  return NS_OK;
-}
-
 nsresult
 nsDOMMouseLockable::Init(nsIDOMWindow* aContentWindow)
 {
@@ -144,12 +88,68 @@ nsDOMMouseLockable::Init(nsIDOMWindow* aContentWindow)
   return NS_OK;
 }
 
+NS_IMETHODIMP nsDOMMouseLockable::Unlock()
+{
+  if (!mIsLocked) {
+    return NS_OK;
+  }
+
+  nsCOMPtr<nsINode> node = do_QueryInterface(mTarget);
+  DispatchMouseLockLost(node);
+
+  // Making the mouse reappear
+  nsCOMPtr<nsPIDOMWindow> domWindow( do_QueryInterface( mWindow ) );
+  if (!domWindow) {
+    NS_ERROR("Unlock(): No DOM found in nsCOMPtr<nsPIDOMWindow>");
+		return NS_ERROR_UNEXPECTED;
+	}
+
+  nsRefPtr<nsPresContext> presContext;
+  domWindow->GetDocShell()->GetPresContext(getter_AddRefs(presContext));
+  if (!presContext)	{
+    NS_ERROR("Unlock(): Unable to get presContext in \
+              domWindow->GetDocShell()->GetPresContext()");
+    return NS_ERROR_UNEXPECTED;
+  }
+
+  nsCOMPtr<nsIPresShell> shell = presContext->PresShell();
+  if (!shell)	{
+    NS_ERROR("Unlock(): Unable to find presContext->PresShell()");
+    return NS_ERROR_UNEXPECTED;
+  }
+
+  nsCOMPtr<nsIWidget> widget = shell->GetRootFrame()->GetNearestWidget();
+  if (!widget) {
+    NS_ERROR("Unlock(): Unable to find widget in \
+              shell->GetRootFrame()->GetNearestWidget();");
+    return NS_ERROR_UNEXPECTED;
+  }
+
+  presContext->EventStateManager()->SetCursor(NS_STYLE_CURSOR_AUTO,
+                                              nsnull, false, 0.0f,
+                                              0.0f, widget, true);
+  mIsLocked = PR_FALSE;
+  presContext->EventStateManager()->SetMouseLock(false, widget);
+
+  return NS_OK;
+}
+
+NS_IMETHODIMP nsDOMMouseLockable::Islocked(bool *_retval NS_OUTPARAM)
+{
+  NS_ENSURE_ARG_POINTER(_retval);
+  *_retval = mIsLocked;
+  return NS_OK;
+}
+
 bool
 nsDOMMouseLockable::ShouldLock(nsIDOMElement* aTarget)
 {
   nsCOMPtr<nsIDOMDocument> domDoc;
   mWindow->GetDocument(getter_AddRefs(domDoc));
-  NS_ENSURE_ARG_POINTER(domDoc);
+  if (!domDoc) {
+    NS_ERROR("ShouldLock(): Unable to get document");
+    return NS_ERROR_UNEXPECTED;
+  }
 
   // Check if element is in the DOM tree
   nsCOMPtr<nsIDOMNode> targetNode(do_QueryInterface(aTarget));
@@ -165,15 +165,16 @@ nsDOMMouseLockable::ShouldLock(nsIDOMElement* aTarget)
   if (lockedElement != aTarget) {
     return false;
   }
-  // Check if window is in focus?
-  // Check if MouseLock preference is set to true
+
+  // TODO: Check if window is in focus?
+  // TODO: Check if MouseLock preference is set to true
 
   return true;
 }
 
 NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
-  nsIDOMMouseLockableSuccessCallback* aSuccessCallback,
-  nsIDOMMouseLockableFailureCallback* aFailureCallback)
+                                       nsIDOMMouseLockableSuccessCallback* aSuccessCallback,
+                                       nsIDOMMouseLockableFailureCallback* aFailureCallback)
 {
   nsRefPtr<nsMouseLockableRequest> request =
     new nsMouseLockableRequest(aSuccessCallback, aFailureCallback);
@@ -215,14 +216,12 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
     presContext->EventStateManager()->SetCursor(NS_STYLE_CURSOR_NONE,
                                                 nsnull, false, 0.0f,
                                                 0.0f, widget, true);
-
     presContext->EventStateManager()->SetMouseLock(true, widget);
-
     ev = new nsRequestMouseLockEvent(true, request);
   } else {
     ev = new nsRequestMouseLockEvent(false, request);
-
   }
+
   NS_DispatchToMainThread(ev);
 
   return NS_OK;
@@ -261,8 +260,7 @@ nsRequestMouseLockEvent::Run()
 {
   if (mAllow) {
     mRequest->SendSuccess();
-  }
-  else {
+  } else {
     mRequest->SendFailure();
   }
   return NS_OK;
