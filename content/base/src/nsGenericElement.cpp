@@ -522,8 +522,6 @@ nsINode::GetOwnerDocument(nsIDOMDocument** aOwnerDocument)
 nsresult
 nsINode::RemoveChild(nsINode *aOldChild)
 {
-  //printf("\nnsINode::RemoveChild()\n");
-
   nsCOMPtr<nsIDOMNode> node = do_QueryInterface(aOldChild);
   if (node) {
     nsCOMPtr<nsIDOMDocument> domDoc;
@@ -3677,7 +3675,6 @@ nsINode::doInsertChildAt(nsIContent* aKid, PRUint32 aIndex,
 nsresult
 nsGenericElement::RemoveChildAt(PRUint32 aIndex, bool aNotify)
 {
-  //printf("\nnsGenericElement::RemoveChildAT()\n");
   nsCOMPtr<nsIContent> oldKid = mAttrsAndChildren.GetSafeChildAt(aIndex);
   NS_ASSERTION(oldKid == GetChildAt(aIndex), "Unexpected child in RemoveChildAt");
 
@@ -3692,7 +3689,6 @@ nsresult
 nsINode::doRemoveChildAt(PRUint32 aIndex, bool aNotify,
                          nsIContent* aKid, nsAttrAndChildArray& aChildArray)
 {
-  //printf("\nnsGenericElement::doRemoveChildAT()\n");
   NS_PRECONDITION(aKid && aKid->GetNodeParent() == this &&
                   aKid == GetChildAt(aIndex) &&
                   IndexOf(aKid) == (PRInt32)aIndex, "Bogus aKid");
