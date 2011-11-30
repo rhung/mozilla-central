@@ -775,6 +775,7 @@ nsMouseWheelTransaction::LimitToOnePageScroll(PRInt32 aScrollLines,
 nsEventStateManager::nsEventStateManager()
   : mLockCursor(0),
     mMouseLocked(false),
+    mPreLockPoint(0,0),
     mCurrentTarget(nsnull),
     mLastMouseOverFrame(nsnull),
     // init d&d gesture state machine variables
@@ -4076,17 +4077,29 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
 }
 
 void
-nsEventStateManager::SetMouseLock(bool locked,
-                                  nsIWidget* widget)
+nsEventStateManager::SetMouseLock(bool aLocked,
+                                  nsIWidget* aWidget)
 {
   // TODO: should do error checks, return nsresult...
-  mMouseLocked = locked;
-  if (widget && mMouseLocked) {
+  mMouseLocked = aLocked;
+
+  if (!aWidget) {
+    return;
+  }
+
+  if (mMouseLocked) {
+    // Store the last known ref point so we can reposition the mouse after unlock
+    // TODO: this isn't perfect yet, it probably needs to get transformed into screen or widget space...
+    mPreLockPoint = nsIntPoint(sLastRefPoint.x, sLastRefPoint.y);
+
     // Set the initial mouse lock movement (before the first mouse move event), to 0,0
     nsIntRect bounds;
-    widget->GetScreenBounds(bounds);
+    aWidget->GetScreenBounds(bounds);
     sLastRefPoint = nsIntPoint(bounds.width/2, bounds.height/2);
-    widget->SynthesizeNativeMouseMove(sLastRefPoint);
+    aWidget->SynthesizeNativeMouseMove(sLastRefPoint);
+  } else {
+    // Unlocking, so return mouse to the original position
+    aWidget->SynthesizeNativeMouseMove(mPreLockPoint);
   }
 }
 
