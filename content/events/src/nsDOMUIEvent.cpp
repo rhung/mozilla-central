@@ -127,6 +127,10 @@ NS_INTERFACE_MAP_END_INHERITING(nsDOMEvent)
 bool
 nsDOMUIEvent::IsMouseLocked()
 {
+  if (!mView) {
+    return false;
+  }
+
   nsCOMPtr<nsIDOMNavigator> navigator;
   mView->GetNavigator(getter_AddRefs(navigator));
   if (!navigator) {
