@@ -774,6 +774,7 @@ nsMouseWheelTransaction::LimitToOnePageScroll(PRInt32 aScrollLines,
 
 nsEventStateManager::nsEventStateManager()
   : mLockCursor(0),
+    mMouseLocked(false),
     mCurrentTarget(nsnull),
     mLastMouseOverFrame(nsnull),
     // init d&d gesture state machine variables
@@ -785,8 +786,7 @@ nsEventStateManager::nsEventStateManager()
     m_haveShutdown(false),
     mLastLineScrollConsumedX(false),
     mLastLineScrollConsumedY(false),
-    mClickHoldContextMenu(false),
-    mMouseLocked(false)
+    mClickHoldContextMenu(false)
 {
   if (sESMInstanceCount == 0) {
     gUserInteractionTimerCallback = new nsUITimerCallback();
