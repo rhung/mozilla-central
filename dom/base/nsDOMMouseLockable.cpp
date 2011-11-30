@@ -136,35 +136,49 @@ nsDOMMouseLockable::Init(nsIDOMWindow* aContentWindow)
 bool
 nsDOMMouseLockable::ShouldLock(nsIDOMElement* aTarget)
 {
+  printf("\nnsDOMMouseLockable::ShouldLock\n");
   nsCOMPtr<nsIDOMDocument> domDoc;
   mWindow->GetDocument(getter_AddRefs(domDoc));
   NS_ENSURE_ARG_POINTER(domDoc);
 
+  // Check if element is in the DOM tree
+  nsCOMPtr<nsIDOMNode> targetNode(do_QueryInterface(aTarget));
+  nsCOMPtr<nsIDOMNode> parentNode;
+  targetNode->GetParentNode(getter_AddRefs(parentNode));
+  if (!parentNode) {
+    printf("\nElement is no in the DOM Tree, returning false....\n");
+    return false;
+  }
+  printf("\nElement is in the DOM Tree\n");
+
+  // Check if element is in fullscreen mode
   nsCOMPtr<nsIDOMHTMLElement> lockedElement;
   domDoc->GetMozFullScreenElement(getter_AddRefs(lockedElement));
-
-  if (lockedElement == aTarget)
-  {
-    // Check if element is in the DOM tree
-    // Check if element is in focus
-    // Check if MouseLock preference is set to true
-    return true;
+  if (lockedElement != aTarget) {
+    printf("\nElement is no int fullscreen mode, returning false...\n");
+    return false;
   }
+  printf("\nElement is in fullscreen mode\n");
+  // Check if window is in focus?
+  // Check if MouseLock preference is set to true
 
-  return false;
+  printf("\nreturning true...\n");
+  return true;
 }
 
 NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
   nsIDOMMouseLockableSuccessCallback* aSuccessCallback,
   nsIDOMMouseLockableFailureCallback* aFailureCallback)
 {
-
+  printf("\nnsDOMMouseLockable::Lock\n");
   nsRefPtr<nsMouseLockableRequest> request =
     new nsMouseLockableRequest(aSuccessCallback, aFailureCallback);
   nsCOMPtr<nsIRunnable> ev;
 
   // TODO: what can we move off the main thread?
+  printf("\nCalling ShouldLock..\n");
   if (ShouldLock(aTarget)) {
+    printf("\nShouldLock returned true\n");
     mIsLocked = PR_TRUE;
     mTarget = aTarget;
 
