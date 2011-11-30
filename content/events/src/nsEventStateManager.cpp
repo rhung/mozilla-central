@@ -3896,6 +3896,11 @@ public:
 void
 nsEventStateManager::NotifyMouseOut(nsGUIEvent* aEvent, nsIContent* aMovingInto)
 {
+  // If the mouse is locked, don't fire mouseout events
+  if (mMouseLocked) {
+    return;
+  }
+
   if (!mLastMouseOverElement)
     return;
   // Before firing mouseout, check for recursion
@@ -3956,6 +3961,11 @@ nsEventStateManager::NotifyMouseOut(nsGUIEvent* aEvent, nsIContent* aMovingInto)
 void
 nsEventStateManager::NotifyMouseOver(nsGUIEvent* aEvent, nsIContent* aContent)
 {
+  // If the mouse is locked, don't fire mouseover events
+  if (mMouseLocked) {
+    return;
+  }
+
   NS_ASSERTION(aContent, "Mouse must be over something");
 
   if (mLastMouseOverElement == aContent)
