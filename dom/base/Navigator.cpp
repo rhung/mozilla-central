@@ -912,6 +912,9 @@ Navigator::GetMozSms(nsIDOMMozSmsManager** aSmsManager)
 
   NS_ADDREF(*aSmsManager = mSmsManager);
 
+  return NS_OK;
+}
+
 PRInt64
 Navigator::SizeOf() const
 {
