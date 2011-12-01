@@ -479,7 +479,10 @@ private:
                                   bool aAddState);
 
   PRInt32     mLockCursor;
-  bool mMouseLocked;
+  // Is the mouse locked.
+  bool        mMouseLocked;
+  // Point when mouse was locked, used to reposition after unlocking.
+  nsIntPoint  mPreLockPoint;
 
   nsWeakFrame mCurrentTarget;
   nsCOMPtr<nsIContent> mCurrentTargetContent;
