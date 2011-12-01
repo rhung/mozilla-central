@@ -38,6 +38,7 @@
 
 #include "nsDOMMouseLockable.h"
 #include "nsContentUtils.h"
+#include "nsIDOMChromeWindow.h"
 
 DOMCI_DATA(MouseLockable, nsDOMMouseLockable)
 
@@ -71,9 +72,7 @@ nsDOMMouseLockable::Init(nsIDOMWindow* aContentWindow)
 /* void lock (); */
 NS_IMETHODIMP nsDOMMouseLockable::Lock()
 {
-  mWindow->GetFullScreen(&mIsLocked);  
-  mIsLocked = PR_TRUE;
-  return NS_OK;
+
 }
 
 /* void unlock (); */
