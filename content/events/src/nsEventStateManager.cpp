@@ -4039,7 +4039,8 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
         aEvent->lastRefPoint = nsIntPoint(bounds.width/2, bounds.height/2);
 
         // refPoint should not be the centre on mousemove
-        if (aEvent->refPoint.x == aEvent->lastRefPoint.x && aEvent->refPoint.y == aEvent->lastRefPoint.y) {
+        if (aEvent->refPoint.x == aEvent->lastRefPoint.x &&
+            aEvent->refPoint.y == aEvent->lastRefPoint.y) {
           aEvent->refPoint = sLastRefPoint;
         } else {
           aEvent->widget->SynthesizeNativeMouseMove(aEvent->lastRefPoint);
