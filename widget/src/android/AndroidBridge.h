@@ -52,6 +52,7 @@
 #include "nsIMutableArray.h"
 #include "nsIMIMEInfo.h"
 #include "nsColor.h"
+#include "nsIURIFixup.h"
 
 #include "nsIAndroidBridge.h"
 
@@ -185,6 +186,8 @@ public:
 
     bool ClipboardHasText();
 
+    bool CanCreateFixupURI(const nsACString& aURIText);
+
     void ShowAlertNotification(const nsAString& aImageUrl,
                                const nsAString& aAlertTitle,
                                const nsAString& aAlertText,
@@ -300,6 +303,8 @@ public:
     
     void HandleGeckoMessage(const nsAString& message, nsAString &aRet);
 
+    nsCOMPtr<nsIAndroidDrawMetadataProvider> GetDrawMetadataProvider();
+
     void EmitGeckoAccessibilityEvent (PRInt32 eventType, const nsAString& role, const nsAString& text, const nsAString& description, bool enabled, bool checked, bool password);
 
     void CheckURIVisited(const nsAString& uri);
@@ -312,6 +317,9 @@ public:
     void EnableBatteryNotifications();
     void DisableBatteryNotifications();
     void GetCurrentBatteryInformation(hal::BatteryInformation* aBatteryInfo);
+
+    PRUint16 GetNumberOfMessagesForText(const nsAString& aText);
+    void SendMessage(const nsAString& aNumber, const nsAString& aText);
 
 protected:
     static AndroidBridge *sBridge;
@@ -397,6 +405,9 @@ protected:
     jmethodID jMarkUriVisited;
     jmethodID jEmitGeckoAccessibilityEvent;
 
+    jmethodID jNumberOfMessages;
+    jmethodID jSendMessage;
+
     // stuff we need for CallEglCreateWindowSurface
     jclass jEGLSurfaceImplClass;
     jclass jEGLContextImplClass;
@@ -404,6 +415,9 @@ protected:
     jclass jEGLDisplayImplClass;
     jclass jEGLContextClass;
     jclass jEGL10Class;
+
+    // Needed for canCreateFixupURI()
+    nsCOMPtr<nsIURIFixup> mURIFixup;
 
     // calls we've dlopened from libjnigraphics.so
     int (* AndroidBitmap_getInfo)(JNIEnv *env, jobject bitmap, void *info);
