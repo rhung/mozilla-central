@@ -188,7 +188,7 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
     nsCOMPtr<nsPIDOMWindow> domWindow( do_QueryInterface( mWindow ) );
     if (!domWindow) {
 		  NS_ERROR("Lock(): No DOM found in nsCOMPtr<nsPIDOMWindow>");
-		  return NS_ERROR_UNEXPECTED;
+		  return NS_ERROR_FAILURE;
 	  }
 
     nsRefPtr<nsPresContext> presContext;
@@ -196,20 +196,20 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
     if (!presContext)	{
       NS_ERROR("Lock(): Unable to get presContext in \
 			          domWindow->GetDocShell()->GetPresContext()");
-		  return NS_ERROR_UNEXPECTED;
+		  return NS_ERROR_FAILURE;
 	  }
 
     nsCOMPtr<nsIPresShell> shell = presContext->PresShell();
     if (!shell) {
 		  NS_ERROR("Lock(): Unable to find presContext->PresShell()");
-		  return NS_ERROR_UNEXPECTED;
+		  return NS_ERROR_FAILURE;
 	  }
 
     nsCOMPtr<nsIWidget> widget = shell->GetRootFrame()->GetNearestWidget();
     if (!widget) {
       NS_ERROR("Lock(): Unable to find widget in \
 				        shell->GetRootFrame()->GetNearestWidget();");
-      return NS_ERROR_UNEXPECTED;
+      return NS_ERROR_FAILURE;
 	  }
 
 	  // Hide the cursor upon entering mouse lock
