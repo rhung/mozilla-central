@@ -147,6 +147,14 @@ NS_IMETHODIMP nsDOMMouseLockable::Islocked(bool *_retval NS_OUTPARAM)
 bool
 nsDOMMouseLockable::ShouldLock(nsIDOMElement* aTarget)
 {
+  // Check if mouselock is enabled in prefs
+  nsCOMPtr<nsIPrefBranch> prefs(do_GetService("@mozilla.org/preferences-service;1"));
+  PRBool mouseLockEnabled;
+  prefs->GetBoolPref(PREF_MOUSE_LOCK_ENABLED, (bool*)&mouseLockEnabled);
+  if (!mouseLockEnabled) {
+    return false;
+  }
+
   nsCOMPtr<nsIDOMDocument> domDoc;
   mWindow->GetDocument(getter_AddRefs(domDoc));
   if (!domDoc) {
@@ -170,16 +178,7 @@ nsDOMMouseLockable::ShouldLock(nsIDOMElement* aTarget)
   domDoc->GetMozFullScreenElement(getter_AddRefs(lockedElement));
   if (lockedElement != aTarget) {
     return false;
-  }
-
-  // Check if mouselock is enabled in prefs
-  const char* PREF_MOUSE_LOCK_ENABLED = "full-screen-api.mousel-lock.enabled";
-  nsCOMPtr<nsIPrefBranch> prefs(do_GetService("@mozilla.org/preferences-service;1"));
-  PRBool mouseLockEnabled;
-  prefs->GetBoolPref(PREF_MOUSE_LOCK_ENABLED, (bool*)&mouseLockEnabled);
-  if (!mouseLockEnabled) {
-    return false;
-  }
+  } 
 
   // TODO: Check if window is in focus?
   // TODO: Check if MouseLock preference is set to true
