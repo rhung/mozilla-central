@@ -68,7 +68,6 @@ public:
                         nsMouseLockableRequest* aRequest)
     : mRequest(aRequest),
       mAllow(aAllow) {
-    printf("\nnsRequestMouseLockEvent::nsRequestMouseLockEvent\n");
   }
 
   NS_IMETHOD Run();
