@@ -549,6 +549,7 @@ public:
   static PRInt32 sUserInputEventDepth;
   
   static bool sNormalLMouseEventInProcess;
+  static nsIntPoint sOldScreenOffset;
 
   static nsEventStateManager* sActiveESM;
   
