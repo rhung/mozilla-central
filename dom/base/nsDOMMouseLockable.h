@@ -20,6 +20,8 @@
  * Contributor(s):
  *   David Humphrey <david.humphrey@senecac.on.ca>
  *   Diogo Golovanevsky <diogo.gmt@gmail.com>
+ *   Raymond Hung <hung.raymond@gmail.com>
+ *   Jesse Silver <jasilver1@learn.senecac.on.ca>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
