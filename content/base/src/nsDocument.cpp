@@ -207,6 +207,9 @@
 #include "imgILoader.h"
 #include "nsWrapperCacheInlines.h"
 
+#include "nsDOMMouseLockable.h"
+#include "Navigator.h"
+
 using namespace mozilla;
 using namespace mozilla::dom;
 
@@ -8528,6 +8531,19 @@ nsDocument::CancelFullScreen()
   nsCOMPtr<nsIDocument> doc(do_QueryReferent(sFullScreenDoc));
   while (doc != nsnull) {
     if (::SetFullScreenState(doc, nsnull, false)) {
+
+      nsCOMPtr<nsIDOMWindow> window = doc->GetWindow();
+      nsCOMPtr<nsIDOMNavigator> navigator;
+      window->GetNavigator(getter_AddRefs(navigator));
+ 
+      if (navigator) {
+        nsCOMPtr<nsIDOMMouseLockable> pointer;
+        navigator->GetPointer(getter_AddRefs(pointer));
+        if (pointer) {
+          pointer->Unlock();
+        }
+      }
+
       DispatchFullScreenChange(doc);
     }
     doc = doc->GetParentDocument();

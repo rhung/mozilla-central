@@ -1320,6 +1320,13 @@ class nsIWidget : public nsISupports {
     virtual nsresult SynthesizeNativeMouseEvent(nsIntPoint aPoint,
                                                 PRUint32 aNativeMessage,
                                                 PRUint32 aModifierFlags) = 0;
+                                                
+                                                
+
+    /**
+     * A shortcut to SynthesizeNativeMouseEvent, abstracting away the native message.
+     */
+    virtual nsresult SynthesizeNativeMouseMove(nsIntPoint aPoint) = 0;
 
     /**
      * Activates a native menu item at the position specified by the index

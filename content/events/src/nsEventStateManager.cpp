@@ -100,6 +100,8 @@
 #include "nsIDOMUIEvent.h"
 #include "nsDOMDragEvent.h"
 #include "nsIDOMNSEditableElement.h"
+#include "nsIDOMMouseLockable.h"
+#include "nsIDOMNavigator.h"
 
 #include "nsCaret.h"
 
@@ -158,6 +160,7 @@ bool nsEventStateManager::sNormalLMouseEventInProcess = false;
 nsEventStateManager* nsEventStateManager::sActiveESM = nsnull;
 nsIDocument* nsEventStateManager::sMouseOverDocument = nsnull;
 nsWeakFrame nsEventStateManager::sLastDragOverFrame = nsnull;
+nsIntPoint nsEventStateManager::sLastRefPoint = nsIntPoint(0,0);
 nsCOMPtr<nsIContent> nsEventStateManager::sDragOverContent = nsnull;
 
 static PRUint32 gMouseOrKeyboardEventCounter = 0;
@@ -771,6 +774,7 @@ nsMouseWheelTransaction::LimitToOnePageScroll(PRInt32 aScrollLines,
 
 nsEventStateManager::nsEventStateManager()
   : mLockCursor(0),
+    mMouseLocked(false),
     mCurrentTarget(nsnull),
     mLastMouseOverFrame(nsnull),
     // init d&d gesture state machine variables
@@ -4017,6 +4021,25 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
   switch(aEvent->message) {
   case NS_MOUSE_MOVE:
     {
+      if (mMouseLocked && aEvent->widget) {
+        // Perform mouse lock by recentering the mouse directly, then remembering the deltas.
+        nsIntRect bounds;
+        aEvent->widget->GetScreenBounds(bounds);
+        aEvent->lastRefPoint = nsIntPoint(bounds.width/2, bounds.height/2);
+
+        // refPoint should not be the centre on mousemove
+        if (aEvent->refPoint.x == aEvent->lastRefPoint.x && aEvent->refPoint.y == aEvent->lastRefPoint.y) {
+          aEvent->refPoint = sLastRefPoint;
+        } else {
+          aEvent->widget->SynthesizeNativeMouseMove(aEvent->lastRefPoint);
+        }
+      } else {
+        aEvent->lastRefPoint = nsIntPoint(sLastRefPoint.x, sLastRefPoint.y);
+      }
+
+      // Update the last known refPoint with the current refPoint.
+      sLastRefPoint = nsIntPoint(aEvent->refPoint.x, aEvent->refPoint.y);
+
       // Get the target content target (mousemove target == mouseover target)
       nsCOMPtr<nsIContent> targetElement = GetEventTargetContent(aEvent);
       if (!targetElement) {
@@ -4028,8 +4051,8 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
       if (targetElement) {
         NotifyMouseOver(aEvent, targetElement);
       }
+      break;
     }
-    break;
   case NS_MOUSE_EXIT:
     {
       // This is actually the window mouse exit event. We're not moving
@@ -4050,6 +4073,21 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
 
   // reset mCurretTargetContent to what it was
   mCurrentTargetContent = targetBeforeEvent;
+}
+
+void
+nsEventStateManager::SetMouseLock(bool locked,
+                                  nsIWidget* widget)
+{
+  // TODO: should do error checks, return nsresult...
+  mMouseLocked = locked;
+  if (widget && mMouseLocked) {
+    // Set the initial mouse lock movement (before the first mouse move event), to 0,0
+    nsIntRect bounds;
+    widget->GetScreenBounds(bounds);
+    sLastRefPoint = nsIntPoint(bounds.width/2, bounds.height/2);
+    widget->SynthesizeNativeMouseMove(sLastRefPoint);
+  }
 }
 
 void
