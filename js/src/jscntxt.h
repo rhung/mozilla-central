@@ -70,18 +70,6 @@
 #pragma warning(disable:4355) /* Silence warning about "this" used in base member initializer list */
 #endif
 
-/* Forward declarations of nanojit types. */
-namespace nanojit {
-
-class Assembler;
-class CodeAlloc;
-class Fragment;
-template<typename K> struct DefaultHash;
-template<typename K, typename V, typename H> class HashMap;
-template<typename T> class Seq;
-
-}  /* namespace nanojit */
-
 JS_BEGIN_EXTERN_C
 struct DtoaState;
 JS_END_EXTERN_C
@@ -94,35 +82,12 @@ struct JSSharpObjectMap {
 
 namespace js {
 
-/* Tracer constants. */
-static const size_t MONITOR_N_GLOBAL_STATES = 4;
-static const size_t FRAGMENT_TABLE_SIZE = 512;
-static const size_t MAX_GLOBAL_SLOTS = 4096;
-static const size_t GLOBAL_SLOTS_BUFFER_SIZE = MAX_GLOBAL_SLOTS + 1;
-
-/* Forward declarations of tracer types. */
-class VMAllocator;
-class FrameInfoCache;
-struct FrameInfo;
-struct VMSideExit;
-struct TreeFragment;
-struct TracerState;
-template<typename T> class Queue;
-typedef Queue<uint16> SlotList;
-class TypeMap;
-class LoopProfile;
-class InterpreterFrames;
-
-#if defined(JS_JIT_SPEW) || defined(DEBUG)
-struct FragPI;
-typedef nanojit::HashMap<uint32, FragPI, nanojit::DefaultHash<uint32> > FragStatsMap;
-#endif
-
 namespace mjit {
 class JaegerCompartment;
 }
 
 class WeakMapBase;
+class InterpreterFrames;
 
 /*
  * GetSrcNote cache to avoid O(n^2) growth in finding a source note for a
@@ -153,6 +118,8 @@ struct PendingProxyOperation {
 };
 
 struct ThreadData {
+    JSRuntime           *rt;
+
     /*
      * If non-zero, we were been asked to call the operation callback as soon
      * as possible.  If the thread has an active request, this contributes
@@ -163,25 +130,6 @@ struct ThreadData {
 #ifdef JS_THREADSAFE
     /* The request depth for this thread. */
     unsigned            requestDepth;
-#endif
-
-#ifdef JS_TRACER
-    /*
-     * During trace execution (or during trace recording or
-     * profiling), these fields point to the compartment doing the
-     * execution on this thread. At other times, they are NULL.  If a
-     * thread tries to execute/record/profile one trace while another
-     * is still running, the initial one will abort. Therefore, we
-     * only need to track one at a time.
-     */
-    JSCompartment       *onTraceCompartment;
-    JSCompartment       *recordingCompartment;
-    JSCompartment       *profilingCompartment;
-
-    /* Maximum size of the tracer's code cache before we start flushing. */
-    uint32              maxCodeCacheBytes;
-
-    static const uint32 DEFAULT_JIT_CACHE_SIZE = 16 * 1024 * 1024;
 #endif
 
     /* Keeper of the contiguous stack used by all contexts in this thread. */
@@ -198,23 +146,45 @@ struct ThreadData {
     LifoAlloc           tempLifoAlloc;
 
   private:
-    js::RegExpPrivateCache       *repCache;
+    /*
+     * Both of these allocators are used for regular expression code which is shared at the
+     * thread-data level.
+     */
+    JSC::ExecutableAllocator    *execAlloc;
+    WTF::BumpPointerAllocator   *bumpAlloc;
+    js::RegExpPrivateCache      *repCache;
 
-    js::RegExpPrivateCache *createRegExpPrivateCache(JSRuntime *rt);
+    JSC::ExecutableAllocator *createExecutableAllocator(JSContext *cx);
+    WTF::BumpPointerAllocator *createBumpPointerAllocator(JSContext *cx);
+    js::RegExpPrivateCache *createRegExpPrivateCache(JSContext *cx);
 
   public:
-    js::RegExpPrivateCache *getRegExpPrivateCache() { return repCache; }
+    JSC::ExecutableAllocator *getOrCreateExecutableAllocator(JSContext *cx) {
+        if (execAlloc)
+            return execAlloc;
 
-    /* N.B. caller is responsible for reporting OOM. */
-    js::RegExpPrivateCache *getOrCreateRegExpPrivateCache(JSRuntime *rt) {
+        return createExecutableAllocator(cx);
+    }
+
+    WTF::BumpPointerAllocator *getOrCreateBumpPointerAllocator(JSContext *cx) {
+        if (bumpAlloc)
+            return bumpAlloc;
+
+        return createBumpPointerAllocator(cx);
+    }
+
+    js::RegExpPrivateCache *getRegExpPrivateCache() {
+        return repCache;
+    }
+    js::RegExpPrivateCache *getOrCreateRegExpPrivateCache(JSContext *cx) {
         if (repCache)
             return repCache;
 
-        return createRegExpPrivateCache(rt);
+        return createRegExpPrivateCache(cx);
     }
 
     /* Called at the end of the global GC sweep phase to deallocate repCache memory. */
-    void purgeRegExpPrivateCache(JSRuntime *rt);
+    void purgeRegExpPrivateCache();
 
     /*
      * The GSN cache is per thread since even multi-cx-per-thread embeddings
@@ -240,7 +210,7 @@ struct ThreadData {
     size_t              noGCOrAllocationCheck;
 #endif
 
-    ThreadData();
+    ThreadData(JSRuntime *rt);
     ~ThreadData();
 
     bool init();
@@ -297,12 +267,13 @@ struct JSThread {
     /* Factored out of JSThread for !JS_THREADSAFE embedding in JSRuntime. */
     js::ThreadData      data;
 
-    JSThread(void *id)
+    JSThread(JSRuntime *rt, void *id)
       : id(id),
-        suspendCount(0)
+        suspendCount(0),
 # ifdef DEBUG
-      , checkRequestDepth(0)
+        checkRequestDepth(0),
 # endif
+        data(rt)
     {
         JS_INIT_CLIST(&contextList);
     }
@@ -460,11 +431,13 @@ struct JSRuntime
     /* We access this without the GC lock, however a race will not affect correctness */
     volatile uint32     gcNumFreeArenas;
     uint32              gcNumber;
-    js::GCMarker        *gcMarkingTracer;
+    js::GCMarker        *gcIncrementalTracer;
+    void                *gcVerifyData;
     bool                gcChunkAllocationSinceLastGC;
     int64               gcNextFullGCTime;
     int64               gcJitReleaseTime;
     JSGCMode            gcMode;
+    volatile jsuword    gcBarrierFailed;
     volatile jsuword    gcIsNeeded;
     js::WeakMapBase     *gcWeakMapList;
     js::gcstats::Statistics gcStats;
@@ -522,6 +495,9 @@ struct JSRuntime
      * Additionally, if gzZeal_ == 1 then we perform GCs in select places
      * (during MaybeGC and whenever a GC poke happens). This option is mainly
      * useful to embedders.
+     *
+     * We use gcZeal_ == 4 to enable write barrier verification. See the comment
+     * in jsgc.cpp for more information about this.
      */
 #ifdef JS_GC_ZEAL
     int                 gcZeal_;
@@ -533,7 +509,7 @@ struct JSRuntime
 
     bool needZealousGC() {
         if (gcNextScheduled > 0 && --gcNextScheduled == 0) {
-            if (gcZeal() >= 2)
+            if (gcZeal() >= js::gc::ZealAllocThreshold && gcZeal() < js::gc::ZealVerifierThreshold)
                 gcNextScheduled = gcZealFrequency;
             return true;
         }
@@ -545,6 +521,7 @@ struct JSRuntime
 #endif
 
     JSGCCallback        gcCallback;
+    JSGCFinishedCallback gcFinishedCallback;
 
   private:
     /*
@@ -583,14 +560,6 @@ struct JSRuntime
 
     /* Had an out-of-memory error which did not populate an exception. */
     JSBool              hadOutOfMemory;
-
-#ifdef JS_TRACER
-    /* True if any debug hooks not supported by the JIT are enabled. */
-    bool debuggerInhibitsJIT() const {
-        return (globalDebugHooks.interruptHook ||
-                globalDebugHooks.callHook);
-    }
-#endif
 
     /*
      * Linked list of all js::Debugger objects. This may be accessed by the GC
@@ -1127,6 +1096,7 @@ struct JSContext
     bool hasStrictOption() const { return hasRunOption(JSOPTION_STRICT); }
     bool hasWErrorOption() const { return hasRunOption(JSOPTION_WERROR); }
     bool hasAtLineOption() const { return hasRunOption(JSOPTION_ATLINE); }
+    bool hasJITHardeningOption() const { return !hasRunOption(JSOPTION_SOFTEN); }
 
     js::LifoAlloc &tempLifoAlloc() { return JS_THREAD_DATA(this)->tempLifoAlloc; }
     inline js::LifoAlloc &typeLifoAlloc();
@@ -1156,23 +1126,8 @@ struct JSContext
     /* Location to stash the iteration value between JSOP_MOREITER and JSOP_ITERNEXT. */
     js::Value           iterValue;
 
-#ifdef JS_TRACER
-    /*
-     * True if traces may be executed. Invariant: The value of traceJitenabled
-     * is always equal to the expression in updateJITEnabled below.
-     *
-     * This flag and the fields accessed by updateJITEnabled are written only
-     * in runtime->gcLock, to avoid race conditions that would leave the wrong
-     * value in traceJitEnabled. (But the interpreter reads this without
-     * locking. That can race against another thread setting debug hooks, but
-     * we always read cx->debugHooks without locking anyway.)
-     */
-    bool                 traceJitEnabled;
-#endif
-
 #ifdef JS_METHODJIT
     bool                 methodJitEnabled;
-    bool                 profilingEnabled;
 
     inline js::mjit::JaegerCompartment *jaegerCompartment();
 #endif
@@ -1419,15 +1374,7 @@ class AutoGCRooter {
 
     /* Implemented in jsgc.cpp. */
     inline void trace(JSTracer *trc);
-
-#ifdef __GNUC__
-# pragma GCC visibility push(default)
-#endif
-    friend JS_FRIEND_API(void) MarkContext(JSTracer *trc, JSContext *acx);
-    friend void MarkRuntime(JSTracer *trc);
-#ifdef __GNUC__
-# pragma GCC visibility pop
-#endif
+    void traceAll(JSTracer *trc);
 
   protected:
     AutoGCRooter * const down;
@@ -2161,16 +2108,7 @@ js_GetCurrentBytecodePC(JSContext* cx);
 extern JSScript *
 js_GetCurrentScript(JSContext* cx);
 
-extern bool
-js_CurrentPCIsInImacro(JSContext *cx);
-
 namespace js {
-
-extern JS_FORCES_STACK JS_FRIEND_API(void)
-LeaveTrace(JSContext *cx);
-
-extern bool
-CanLeaveTrace(JSContext *cx);
 
 #ifdef JS_METHODJIT
 namespace mjit {
@@ -2212,18 +2150,6 @@ js_RegenerateShapeForGC(JSRuntime *rt)
 namespace js {
 
 /************************************************************************/
-
-static JS_ALWAYS_INLINE void
-ClearValueRange(Value *vec, uintN len, bool useHoles)
-{
-    if (useHoles) {
-        for (uintN i = 0; i < len; i++)
-            vec[i].setMagic(JS_ARRAY_HOLE);
-    } else {
-        for (uintN i = 0; i < len; i++)
-            vec[i].setUndefined();
-    }
-}
 
 static JS_ALWAYS_INLINE void
 MakeRangeGCSafe(Value *vec, size_t len)
@@ -2414,25 +2340,22 @@ class AutoShapeVector : public AutoVectorRooter<const Shape *>
 
 class AutoValueArray : public AutoGCRooter
 {
-    js::Value *start_;
+    const js::Value *start_;
     unsigned length_;
 
   public:
-    AutoValueArray(JSContext *cx, js::Value *start, unsigned length
+    AutoValueArray(JSContext *cx, const js::Value *start, unsigned length
                    JS_GUARD_OBJECT_NOTIFIER_PARAM)
         : AutoGCRooter(cx, VALARRAY), start_(start), length_(length)
     {
         JS_GUARD_OBJECT_NOTIFIER_INIT;
     }
 
-    Value *start() const { return start_; }
+    const Value *start() const { return start_; }
     unsigned length() const { return length_; }
 
     JS_DECL_USE_GUARD_OBJECT_NOTIFIER
 };
-
-JSIdArray *
-NewIdArray(JSContext *cx, jsint length);
 
 /*
  * Allocation policy that uses JSRuntime::malloc_ and friends, so that

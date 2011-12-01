@@ -41,7 +41,7 @@
 
 #include "domstubs.idl"
 
-interface nsIAnimationFrameListener;
+interface nsIFrameRequestCallback;
 interface nsIControllers;
 interface nsIDOMBlob;
 interface nsIDOMLocation;
@@ -273,11 +273,15 @@ interface nsIDOMWindow : nsISupports
    * the current scroll position.
    */
   void                      scrollBy(in long xScrollDif, in long yScrollDif);
+  
+  [noscript] void           saveScreenPosition(in long x, in long y);
 
 
   // client
            attribute long                        screenX;
            attribute long                        screenY;
+  readonly attribute long                        lastScreenX;
+  readonly attribute long                        lastScreenY;
            attribute long                        outerWidth;
            attribute long                        outerHeight;
 
@@ -418,7 +422,7 @@ interface nsIDOMWindow : nsISupports
    * @see <http://dvcs.w3.org/hg/webperf/raw-file/tip/specs/RequestAnimationFrame/Overview.html>
    */
   void
-    mozRequestAnimationFrame([optional] in nsIAnimationFrameListener aListener);
+    mozRequestAnimationFrame(in nsIFrameRequestCallback aCallback);
 
   /**
    * The current animation start time in milliseconds since the epoch.

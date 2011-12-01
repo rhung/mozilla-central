@@ -577,13 +577,6 @@ js_ResumeVtune();
 
 #endif /* MOZ_VTUNE */
 
-#ifdef MOZ_TRACEVIS
-extern JS_FRIEND_API(JSBool)
-js_InitEthogram(JSContext *cx, uintN argc, jsval *vp);
-extern JS_FRIEND_API(JSBool)
-js_ShutdownEthogram(JSContext *cx, uintN argc, jsval *vp);
-#endif /* MOZ_TRACEVIS */
-
 #ifdef MOZ_TRACE_JSCALLS
 typedef void (*JSFunctionCallback)(const JSFunction *fun,
                                    const JSScript *scr,
@@ -611,6 +604,12 @@ JS_DumpBytecode(JSContext *cx, JSScript *script);
 
 extern JS_PUBLIC_API(void)
 JS_DumpCompartmentBytecode(JSContext *cx);
+
+extern JS_PUBLIC_API(void)
+JS_DumpPCCounts(JSContext *cx, JSScript *script);
+
+extern JS_PUBLIC_API(void)
+JS_DumpCompartmentPCCounts(JSContext *cx);
 
 extern JS_PUBLIC_API(JSObject *)
 JS_UnwrapObject(JSObject *obj);

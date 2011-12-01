@@ -115,7 +115,7 @@ class AutoNamespaceArray : protected AutoGCRooter {
   public:
     friend void AutoGCRooter::trace(JSTracer *trc);
 
-    JSXMLArray array;
+    JSXMLArray<JSObject> array;
 };
 
 #ifdef DEBUG
@@ -208,8 +208,8 @@ class CompartmentChecker
     void check(JSScript *script) {
         if (script) {
             check(script->compartment());
-            if (!script->isCachedEval && script->u.globalObject)
-                check(script->u.globalObject);
+            if (!script->isCachedEval && script->globalObject)
+                check(script->globalObject);
         }
     }
 
@@ -373,38 +373,10 @@ CallSetter(JSContext *cx, JSObject *obj, jsid id, StrictPropertyOp op, uintN att
     return CallJSPropertyOpSetter(cx, op, obj, id, strict, vp);
 }
 
-#ifdef JS_TRACER
-/*
- * Reconstruct the JS stack and clear cx->tracecx. We must be currently in a
- * _FAIL builtin from trace on cx or another context on the same thread. The
- * machine code for the trace remains on the C stack when js_DeepBail returns.
- *
- * Implemented in jstracer.cpp.
- */
-JS_FORCES_STACK JS_FRIEND_API(void)
-DeepBail(JSContext *cx);
-#endif
-
-static JS_INLINE void
-LeaveTraceIfGlobalObject(JSContext *cx, JSObject *obj)
-{
-    if (!obj->getParent())
-        LeaveTrace(cx);
-}
-
-static JS_INLINE void
-LeaveTraceIfArgumentsObject(JSContext *cx, JSObject *obj)
-{
-    if (obj->isArguments())
-        LeaveTrace(cx);
-}
-
 static inline JSAtom **
 FrameAtomBase(JSContext *cx, js::StackFrame *fp)
 {
-    return fp->hasImacropc()
-           ? cx->runtime->atomState.commonAtomsStart()
-           : fp->script()->atoms;
+    return fp->script()->atoms;
 }
 
 }  /* namespace js */
@@ -525,14 +497,10 @@ JSContext::ensureParseMapPool()
 /*
  * Get the current frame, first lazily instantiating stack frames if needed.
  * (Do not access cx->fp() directly except in JS_REQUIRES_STACK code.)
- *
- * LeaveTrace is defined in jstracer.cpp if JS_TRACER is defined.
  */
 static JS_FORCES_STACK JS_INLINE js::StackFrame *
 js_GetTopStackFrame(JSContext *cx, FrameExpandKind expand)
 {
-    js::LeaveTrace(cx);
-
 #ifdef JS_METHODJIT
     if (expand)
         js::mjit::ExpandInlineFrames(cx->compartment);

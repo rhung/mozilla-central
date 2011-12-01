@@ -367,7 +367,7 @@ class Compiler : public BaseCompiler
     analyze::CrossScriptSSA ssa;
 
     GlobalObject *globalObj;
-    const Value *globalSlots;  /* Original slots pointer. */
+    const HeapValue *globalSlots;  /* Original slots pointer. */
 
     Assembler masm;
     FrameState frame;
@@ -530,6 +530,11 @@ private:
     CompileStatus pushActiveFrame(JSScript *script, uint32 argc);
     void popActiveFrame();
     void updatePCCounters(jsbytecode *pc, Label *start, bool *updated);
+    void updatePCTypes(jsbytecode *pc, FrameEntry *fe);
+    void updateArithCounters(jsbytecode *pc, FrameEntry *fe,
+                             JSValueType firstUseType, JSValueType secondUseType);
+    void updateElemCounters(jsbytecode *pc, FrameEntry *obj, FrameEntry *id);
+    void bumpPropCounter(jsbytecode *pc, int counter);
 
     /* Analysis helpers. */
     CompileStatus prepareInferenceTypes(JSScript *script, ActiveFrame *a);
@@ -608,7 +613,7 @@ private:
     void tryConvertInteger(FrameEntry *fe, Uses uses);
 
     /* Opcode handlers. */
-    bool jumpAndTrace(Jump j, jsbytecode *target, Jump *slow = NULL, bool *trampoline = NULL);
+    bool jumpAndRun(Jump j, jsbytecode *target, Jump *slow = NULL, bool *trampoline = NULL);
     bool startLoop(jsbytecode *head, Jump entry, jsbytecode *entryTarget);
     bool finishLoop(jsbytecode *head);
     void jsop_bindname(JSAtom *atom, bool usePropCache);

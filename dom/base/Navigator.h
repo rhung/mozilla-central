@@ -48,6 +48,8 @@
 #include "nsIDOMNavigatorDesktopNotification.h"
 #include "nsIDOMClientInformation.h"
 #include "nsIDOMNavigatorBattery.h"
+#include "nsDOMMouseLockable.h"
+#include "nsIDOMNavigatorSms.h"
 #include "nsAutoPtr.h"
 
 class nsPluginArray;
@@ -67,11 +69,16 @@ namespace battery {
 class BatteryManager;
 } // namespace battery
 
+namespace sms {
+class SmsManager;
+} // namespace sms
+
 class Navigator : public nsIDOMNavigator,
                   public nsIDOMClientInformation,
                   public nsIDOMNavigatorGeolocation,
                   public nsIDOMNavigatorDesktopNotification,
-                  public nsIDOMNavigatorBattery
+                  public nsIDOMMozNavigatorBattery,
+                  public nsIDOMMozNavigatorSms
 {
 public:
   Navigator(nsIDocShell *aDocShell);
@@ -82,7 +89,8 @@ public:
   NS_DECL_NSIDOMCLIENTINFORMATION
   NS_DECL_NSIDOMNAVIGATORGEOLOCATION
   NS_DECL_NSIDOMNAVIGATORDESKTOPNOTIFICATION
-  NS_DECL_NSIDOMNAVIGATORBATTERY
+  NS_DECL_NSIDOMMOZNAVIGATORBATTERY
+  NS_DECL_NSIDOMMOZNAVIGATORSMS
 
   static void Init();
 
@@ -100,6 +108,9 @@ public:
   PRInt64 SizeOf() const;
 
 private:
+  bool IsSmsAllowed() const;
+  bool IsSmsSupported() const;
+
   static bool sDoNotTrackEnabled;
 
   nsRefPtr<nsMimeTypeArray> mMimeTypes;
@@ -107,7 +118,9 @@ private:
   nsRefPtr<nsGeolocation> mGeolocation;
   nsRefPtr<nsDesktopNotificationCenter> mNotification;
   nsRefPtr<battery::BatteryManager> mBatteryManager;
+  nsRefPtr<sms::SmsManager> mSmsManager;
   nsIDocShell* mDocShell; // weak reference
+  nsRefPtr<nsDOMMouseLockable> mPointer;
 };
 
 } // namespace dom

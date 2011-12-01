@@ -52,7 +52,6 @@
 #include "jsarray.h"
 #include "jsatom.h"
 #include "jsbool.h"
-#include "jsbuiltins.h"
 #include "jscntxt.h"
 #include "jsversion.h"
 #include "jsfun.h"
@@ -69,7 +68,6 @@
 #include "jsscript.h"
 #include "jsstr.h"
 #include "jsexn.h"
-#include "jstracer.h"
 
 #include "frontend/BytecodeCompiler.h"
 #include "frontend/BytecodeEmitter.h"
@@ -151,32 +149,35 @@ ArgumentsObject::create(JSContext *cx, uint32 argc, JSObject &callee)
         cx->malloc_(offsetof(ArgumentsData, slots) + argc * sizeof(Value));
     if (!data)
         return NULL;
-    SetValueRangeToUndefined(data->slots, argc);
+
+    data->callee.init(ObjectValue(callee));
+    InitValueRange(data->slots, argc, false);
 
     /* Can't fail from here on, so initialize everything in argsobj. */
     obj->init(cx, callee.getFunctionPrivate()->inStrictMode()
               ? &StrictArgumentsObjectClass
               : &NormalArgumentsObjectClass,
               type, proto->getParent(), NULL, false);
-    obj->setMap(emptyArgumentsShape);
+    obj->initMap(emptyArgumentsShape);
 
     ArgumentsObject *argsobj = obj->asArguments();
 
     JS_ASSERT(UINT32_MAX > (uint64(argc) << PACKED_BITS_COUNT));
-    argsobj->setInitialLength(argc);
-
-    argsobj->setCalleeAndData(callee, data);
+    argsobj->initInitialLength(argc);
+    argsobj->initData(data);
 
     return argsobj;
 }
 
 struct STATIC_SKIP_INFERENCE PutArg
 {
-    PutArg(Value *dst) : dst(dst) {}
-    Value *dst;
+    PutArg(JSCompartment *comp, HeapValue *dst) : dst(dst), compartment(comp) {}
+    HeapValue *dst;
+    JSCompartment *compartment;
     bool operator()(uintN, Value *src) {
+        JS_ASSERT(dst->isMagic(JS_ARGS_HOLE) || dst->isUndefined());
         if (!dst->isMagic(JS_ARGS_HOLE))
-            *dst = *src;
+            dst->set(compartment, *src);
         ++dst;
         return true;
     }
@@ -220,7 +221,7 @@ js_GetArgsObject(JSContext *cx, StackFrame *fp)
      * retrieve up-to-date parameter values.
      */
     if (argsobj->isStrictArguments())
-        fp->forEachCanonicalActualArg(PutArg(argsobj->data()->slots));
+        fp->forEachCanonicalActualArg(PutArg(cx->compartment, argsobj->data()->slots));
     else
         argsobj->setStackFrame(fp);
 
@@ -234,67 +235,13 @@ js_PutArgsObject(StackFrame *fp)
     ArgumentsObject &argsobj = fp->argsObj();
     if (argsobj.isNormalArguments()) {
         JS_ASSERT(argsobj.maybeStackFrame() == fp);
-        fp->forEachCanonicalActualArg(PutArg(argsobj.data()->slots));
+        JSCompartment *comp = fp->scopeChain().compartment();
+        fp->forEachCanonicalActualArg(PutArg(comp, argsobj.data()->slots));
         argsobj.setStackFrame(NULL);
     } else {
         JS_ASSERT(!argsobj.maybeStackFrame());
     }
 }
-
-#ifdef JS_TRACER
-
-/*
- * Traced versions of js_GetArgsObject and js_PutArgsObject.
- */
-JSObject * JS_FASTCALL
-js_NewArgumentsOnTrace(JSContext *cx, uint32 argc, JSObject *callee)
-{
-    ArgumentsObject *argsobj = ArgumentsObject::create(cx, argc, *callee);
-    if (!argsobj)
-        return NULL;
-
-    if (argsobj->isStrictArguments()) {
-        /*
-         * Strict mode callers must copy arguments into the created arguments
-         * object. The trace-JITting code is in TraceRecorder::newArguments.
-         */
-        JS_ASSERT(!argsobj->maybeStackFrame());
-    } else {
-        argsobj->setOnTrace();
-    }
-
-    return argsobj;
-}
-JS_DEFINE_CALLINFO_3(extern, OBJECT, js_NewArgumentsOnTrace, CONTEXT, UINT32, OBJECT,
-                     0, nanojit::ACCSET_STORE_ANY)
-
-/* FIXME change the return type to void. */
-JSBool JS_FASTCALL
-js_PutArgumentsOnTrace(JSContext *cx, JSObject *obj, Value *argv)
-{
-    NormalArgumentsObject *argsobj = obj->asNormalArguments();
-
-    JS_ASSERT(argsobj->onTrace());
-
-    /*
-     * TraceRecorder::putActivationObjects builds a single, contiguous array of
-     * the arguments, regardless of whether #actuals > #formals so there is no
-     * need to worry about actual vs. formal arguments.
-     */
-    Value *srcend = argv + argsobj->initialLength();
-    Value *dst = argsobj->data()->slots;
-    for (Value *src = argv; src < srcend; ++src, ++dst) {
-        if (!dst->isMagic(JS_ARGS_HOLE))
-            *dst = *src;
-    }
-
-    argsobj->clearOnTrace();
-    return true;
-}
-JS_DEFINE_CALLINFO_3(extern, BOOL, js_PutArgumentsOnTrace, CONTEXT, OBJECT, VALUEPTR, 0,
-                     nanojit::ACCSET_STORE_ANY)
-
-#endif /* JS_TRACER */
 
 static JSBool
 args_delProperty(JSContext *cx, JSObject *obj, jsid id, Value *vp)
@@ -315,8 +262,6 @@ args_delProperty(JSContext *cx, JSObject *obj, jsid id, Value *vp)
 static JSBool
 ArgGetter(JSContext *cx, JSObject *obj, jsid id, Value *vp)
 {
-    LeaveTrace(cx);
-
     if (!obj->isNormalArguments())
         return true;
 
@@ -349,15 +294,6 @@ ArgGetter(JSContext *cx, JSObject *obj, jsid id, Value *vp)
 static JSBool
 ArgSetter(JSContext *cx, JSObject *obj, jsid id, JSBool strict, Value *vp)
 {
-#ifdef JS_TRACER
-    // To be able to set a property here on trace, we would have to make
-    // sure any updates also get written back to the trace native stack.
-    // For simplicity, we just leave trace, since this is presumably not
-    // a common operation.
-    LeaveTrace(cx);
-#endif
-
-
     if (!obj->isNormalArguments())
         return true;
 
@@ -456,8 +392,6 @@ args_enumerate(JSContext *cx, JSObject *obj)
 static JSBool
 StrictArgGetter(JSContext *cx, JSObject *obj, jsid id, Value *vp)
 {
-    LeaveTrace(cx);
-
     if (!obj->isStrictArguments())
         return true;
 
@@ -601,10 +535,8 @@ MaybeMarkGenerator(JSTracer *trc, JSObject *obj)
 {
 #if JS_HAS_GENERATORS
     StackFrame *fp = (StackFrame *) obj->getPrivate();
-    if (fp && fp->isFloatingGenerator()) {
-        JSObject *genobj = js_FloatingFrameToGenerator(fp)->obj;
-        MarkObject(trc, *genobj, "generator object");
-    }
+    if (fp && fp->isFloatingGenerator())
+        MarkObject(trc, js_FloatingFrameToGenerator(fp)->obj, "generator object");
 #endif
 }
 
@@ -612,14 +544,8 @@ static void
 args_trace(JSTracer *trc, JSObject *obj)
 {
     ArgumentsObject *argsobj = obj->asArguments();
-    if (argsobj->onTrace()) {
-        JS_ASSERT(!argsobj->isStrictArguments());
-        return;
-    }
-
     ArgumentsData *data = argsobj->data();
-    if (data->callee.isObject())
-        MarkObject(trc, data->callee.toObject(), js_callee_str);
+    MarkValue(trc, data->callee, js_callee_str);
     MarkValueRange(trc, argsobj->initialLength(), data->slots, js_arguments_str);
 
     MaybeMarkGenerator(trc, argsobj);
@@ -707,7 +633,7 @@ NewDeclEnvObject(JSContext *cx, StackFrame *fp)
     if (!emptyDeclEnvShape)
         return NULL;
     envobj->init(cx, &DeclEnvClass, &emptyTypeObject, &fp->scopeChain(), fp, false);
-    envobj->setMap(emptyDeclEnvShape);
+    envobj->initMap(emptyDeclEnvShape);
 
     return envobj;
 }
@@ -772,9 +698,6 @@ js_CreateCallObjectOnTrace(JSContext *cx, JSFunction *fun, JSObject *callee, JSO
     return CallObject::create(cx, fun->script(), *scopeChain, callee);
 }
 
-JS_DEFINE_CALLINFO_4(extern, OBJECT, js_CreateCallObjectOnTrace, CONTEXT, FUNCTION, OBJECT, OBJECT,
-                     0, nanojit::ACCSET_STORE_ANY)
-
 void
 js_PutCallObject(StackFrame *fp)
 {
@@ -786,7 +709,7 @@ js_PutCallObject(StackFrame *fp)
     /* Get the arguments object to snapshot fp's actual argument values. */
     if (fp->hasArgsObj()) {
         if (!fp->hasOverriddenArgs())
-            callobj.setArguments(ObjectValue(fp->argsObj()));
+            callobj.initArguments(ObjectValue(fp->argsObj()));
         js_PutArgsObject(fp);
     }
 
@@ -823,18 +746,29 @@ js_PutCallObject(StackFrame *fp)
             } else {
                 /*
                  * For each arg & var that is closed over, copy it from the stack
-                 * into the call object.
+                 * into the call object. We use initArg/VarUnchecked because,
+                 * when you call a getter on a call object, js_NativeGetInline
+                 * caches the return value in the slot, so we can't assert that
+                 * it's undefined.
                  */
                 uint32 nclosed = script->nClosedArgs;
                 for (uint32 i = 0; i < nclosed; i++) {
                     uint32 e = script->getClosedArg(i);
+#ifdef JS_GC_ZEAL
                     callobj.setArg(e, fp->formalArg(e));
+#else
+                    callobj.initArgUnchecked(e, fp->formalArg(e));
+#endif
                 }
 
                 nclosed = script->nClosedVars;
                 for (uint32 i = 0; i < nclosed; i++) {
                     uint32 e = script->getClosedVar(i);
+#ifdef JS_GC_ZEAL
                     callobj.setVar(e, fp->slots()[e]);
+#else
+                    callobj.initVarUnchecked(e, fp->slots()[e]);
+#endif
                 }
             }
 
@@ -861,23 +795,6 @@ js_PutCallObject(StackFrame *fp)
 
     callobj.setStackFrame(NULL);
 }
-
-JSBool JS_FASTCALL
-js_PutCallObjectOnTrace(JSObject *obj, uint32 nargs, Value *argv,
-                        uint32 nvars, Value *slots)
-{
-    CallObject &callobj = obj->asCall();
-    JS_ASSERT(!callobj.maybeStackFrame());
-
-    uintN n = nargs + nvars;
-    if (n != 0)
-        callobj.copyValues(nargs, argv, nvars, slots);
-
-    return true;
-}
-
-JS_DEFINE_CALLINFO_5(extern, BOOL, js_PutCallObjectOnTrace, OBJECT, UINT32, VALUEPTR,
-                     UINT32, VALUEPTR, 0, nanojit::ACCSET_STORE_ANY)
 
 namespace js {
 
@@ -989,21 +906,6 @@ SetCallVar(JSContext *cx, JSObject *obj, jsid id, JSBool strict, Value *vp)
     JS_ASSERT((int16) JSID_TO_INT(id) == JSID_TO_INT(id));
     uintN i = (uint16) JSID_TO_INT(id);
 
-    /*
-     * As documented in TraceRecorder::attemptTreeCall(), when recording an
-     * inner tree call, the recorder assumes the inner tree does not mutate
-     * any tracked upvars. The abort here is a pessimistic precaution against
-     * bug 620662, where an inner tree setting a closed stack variable in an
-     * outer tree is illegal, and runtime would fall off trace.
-     */
-#ifdef JS_TRACER
-    if (JS_ON_TRACE(cx)) {
-        TraceMonitor *tm = JS_TRACE_MONITOR_ON_TRACE(cx);
-        if (tm->recorder && tm->tracecx)
-            AbortRecording(cx, "upvar write in nested tree");
-    }
-#endif
-
     if (StackFrame *fp = callobj.maybeStackFrame())
         fp->varSlot(i) = *vp;
     else
@@ -1020,26 +922,6 @@ SetCallVar(JSContext *cx, JSObject *obj, jsid id, JSBool strict, Value *vp)
 }
 
 } // namespace js
-
-#if JS_TRACER
-JSBool JS_FASTCALL
-js_SetCallArg(JSContext *cx, JSObject *obj, jsid slotid, ValueArgType arg)
-{
-    Value argcopy = ValueArgToConstRef(arg);
-    return SetCallArg(cx, obj, slotid, false /* STRICT DUMMY */, &argcopy);
-}
-JS_DEFINE_CALLINFO_4(extern, BOOL, js_SetCallArg, CONTEXT, OBJECT, JSID, VALUE, 0,
-                     nanojit::ACCSET_STORE_ANY)
-
-JSBool JS_FASTCALL
-js_SetCallVar(JSContext *cx, JSObject *obj, jsid slotid, ValueArgType arg)
-{
-    Value argcopy = ValueArgToConstRef(arg);
-    return SetCallVar(cx, obj, slotid, false /* STRICT DUMMY */, &argcopy);
-}
-JS_DEFINE_CALLINFO_4(extern, BOOL, js_SetCallVar, CONTEXT, OBJECT, JSID, VALUE, 0,
-                     nanojit::ACCSET_STORE_ANY)
-#endif
 
 static JSBool
 call_resolve(JSContext *cx, JSObject *obj, jsid id, uintN flags, JSObject **objp)
@@ -1592,19 +1474,24 @@ fun_trace(JSTracer *trc, JSObject *obj)
         return;
 
     if (fun != obj) {
-        /* obj is a cloned function object, trace the clone-parent, fun. */
-        MarkObject(trc, *fun, "private");
+        /*
+         * obj is a cloned function object, trace the clone-parent, fun.
+         * This is safe to leave Unbarriered for incremental GC because any
+         * change to fun will trigger a setPrivate barrer. But we'll need to
+         * fix this for generational GC.
+         */
+        MarkObjectUnbarriered(trc, fun, "private");
 
         /* The function could be a flat closure with upvar copies in the clone. */
         if (fun->isFlatClosure() && fun->script()->bindings.hasUpvars()) {
             MarkValueRange(trc, fun->script()->bindings.countUpvars(),
-                           obj->getFlatClosureUpvars(), "upvars");
+                           obj->getFlatClosureData()->upvars, "upvars");
         }
         return;
     }
 
     if (fun->atom)
-        MarkString(trc, fun->atom, "atom");
+        MarkAtom(trc, fun->atom, "atom");
 
     if (fun->isInterpreted() && fun->script())
         MarkScript(trc, fun->script(), "script");
@@ -1849,7 +1736,7 @@ JSObject::initBoundFunction(JSContext *cx, const Value &thisArg,
             return false;
 
         JS_ASSERT(numSlots() >= argslen + FUN_CLASS_RESERVED_SLOTS);
-        copySlotRange(FUN_CLASS_RESERVED_SLOTS, args, argslen);
+        copySlotRange(FUN_CLASS_RESERVED_SLOTS, args, argslen, false);
     }
     return true;
 }
@@ -2273,27 +2160,15 @@ js_NewFunction(JSContext *cx, JSObject *funobj, Native native, uintN nargs,
 
     /* Initialize all function members. */
     fun->nargs = uint16(nargs);
-    fun->flags = flags & (JSFUN_FLAGS_MASK | JSFUN_KINDMASK | JSFUN_TRCINFO);
+    fun->flags = flags & (JSFUN_FLAGS_MASK | JSFUN_KINDMASK);
     if ((flags & JSFUN_KINDMASK) >= JSFUN_INTERPRETED) {
         JS_ASSERT(!native);
         JS_ASSERT(nargs == 0);
         fun->u.i.skipmin = 0;
-        fun->u.i.script_ = NULL;
+        fun->script().init(NULL);
     } else {
         fun->u.n.clasp = NULL;
-        if (flags & JSFUN_TRCINFO) {
-#ifdef JS_TRACER
-            JSNativeTraceInfo *trcinfo =
-                JS_FUNC_TO_DATA_PTR(JSNativeTraceInfo *, native);
-            fun->u.n.native = (Native) trcinfo->native;
-            fun->u.n.trcinfo = trcinfo;
-#else
-            fun->u.n.trcinfo = NULL;
-#endif
-        } else {
-            fun->u.n.native = native;
-            fun->u.n.trcinfo = NULL;
-        }
+        fun->u.n.native = native;
         JS_ASSERT(fun->u.n.native);
     }
     fun->atom = atom;
@@ -2328,7 +2203,7 @@ js_CloneFunctionObject(JSContext *cx, JSFunction *fun, JSObject *parent,
          * definitions or read barriers, so will not get here.
          */
         if (fun->getProto() == proto && !fun->hasSingletonType())
-            clone->setType(fun->type());
+            clone->initType(fun->type());
 
         clone->setPrivate(fun);
     } else {
@@ -2352,11 +2227,11 @@ js_CloneFunctionObject(JSContext *cx, JSFunction *fun, JSObject *parent,
             JS_ASSERT(script->compartment() == fun->compartment());
             JS_ASSERT(script->compartment() != cx->compartment);
 
-            cfun->u.i.script_ = NULL;
+            cfun->script().init(NULL);
             JSScript *cscript = js_CloneScript(cx, script);
             if (!cscript)
                 return NULL;
-            cscript->u.globalObject = cfun->getGlobal();
+            cscript->globalObject = cfun->getGlobal();
             cfun->setScript(cscript);
             if (!cscript->typeSetFunction(cx, cfun))
                 return NULL;
@@ -2367,11 +2242,6 @@ js_CloneFunctionObject(JSContext *cx, JSFunction *fun, JSObject *parent,
     }
     return clone;
 }
-
-#ifdef JS_TRACER
-JS_DEFINE_CALLINFO_4(extern, OBJECT, js_CloneFunctionObject, CONTEXT, FUNCTION, OBJECT, OBJECT, 0,
-                     nanojit::ACCSET_STORE_ANY)
-#endif
 
 /*
  * Create a new flat closure, but don't initialize the imported upvar
@@ -2395,16 +2265,13 @@ js_AllocFlatClosure(JSContext *cx, JSFunction *fun, JSObject *scopeChain)
     if (nslots == 0)
         return closure;
 
-    Value *upvars = (Value *) cx->malloc_(nslots * sizeof(Value));
-    if (!upvars)
+    FlatClosureData *data = (FlatClosureData *) cx->malloc_(nslots * sizeof(HeapValue));
+    if (!data)
         return NULL;
 
-    closure->setFlatClosureUpvars(upvars);
+    closure->setFlatClosureData(data);
     return closure;
 }
-
-JS_DEFINE_CALLINFO_3(extern, OBJECT, js_AllocFlatClosure,
-                     CONTEXT, FUNCTION, OBJECT, 0, nanojit::ACCSET_STORE_ANY)
 
 JSObject *
 js_NewFlatClosure(JSContext *cx, JSFunction *fun, JSOp op, size_t oplen)
@@ -2425,12 +2292,12 @@ js_NewFlatClosure(JSContext *cx, JSFunction *fun, JSOp op, size_t oplen)
     if (!closure || !fun->script()->bindings.hasUpvars())
         return closure;
 
-    Value *upvars = closure->getFlatClosureUpvars();
+    FlatClosureData *data = closure->getFlatClosureData();
     uintN level = fun->script()->staticLevel;
     JSUpvarArray *uva = fun->script()->upvars();
 
     for (uint32 i = 0, n = uva->length; i < n; i++)
-        upvars[i] = GetUpvar(cx, level, uva->vector[i]);
+        data->upvars[i].init(GetUpvar(cx, level, uva->vector[i]));
 
     return closure;
 }
@@ -2501,7 +2368,7 @@ js_DefineFunction(JSContext *cx, JSObject *obj, jsid id, Native native,
     bool wasDelegate = obj->isDelegate();
 
     fun = js_NewFunction(cx, NULL, native, nargs,
-                         attrs & (JSFUN_FLAGS_MASK | JSFUN_TRCINFO),
+                         attrs & (JSFUN_FLAGS_MASK),
                          obj,
                          JSID_IS_ATOM(id) ? JSID_TO_ATOM(id) : NULL);
     if (!fun)
@@ -2560,7 +2427,6 @@ js_ReportIsNotFunction(JSContext *cx, const Value *vp, uintN flags)
     const char *name = NULL, *source = NULL;
     AutoValueRooter tvr(cx);
     uintN error = (flags & JSV2F_CONSTRUCT) ? JSMSG_NOT_CONSTRUCTOR : JSMSG_NOT_FUNCTION;
-    LeaveTrace(cx);
 
     /*
      * We try to the print the code that produced vp if vp is a value in the

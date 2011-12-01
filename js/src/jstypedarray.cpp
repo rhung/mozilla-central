@@ -50,7 +50,6 @@
 #include "jsarray.h"
 #include "jsatom.h"
 #include "jsbool.h"
-#include "jsbuiltins.h"
 #include "jscntxt.h"
 #include "jsversion.h"
 #include "jsgc.h"
@@ -164,8 +163,8 @@ JSObject::allocateArrayBufferSlots(JSContext *cx, uint32 size)
     JS_ASSERT(isArrayBuffer() && !hasSlotsArray());
 
     uint32 bytes = size + sizeof(Value);
-    if (size > sizeof(Value) * ARRAYBUFFER_RESERVED_SLOTS - sizeof(Value) ) {
-        Value *tmpslots = (Value *)cx->calloc_(bytes);
+    if (size > sizeof(HeapValue) * ARRAYBUFFER_RESERVED_SLOTS - sizeof(HeapValue) ) {
+        HeapValue *tmpslots = (HeapValue *)cx->calloc_(bytes);
         if (!tmpslots)
             return false;
         slots = tmpslots;
@@ -174,7 +173,7 @@ JSObject::allocateArrayBufferSlots(JSContext *cx, uint32 size)
          * |capacity * sizeof(Value)| may underestimate the size by up to
          * |sizeof(Value) - 1| bytes.
          */
-        capacity = bytes / sizeof(Value);
+        capacity = bytes / sizeof(HeapValue);
     } else {
         slots = fixedSlots();
         memset(slots, 0, bytes);
@@ -232,9 +231,13 @@ ArrayBuffer::~ArrayBuffer()
 void
 ArrayBuffer::obj_trace(JSTracer *trc, JSObject *obj)
 {
+    /*
+     * If this object changes, it will get marked via the private data barrier,
+     * so it's safe to leave it Unbarriered.
+     */
     JSObject *delegate = static_cast<JSObject*>(obj->getPrivate());
     if (delegate)
-        MarkObject(trc, *delegate, "arraybuffer.delegate");
+        MarkObjectUnbarriered(trc, delegate, "arraybuffer.delegate");
 }
 
 static JSProperty * const PROPERTY_FOUND = reinterpret_cast<JSProperty *>(1);
@@ -866,10 +869,6 @@ js_TypedArray_uint8_clamp_double(const double x)
     return y;
 }
 
-JS_DEFINE_CALLINFO_1(extern, INT32, js_TypedArray_uint8_clamp_double, DOUBLE,
-                     1, nanojit::ACCSET_NONE)
-
-
 struct uint8_clamped {
     uint8 val;
 
@@ -995,9 +994,7 @@ class TypedArrayTemplate
     static void
     obj_trace(JSTracer *trc, JSObject *obj)
     {
-        JSObject *buffer = static_cast<JSObject*>(getBuffer(obj));
-        if (buffer)
-            MarkObject(trc, *buffer, "typedarray.buffer");
+        MarkValue(trc, obj->getFixedSlotRef(FIELD_BUFFER), "typedarray.buffer");
     }
 
     static JSBool

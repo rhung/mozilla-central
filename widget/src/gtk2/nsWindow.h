@@ -320,8 +320,9 @@ public:
                                             bool *aIsCancelled);
 
     NS_IMETHOD ResetInputState();
-    NS_IMETHOD SetInputMode(const IMEContext& aContext);
-    NS_IMETHOD GetInputMode(IMEContext& aContext);
+    NS_IMETHOD_(void) SetInputContext(const InputContext& aContext,
+                                      const InputContextAction& aAction);
+    NS_IMETHOD_(InputContext) GetInputContext();
     NS_IMETHOD CancelIMEComposition();
     NS_IMETHOD OnIMEFocusChange(bool aFocus);
     NS_IMETHOD GetToggledKeyState(PRUint32 aKeyCode, bool* aLEDState);
@@ -347,6 +348,14 @@ public:
 #ifdef ACCESSIBILITY
     static bool        sAccessibilityEnabled;
 #endif
+
+    virtual nsresult SynthesizeNativeMouseEvent(nsIntPoint aPoint,
+                                                PRUint32 aNativeMessage,
+                                                PRUint32 aModifierFlags);
+
+    virtual nsresult SynthesizeNativeMouseMove(nsIntPoint aPoint)
+    { return SynthesizeNativeMouseEvent(aPoint, GDK_MOTION_NOTIFY, 0); }
+
 protected:
     // Helper for SetParent and ReparentNativeWidget.
     void ReparentNativeWidgetInternal(nsIWidget* aNewParent,

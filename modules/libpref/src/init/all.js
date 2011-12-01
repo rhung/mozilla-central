@@ -319,6 +319,7 @@ pref("browser.fixup.alternate.enabled", true);
 pref("browser.fixup.alternate.prefix", "www.");
 pref("browser.fixup.alternate.suffix", ".com");
 pref("browser.fixup.hide_user_pass", true);
+pref("browser.fixup.use-utf8", false);
 
 // Location Bar AutoComplete
 pref("browser.urlbar.autocomplete.enabled", true);
@@ -625,15 +626,12 @@ pref("javascript.options.strict",           false);
 pref("javascript.options.strict.debug",     true);
 #endif
 pref("javascript.options.relimit",          true);
-pref("javascript.options.tracejit.content",  false);
-pref("javascript.options.tracejit.chrome",   false);
 pref("javascript.options.methodjit.content", true);
 pref("javascript.options.methodjit.chrome",  true);
-pref("javascript.options.jitprofiling.content", true);
-pref("javascript.options.jitprofiling.chrome",  true);
 pref("javascript.options.pccounts.content", false);
 pref("javascript.options.pccounts.chrome",  false);
 pref("javascript.options.methodjit_always", false);
+pref("javascript.options.jit_hardening", true);
 pref("javascript.options.typeinference", true);
 // This preference limits the memory usage of javascript.
 // If you want to change these values for your device,
@@ -988,10 +986,6 @@ pref("network.standard-url.escape-utf8", true);
 // This preference controls whether or not URLs are always encoded and sent as
 // UTF-8.
 pref("network.standard-url.encode-utf8", true);
-
-// This preference controls whether or not queries are encoded and sent as
-// UTF-8.
-pref("network.standard-url.encode-query-utf8", false);
 
 // Idle timeout for ftp control connections - 5 minute default
 pref("network.ftp.idleConnectionTimeout", 300);
@@ -1470,17 +1464,23 @@ pref("editor.positioning.offset",            0);
 pref("dom.max_chrome_script_run_time", 20);
 pref("dom.max_script_run_time", 10);
 
+// Hang monitor timeout after which we kill the browser, in seconds
+// (0 is disabled)
+// Disabled on all platforms per bug 705748 until the found issues are
+// resolved.
+pref("hangmonitor.timeout", 0);
+
 #ifndef DEBUG
 // How long a plugin is allowed to process a synchronous IPC message
 // before we consider it "hung".
-pref("dom.ipc.plugins.timeoutSecs", 45);
+pref("dom.ipc.plugins.timeoutSecs", 25);
 // How long a plugin process will wait for a response from the parent
 // to a synchronous request before terminating itself. After this
 // point the child assumes the parent is hung.
 pref("dom.ipc.plugins.parentTimeoutSecs", 15);
 // How long a plugin launch is allowed to take before
 // we consider it failed.
-pref("dom.ipc.plugins.processLaunchTimeoutSecs", 45);
+pref("dom.ipc.plugins.processLaunchTimeoutSecs", 25);
 #else
 // No timeout in DEBUG builds
 pref("dom.ipc.plugins.timeoutSecs", 0);
@@ -1539,6 +1539,29 @@ pref("font.minimum-size.x-cans", 0);
 pref("font.minimum-size.x-western", 0);
 pref("font.minimum-size.x-unicode", 0);
 pref("font.minimum-size.x-user-def", 0);
+
+/*
+ * A value greater than zero enables font size inflation for
+ * pan-and-zoom UIs, so that the fonts in a block are at least the size
+ * that, if a block's width is scaled to match the device's width, the
+ * fonts in the block are big enough that at most the pref value ems of
+ * text fit in *the width of the device*.
+ *
+ * When both this pref and the next are set, the larger inflation is
+ * used.
+ */
+pref("font.size.inflation.emPerLine", 0);
+/*
+ * A value greater than zero enables font size inflation for
+ * pan-and-zoom UIs, so that if a block's width is scaled to match the
+ * device's width, the fonts in a block are at least the font size
+ * given.  The value given is in twips, i.e., 1/20 of a point, or 1/1440
+ * of an inch.
+ *
+ * When both this pref and the previous are set, the larger inflation is
+ * used.
+ */
+pref("font.size.inflation.minTwips", 0);
 
 #ifdef XP_WIN
 
@@ -3339,6 +3362,7 @@ pref("browser.history.maxStateObjectSize", 655360);
 // XPInstall prefs
 pref("xpinstall.whitelist.required", true);
 pref("extensions.alwaysUnpack", false);
+pref("extensions.minCompatiblePlatformVersion", "2.0");
 
 pref("network.buffer.cache.count", 24);
 pref("network.buffer.cache.size",  32768);
@@ -3367,3 +3391,10 @@ pref("layout.3d-transforms.enabled", true);
 
 // Battery API
 pref("dom.battery.enabled", true);
+
+// WebSMS
+pref("dom.sms.enabled", false);
+pref("dom.sms.whitelist", "");
+
+// enable JS dump() function.
+pref("browser.dom.window.dump.enabled", false);

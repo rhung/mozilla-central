@@ -46,7 +46,6 @@
 #include "jsmath.h"
 #include "jsproxy.h"
 #include "jsscope.h"
-#include "jstracer.h"
 #include "jswatchpoint.h"
 #include "jswrapper.h"
 #include "assembler/wtf/Platform.h"
@@ -58,6 +57,7 @@
 #include "vm/Debugger.h"
 
 #include "jsgcinlines.h"
+#include "jsobjinlines.h"
 #include "jsscopeinlines.h"
 
 #if ENABLE_YARR_JIT
@@ -71,22 +71,18 @@ using namespace js::gc;
 JSCompartment::JSCompartment(JSRuntime *rt)
   : rt(rt),
     principals(NULL),
+    needsBarrier_(false),
+    gcIncrementalTracer(NULL),
     gcBytes(0),
     gcTriggerBytes(0),
     gcLastBytes(0),
     hold(false),
     typeLifoAlloc(TYPE_LIFO_ALLOC_PRIMARY_CHUNK_SIZE),
-#ifdef JS_TRACER
-    traceMonitor_(NULL),
-#endif
     data(NULL),
     active(false),
     hasDebugModeCodeToDrop(false),
 #ifdef JS_METHODJIT
     jaegerCompartment_(NULL),
-#endif
-#if ENABLE_YARR_JIT
-    regExpAllocator(NULL),
 #endif
     propertyTree(thisForCtor()),
     emptyArgumentsShape(NULL),
@@ -107,16 +103,8 @@ JSCompartment::JSCompartment(JSRuntime *rt)
 
 JSCompartment::~JSCompartment()
 {
-#if ENABLE_YARR_JIT
-    Foreground::delete_(regExpAllocator);
-#endif
-
 #ifdef JS_METHODJIT
     Foreground::delete_(jaegerCompartment_);
-#endif
-
-#ifdef JS_TRACER
-    Foreground::delete_(traceMonitor_);
 #endif
 
     Foreground::delete_(mathCache);
@@ -138,13 +126,6 @@ JSCompartment::init(JSContext *cx)
         return false;
 
     if (!scriptFilenameTable.init())
-        return false;
-
-    regExpAllocator = rt->new_<WTF::BumpPointerAllocator>();
-    if (!regExpAllocator)
-        return false;
-
-    if (!backEdgeTable.init())
         return false;
 
     return debuggees.init() && breakpointSites.init();
@@ -349,6 +330,16 @@ JSCompartment::wrap(JSContext *cx, JSString **strp)
 }
 
 bool
+JSCompartment::wrap(JSContext *cx, HeapPtrString *strp)
+{
+    AutoValueRooter tvr(cx, StringValue(*strp));
+    if (!wrap(cx, tvr.addr()))
+        return false;
+    *strp = tvr.value().toString();
+    return true;
+}
+
+bool
 JSCompartment::wrap(JSContext *cx, JSObject **objp)
 {
     if (!*objp)
@@ -420,10 +411,10 @@ JSCompartment::wrap(JSContext *cx, AutoIdVector &props)
 void
 JSCompartment::markCrossCompartmentWrappers(JSTracer *trc)
 {
-    JS_ASSERT(trc->context->runtime->gcCurrentCompartment);
+    JS_ASSERT(trc->runtime->gcCurrentCompartment);
 
     for (WrapperMap::Enum e(crossCompartmentWrappers); !e.empty(); e.popFront())
-        MarkValue(trc, e.front().key, "cross-compartment wrapper");
+        MarkRoot(trc, e.front().key, "cross-compartment wrapper");
 }
 
 void
@@ -438,21 +429,21 @@ JSCompartment::markTypes(JSTracer *trc)
 
     for (CellIterUnderGC i(this, FINALIZE_SCRIPT); !i.done(); i.next()) {
         JSScript *script = i.get<JSScript>();
-        MarkScript(trc, script, "mark_types_script");
+        MarkRoot(trc, script, "mark_types_script");
     }
 
     for (size_t thingKind = FINALIZE_OBJECT0;
-         thingKind <= FINALIZE_FUNCTION_AND_OBJECT_LAST;
+         thingKind < FINALIZE_FUNCTION_AND_OBJECT_LIMIT;
          thingKind++) {
         for (CellIterUnderGC i(this, AllocKind(thingKind)); !i.done(); i.next()) {
             JSObject *object = i.get<JSObject>();
             if (!object->isNewborn() && object->hasSingletonType())
-                MarkObject(trc, *object, "mark_types_singleton");
+                MarkRoot(trc, object, "mark_types_singleton");
         }
     }
 
     for (CellIterUnderGC i(this, FINALIZE_TYPE_OBJECT); !i.done(); i.next())
-        MarkTypeObject(trc, i.get<types::TypeObject>(), "mark_types_scan");
+        MarkRoot(trc, i.get<types::TypeObject>(), "mark_types_scan");
 }
 
 void
@@ -460,11 +451,11 @@ JSCompartment::sweep(JSContext *cx, bool releaseTypes)
 {
     /* Remove dead wrappers from the table. */
     for (WrapperMap::Enum e(crossCompartmentWrappers); !e.empty(); e.popFront()) {
-        JS_ASSERT_IF(IsAboutToBeFinalized(cx, e.front().key.toGCThing()) &&
-                     !IsAboutToBeFinalized(cx, e.front().value.toGCThing()),
+        JS_ASSERT_IF(IsAboutToBeFinalized(cx, e.front().key) &&
+                     !IsAboutToBeFinalized(cx, e.front().value),
                      e.front().key.isString());
-        if (IsAboutToBeFinalized(cx, e.front().key.toGCThing()) ||
-            IsAboutToBeFinalized(cx, e.front().value.toGCThing())) {
+        if (IsAboutToBeFinalized(cx, e.front().key) ||
+            IsAboutToBeFinalized(cx, e.front().value)) {
             e.removeFront();
         }
     }
@@ -490,32 +481,33 @@ JSCompartment::sweep(JSContext *cx, bool releaseTypes)
 
     sweepBreakpoints(cx);
 
-#ifdef JS_TRACER
-    if (hasTraceMonitor())
-        traceMonitor()->sweep(cx);
-#endif
-
-    /*
-     * Kick all frames on the stack into the interpreter, and release all JIT
-     * code in the compartment.
-     */
-#ifdef JS_METHODJIT
-    mjit::ClearAllFrames(this);
-
-    for (CellIterUnderGC i(this, FINALIZE_SCRIPT); !i.done(); i.next()) {
-        JSScript *script = i.get<JSScript>();
-        mjit::ReleaseScriptCode(cx, script);
+    {
+        gcstats::AutoPhase ap(rt->gcStats, gcstats::PHASE_DISCARD_CODE);
 
         /*
-         * Use counts for scripts are reset on GC. After discarding code we
-         * need to let it warm back up to get information like which opcodes
-         * are setting array holes or accessing getter properties.
+         * Kick all frames on the stack into the interpreter, and release all JIT
+         * code in the compartment.
          */
-        script->resetUseCount();
-    }
+#ifdef JS_METHODJIT
+        mjit::ClearAllFrames(this);
+
+        for (CellIterUnderGC i(this, FINALIZE_SCRIPT); !i.done(); i.next()) {
+            JSScript *script = i.get<JSScript>();
+            mjit::ReleaseScriptCode(cx, script);
+
+            /*
+             * Use counts for scripts are reset on GC. After discarding code we
+             * need to let it warm back up to get information like which opcodes
+             * are setting array holes or accessing getter properties.
+             */
+            script->resetUseCount();
+        }
 #endif
+    }
 
     if (!activeAnalysis) {
+        gcstats::AutoPhase ap(rt->gcStats, gcstats::PHASE_DISCARD_ANALYSIS);
+
         /*
          * Clear the analysis pool, but don't release its data yet. While
          * sweeping types any live data will be allocated into the pool.
@@ -578,22 +570,12 @@ JSCompartment::purge(JSContext *cx)
             JSScript *script = *listHeadp;
             JS_ASSERT(GetGCThingTraceKind(script) == JSTRACE_SCRIPT);
             *listHeadp = NULL;
-            listHeadp = &script->u.evalHashLink;
+            listHeadp = &script->evalHashLink();
         }
     }
 
     nativeIterCache.purge();
     toSourceCache.destroyIfConstructed();
-
-#ifdef JS_TRACER
-    /*
-     * If we are about to regenerate shapes, we have to flush the JIT cache,
-     * which will eventually abort any current recording.
-     */
-    if (cx->runtime->gcRegenShapes)
-        if (hasTraceMonitor())
-            traceMonitor()->needFlush = JS_TRUE;
-#endif
 }
 
 MathCache *
@@ -604,39 +586,6 @@ JSCompartment::allocMathCache(JSContext *cx)
     if (!mathCache)
         js_ReportOutOfMemory(cx);
     return mathCache;
-}
-
-#ifdef JS_TRACER
-TraceMonitor *
-JSCompartment::allocAndInitTraceMonitor(JSContext *cx)
-{
-    JS_ASSERT(!traceMonitor_);
-    traceMonitor_ = cx->new_<TraceMonitor>();
-    if (!traceMonitor_)
-        return NULL;
-    if (!traceMonitor_->init(cx->runtime)) {
-        Foreground::delete_(traceMonitor_);
-        return NULL;
-    }
-    return traceMonitor_;
-}
-#endif
-
-size_t
-JSCompartment::backEdgeCount(jsbytecode *pc) const
-{
-    if (BackEdgeMap::Ptr p = backEdgeTable.lookup(pc))
-        return p->value;
-
-    return 0;
-}
-
-size_t
-JSCompartment::incBackEdgeCount(jsbytecode *pc)
-{
-    if (BackEdgeMap::Ptr p = backEdgeTable.lookupWithDefault(pc, 0))
-        return ++p->value;
-    return 1;  /* oom not reported by backEdgeTable, so ignore. */
 }
 
 bool
@@ -821,7 +770,7 @@ JSCompartment::markTrapClosuresIteratively(JSTracer *trc)
         // Put off marking trap state until we know the script is live.
         if (site->trapHandler && !IsAboutToBeFinalized(cx, site->script)) {
             if (site->trapClosure.isMarkable() &&
-                IsAboutToBeFinalized(cx, site->trapClosure.toGCThing()))
+                IsAboutToBeFinalized(cx, site->trapClosure))
             {
                 markedAny = true;
             }
@@ -851,4 +800,11 @@ JSCompartment::sweepBreakpoints(JSContext *cx)
         if (clearTrap)
             site->clearTrap(cx, &e);
     }
+}
+
+GCMarker *
+JSCompartment::createBarrierTracer()
+{
+    JS_ASSERT(!gcIncrementalTracer);
+    return NULL;
 }

@@ -55,6 +55,7 @@ FormHistory.prototype = {
     QueryInterface   : XPCOMUtils.generateQI([Ci.nsIFormHistory2,
                                               Ci.nsIObserver,
                                               Ci.nsIFrameMessageListener,
+                                              Ci.nsISupportsWeakReference,
                                               ]),
 
     debug          : true,
@@ -124,9 +125,7 @@ FormHistory.prototype = {
 
 
     init : function() {
-        let self = this;
-
-        Services.prefs.addObserver("browser.formfill.", this, false);
+        Services.prefs.addObserver("browser.formfill.", this, true);
 
         this.updatePrefs();
 
@@ -138,8 +137,9 @@ FormHistory.prototype = {
         this.messageManager.addMessageListener("FormHistory:FormSubmitEntries", this);
 
         // Add observers
-        Services.obs.addObserver(this, "idle-daily", false);
-        Services.obs.addObserver(this, "formhistory-expire-now", false);
+        Services.obs.addObserver(this, "profile-before-change", true);
+        Services.obs.addObserver(this, "idle-daily", true);
+        Services.obs.addObserver(this, "formhistory-expire-now", true);
     },
 
     /* ---- message listener ---- */
@@ -402,6 +402,9 @@ FormHistory.prototype = {
         case "idle-daily":
         case "formhistory-expire-now":
             this.expireOldEntries();
+            break;
+        case "profile-before-change":
+            this._dbFinalize();
             break;
         default:
             this.log("Oops! Unexpected notification: " + topic);
@@ -863,6 +866,18 @@ FormHistory.prototype = {
         }
     },
 
+    /**
+     * _dbFinalize
+     *
+     * Finalize all statements to allow closing the connection correctly.
+     */
+    _dbFinalize : function FH__dbFinalize() {
+        // FIXME (bug 696486): close the connection in here.
+        for each (let stmt in this.dbStmts) {
+            stmt.finalize();
+        }
+        this.dbStmts = {};
+    },
 
     /*
      * dbCleanup
@@ -882,13 +897,11 @@ FormHistory.prototype = {
             storage.backupDatabaseFile(this.dbFile, backupFile);
         }
 
-        // Finalize all statements to free memory, avoid errors later
-        for each (let stmt in this.dbStmts)
-            stmt.finalize();
-        this.dbStmts = [];
+        this._dbFinalize();
 
         // Close the connection, ignore 'already closed' error
-        try { this.dbConnection.close() } catch(e) {}
+        // FIXME (bug 696483): we should reportError in here.
+        try { this.dbConnection.close(); } catch(e) {}
         this.dbFile.remove(false);
     }
 };

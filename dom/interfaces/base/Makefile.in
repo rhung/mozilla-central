@@ -55,9 +55,9 @@ SDK_XPIDLSRCS =                                 \
 	$(NULL)
 
 XPIDLSRCS =					\
-	nsIAnimationFrameListener.idl           \
+	nsIFrameRequestCallback.idl             \
 	nsIBrowserDOMWindow.idl			\
-    nsIContentPermissionPrompt.idl  \
+	nsIContentPermissionPrompt.idl  \
 	nsIContentPrefService.idl		\
 	nsIContentURIGrouper.idl		\
 	nsIDOMClientInformation.idl		\
@@ -88,6 +88,9 @@ XPIDLSRCS =					\
 	nsIDOMPerformance.idl			\
 	nsIDOMPerformanceTiming.idl		\
 	nsIDOMPerformanceNavigation.idl		\
+	nsIDOMMouseLockable.idl \
+	nsIDOMMouseLockableSuccessCallback.idl \
+	nsIDOMMouseLockableFailureCallback.idl \
 	$(NULL)
 
 include $(topsrcdir)/config/rules.mk

@@ -160,6 +160,7 @@ using mozilla::unused;
 
 #include "nsINIParser.h"
 #include "mozilla/Omnijar.h"
+#include "mozilla/StartupTimeline.h"
 
 #include <stdlib.h>
 
@@ -217,7 +218,7 @@ using mozilla::unused;
 
 #include "mozilla/FunctionTimer.h"
 
-#ifdef ANDROID
+#ifdef MOZ_WIDGET_ANDROID
 #include "AndroidBridge.h"
 #endif
 
@@ -1607,7 +1608,7 @@ static nsresult LaunchChild(nsINativeAppSupport* aNative,
 
   SaveToEnv("MOZ_LAUNCHED_CHILD=1");
 
-#if defined(ANDROID)
+#if defined(MOZ_WIDGET_ANDROID)
   mozilla::AndroidBridge::Bridge()->ScheduleRestart();
 #else
 #if defined(XP_MACOSX)
@@ -1658,7 +1659,7 @@ static nsresult LaunchChild(nsINativeAppSupport* aNative,
 #endif // XP_OS2 series
 #endif // WP_WIN
 #endif // WP_MACOSX
-#endif // ANDROID
+#endif // MOZ_WIDGET_ANDROID
 
   return NS_ERROR_LAUNCHED_CHILD_PROCESS;
 }
@@ -2604,8 +2605,6 @@ static DWORD InitDwriteBG(LPVOID lpdwThreadParam)
 }
 #endif
 
-PRTime gXRE_mainTimestamp = 0;
-
 #ifdef MOZ_X11
 #ifndef MOZ_PLATFORM_MAEMO
 bool fire_glxtest_process();
@@ -2621,7 +2620,7 @@ XRE_main(int argc, char* argv[], const nsXREAppData* aAppData)
   SAMPLER_INIT();
   SAMPLE_CHECKPOINT("Startup", "XRE_Main");
 
-  gXRE_mainTimestamp = PR_Now();
+  StartupTimeline::Record(StartupTimeline::MAIN);
 
   nsresult rv;
   ArgResult ar;
@@ -2768,6 +2767,10 @@ XRE_main(int argc, char* argv[], const nsXREAppData* aAppData)
       return 2;
   }
 
+  if (!appData.directory) {
+    NS_IF_ADDREF(appData.directory = appData.xreDirectory);
+  }
+
   if (appData.size > offsetof(nsXREAppData, minVersion)) {
     if (!appData.minVersion) {
       Output(true, "Error: Gecko:MinVersion not specified in application.ini\n");
@@ -2819,6 +2822,10 @@ XRE_main(int argc, char* argv[], const nsXREAppData* aAppData)
     if (appData.buildID)
       CrashReporter::AnnotateCrashReport(NS_LITERAL_CSTRING("BuildID"),
                                          nsDependentCString(appData.buildID));
+
+    nsDependentCString releaseChannel(NS_STRINGIFY(MOZ_UPDATE_CHANNEL));
+    CrashReporter::AnnotateCrashReport(NS_LITERAL_CSTRING("ReleaseChannel"),
+                                       releaseChannel);
     CrashReporter::SetRestartArgs(argc, argv);
 
     // annotate other data (user id etc)

@@ -56,7 +56,6 @@
 #include "jsarray.h"
 #include "jsatom.h"
 #include "jsbool.h"
-#include "jsbuiltins.h"
 #include "jscntxt.h"
 #include "jsversion.h"
 #include "jsfun.h"
@@ -75,7 +74,6 @@
 #include "jsscript.h"
 #include "jsstdint.h"
 #include "jsstr.h"
-#include "jstracer.h"
 #include "jsdbgapi.h"
 #include "json.h"
 #include "jswatchpoint.h"
@@ -463,7 +461,7 @@ js_LeaveSharpObject(JSContext *cx, JSIdArray **idap)
 static intN
 gc_sharp_table_entry_marker(JSHashEntry *he, intN i, void *arg)
 {
-    MarkObject((JSTracer *)arg, *(JSObject *)he->key, "sharp table entry");
+    MarkRoot((JSTracer *)arg, (JSObject *)he->key, "sharp table entry");
     return JS_DHASH_NEXT;
 }
 
@@ -501,7 +499,6 @@ static JSBool
 obj_toSource(JSContext *cx, uintN argc, Value *vp)
 {
     JSBool ok;
-    JSHashEntry *he;
     JSIdArray *ida;
     jschar *chars, *ochars, *vsharp;
     const jschar *idstrchars, *vchars;
@@ -527,10 +524,10 @@ obj_toSource(JSContext *cx, uintN argc, Value *vp)
     if (!obj)
         return false;
 
-    if (!(he = js_EnterSharpObject(cx, obj, &ida, &chars))) {
-        ok = JS_FALSE;
-        goto out;
-    }
+    JSHashEntry *he = js_EnterSharpObject(cx, obj, &ida, &chars);
+    if (!he)
+        return false;
+
     if (!ida) {
         /*
          * We didn't enter -- obj is already "sharp", meaning we've visited it
@@ -816,25 +813,21 @@ obj_toSource(JSContext *cx, uintN argc, Value *vp)
     if (!ok) {
         if (chars)
             Foreground::free_(chars);
-        goto out;
+        return false;
     }
 
     if (!chars) {
         JS_ReportOutOfMemory(cx);
-        ok = JS_FALSE;
-        goto out;
+        return false;
     }
   make_string:
     str = js_NewString(cx, chars, nchars);
     if (!str) {
         cx->free_(chars);
-        ok = JS_FALSE;
-        goto out;
+        return false;
     }
     vp->setString(str);
-    ok = JS_TRUE;
-  out:
-    return ok;
+    return true;
 
   overflow:
     cx->free_(vsharp);
@@ -1061,8 +1054,8 @@ EvalCacheLookup(JSContext *cx, JSLinearString *str, StackFrame *caller, uintN st
                     if (i < 0 ||
                         objarray->vector[i]->getParent() == &scopeobj) {
                         JS_ASSERT(staticLevel == script->staticLevel);
-                        *scriptp = script->u.evalHashLink;
-                        script->u.evalHashLink = NULL;
+                        *scriptp = script->evalHashLink();
+                        script->evalHashLink() = NULL;
                         return script;
                     }
                 }
@@ -1071,7 +1064,7 @@ EvalCacheLookup(JSContext *cx, JSLinearString *str, StackFrame *caller, uintN st
 
         if (++count == EVAL_CACHE_CHAIN_LIMIT)
             return NULL;
-        scriptp = &script->u.evalHashLink;
+        scriptp = &script->evalHashLink();
     }
     return NULL;
 }
@@ -1085,7 +1078,7 @@ EvalCacheLookup(JSContext *cx, JSLinearString *str, StackFrame *caller, uintN st
  * a jsdbgapi user's perspective, we want each eval() to create and destroy a
  * script. This hides implementation details and means we don't have to deal
  * with calls to JS_GetScriptObject for scripts in the eval cache (currently,
- * script->u.object aliases script->u.evalHashLink).
+ * script->object aliases script->evalHashLink()).
  */
 class EvalScriptGuard
 {
@@ -1107,7 +1100,7 @@ class EvalScriptGuard
             js_CallDestroyScriptHook(cx_, script_);
             script_->isActiveEval = false;
             script_->isCachedEval = true;
-            script_->u.evalHashLink = *bucket_;
+            script_->evalHashLink() = *bucket_;
             *bucket_ = script_;
         }
     }
@@ -1161,7 +1154,7 @@ EvalKernel(JSContext *cx, const CallArgs &args, EvalType evalType, StackFrame *c
     AssertInnerizedScopeChain(cx, scopeobj);
 
     if (!scopeobj.getGlobal()->isRuntimeCodeGenEnabled(cx)) {
-        JS_ReportError(cx, "call to eval() blocked by CSP");
+        JS_ReportErrorNumber(cx, js_GetErrorMessage, NULL, JSMSG_CSP_BLOCKED_EVAL);
         return false;
     }
 
@@ -2715,12 +2708,11 @@ obj_preventExtensions(JSContext *cx, uintN argc, Value *vp)
 }
 
 size_t
-JSObject::sizeOfSlotsArray(JSUsableSizeFun usf)
+JSObject::sizeOfSlotsArray(JSMallocSizeOfFun mallocSizeOf)
 {
     if (!hasSlotsArray())
         return 0;
-    size_t usable = usf((void *)slots);
-    return usable ? usable : numSlots() * sizeof(js::Value);
+    return mallocSizeOf(slots, numDynamicSlots(numSlots()) * sizeof(js::Value));
 }
 
 bool
@@ -3004,7 +2996,7 @@ CreateThisForFunctionWithType(JSContext *cx, types::TypeObject *type, JSObject *
         gc::AllocKind kind = type->newScript->allocKind;
         JSObject *res = NewObjectWithType(cx, type, parent, kind);
         if (res)
-            res->setMap((Shape *) type->newScript->shape);
+            res->initMap((Shape *) type->newScript->shape.get());
         return res;
     }
 
@@ -3062,88 +3054,6 @@ js_CreateThisForFunction(JSContext *cx, JSObject *callee, bool newType)
     return obj;
 }
 
-#ifdef JS_TRACER
-
-JSObject* FASTCALL
-js_Object_tn(JSContext* cx, JSObject* proto)
-{
-    JS_ASSERT(!(ObjectClass.flags & JSCLASS_HAS_PRIVATE));
-    return NewObjectWithClassProto(cx, &ObjectClass, proto, FINALIZE_OBJECT8);
-}
-
-JS_DEFINE_TRCINFO_1(js_Object,
-    (2, (extern, CONSTRUCTOR_RETRY, js_Object_tn, CONTEXT, CALLEE_PROTOTYPE, 0,
-         nanojit::ACCSET_STORE_ANY)))
-
-JSObject* FASTCALL
-js_InitializerObject(JSContext* cx, JSObject *proto, JSObject *baseobj)
-{
-    if (!baseobj) {
-        gc::AllocKind kind = GuessObjectGCKind(0, false);
-        return NewObjectWithClassProto(cx, &ObjectClass, proto, kind);
-    }
-
-    /* :FIXME: bug 637856 new Objects do not have the right type when created on trace. */
-    TypeObject *type = proto->getNewType(cx);
-    if (!type)
-        return NULL;
-
-    return CopyInitializerObject(cx, baseobj, type);
-}
-
-JS_DEFINE_CALLINFO_3(extern, OBJECT, js_InitializerObject, CONTEXT, OBJECT, OBJECT,
-                     0, nanojit::ACCSET_STORE_ANY)
-
-JSObject* FASTCALL
-js_String_tn(JSContext* cx, JSObject* proto, JSString* str)
-{
-    JS_ASSERT(JS_ON_TRACE(cx));
-    JS_ASSERT(proto);
-    return StringObject::createWithProto(cx, str, *proto);
-}
-JS_DEFINE_CALLINFO_3(extern, OBJECT, js_String_tn, CONTEXT, CALLEE_PROTOTYPE, STRING, 0,
-                     nanojit::ACCSET_STORE_ANY)
-
-JSObject * FASTCALL
-js_CreateThisFromTrace(JSContext *cx, JSObject *ctor, uintN protoSlot)
-{
-#ifdef DEBUG
-    JS_ASSERT(ctor->isFunction());
-    JS_ASSERT(ctor->getFunctionPrivate()->isInterpreted());
-    jsid id = ATOM_TO_JSID(cx->runtime->atomState.classPrototypeAtom);
-    const Shape *shape = ctor->nativeLookup(cx, id);
-    JS_ASSERT(shape->slot == protoSlot);
-    JS_ASSERT(!shape->configurable());
-    JS_ASSERT(!shape->isMethod());
-#endif
-
-    JSObject *parent = ctor->getParent();
-    JSObject *proto;
-    const Value &protov = ctor->getSlot(protoSlot);
-    if (protov.isObject()) {
-        proto = &protov.toObject();
-    } else {
-        /*
-         * GetInterpretedFunctionPrototype found that ctor.prototype is
-         * primitive. Use Object.prototype for proto, per ES5 13.2.2 step 7.
-         */
-        proto = parent->getGlobal()->getOrCreateObjectPrototype(cx);
-        if (!proto)
-            return NULL;
-    }
-
-    gc::AllocKind kind = NewObjectGCKind(cx, &ObjectClass);
-    return NewNativeClassInstance(cx, &ObjectClass, proto, parent, kind);
-}
-JS_DEFINE_CALLINFO_3(extern, CONSTRUCTOR_RETRY, js_CreateThisFromTrace, CONTEXT, OBJECT, UINTN, 0,
-                     nanojit::ACCSET_STORE_ANY)
-
-#else  /* !JS_TRACER */
-
-# define js_Object_trcinfo NULL
-
-#endif /* !JS_TRACER */
-
 /*
  * Given pc pointing after a property accessing bytecode, return true if the
  * access is "object-detecting" in the sense used by web scripts, e.g., when
@@ -3159,7 +3069,7 @@ Detecting(JSContext *cx, jsbytecode *pc)
     JSScript *script = cx->stack.currentScript();
     endpc = script->code + script->length;
     for (;; pc += js_CodeSpec[op].length) {
-        JS_ASSERT_IF(!cx->fp()->hasImacropc(), script->code <= pc && pc < endpc);
+        JS_ASSERT(script->code <= pc && pc < endpc);
 
         /* General case: a branch or equality op follows the access. */
         op = js_GetOpcode(cx, script, pc);
@@ -3215,13 +3125,6 @@ Detecting(JSContext *cx, jsbytecode *pc)
 uintN
 js_InferFlags(JSContext *cx, uintN defaultFlags)
 {
-#ifdef JS_TRACER
-    if (JS_ON_TRACE(cx))
-        return JS_TRACE_MONITOR_ON_TRACE(cx)->bailExit->lookupFlags;
-#endif
-
-    JS_ASSERT_NOT_ON_TRACE(cx);
-
     const JSCodeSpec *cs;
     uint32 format;
     uintN flags = 0;
@@ -3504,7 +3407,7 @@ js_NewWithObject(JSContext *cx, JSObject *proto, JSObject *parent, jsint depth)
     if (!emptyWithShape)
         return NULL;
 
-    obj->setMap(emptyWithShape);
+    obj->initMap(emptyWithShape);
     OBJ_SET_BLOCK_DEPTH(cx, obj, depth);
 
     AutoObjectRooter tvr(cx, obj);
@@ -3533,7 +3436,7 @@ js_NewBlockObject(JSContext *cx)
     if (!emptyBlockShape)
         return NULL;
     blockObj->init(cx, &BlockClass, &emptyTypeObject, NULL, NULL, false);
-    blockObj->setMap(emptyBlockShape);
+    blockObj->initMap(emptyBlockShape);
 
     return blockObj;
 }
@@ -3591,7 +3494,7 @@ js_PutBlockObject(JSContext *cx, JSBool normalUnwind)
     if (normalUnwind) {
         uintN slot = JSSLOT_BLOCK_FIRST_FREE_SLOT;
         depth += fp->numFixed();
-        obj->copySlotRange(slot, fp->slots() + depth, count);
+        obj->copySlotRange(slot, fp->slots() + depth, count, true);
     }
 
     /* We must clear the private slot even with errors. */
@@ -3794,8 +3697,8 @@ struct JSObject::TradeGutsReserved {
     JSContext *cx;
     Vector<Value> avals;
     Vector<Value> bvals;
-    Value *newaslots;
-    Value *newbslots;
+    HeapValue *newaslots;
+    HeapValue *newbslots;
 
     TradeGutsReserved(JSContext *cx)
         : cx(cx), avals(cx), bvals(cx), newaslots(NULL), newbslots(NULL)
@@ -3843,12 +3746,12 @@ JSObject::ReserveForTradeGuts(JSContext *cx, JSObject *a, JSObject *b,
     unsigned bfixed = b->numFixedSlots();
 
     if (afixed < bcap) {
-        reserved.newaslots = (Value *) cx->malloc_(sizeof(Value) * (bcap - afixed));
+        reserved.newaslots = (HeapValue *) cx->malloc_(sizeof(HeapValue) * (bcap - afixed));
         if (!reserved.newaslots)
             return false;
     }
     if (bfixed < acap) {
-        reserved.newbslots = (Value *) cx->malloc_(sizeof(Value) * (acap - bfixed));
+        reserved.newbslots = (HeapValue *) cx->malloc_(sizeof(HeapValue) * (acap - bfixed));
         if (!reserved.newbslots)
             return false;
     }
@@ -3884,6 +3787,19 @@ JSObject::TradeGuts(JSContext *cx, JSObject *a, JSObject *b, TradeGutsReserved &
      */
     JS_ASSERT(!a->isDenseArray() && !b->isDenseArray());
     JS_ASSERT(!a->isArrayBuffer() && !b->isArrayBuffer());
+
+#ifdef JSGC_INCREMENTAL
+    /*
+     * We need a write barrier here. If |a| was marked and |b| was not, then
+     * after the swap, |b|'s guts would never be marked. The write barrier
+     * solves this.
+     */
+    JSCompartment *comp = a->compartment();
+    if (comp->needsBarrier()) {
+        MarkChildren(comp->barrierTracer(), a);
+        MarkChildren(comp->barrierTracer(), b);
+    }
+#endif
 
     /* New types for a JSObject need to be stable when trading guts. */
     TypeObject *newTypeA = a->newType;
@@ -3938,7 +3854,7 @@ JSObject::TradeGuts(JSContext *cx, JSObject *a, JSObject *b, TradeGutsReserved &
         unsigned afixed = a->numFixedSlots();
         unsigned bfixed = b->numFixedSlots();
 
-        JSObject tmp;
+        char tmp[sizeof(JSObject)];
         memcpy(&tmp, a, sizeof tmp);
         memcpy(a, b, sizeof tmp);
         memcpy(b, &tmp, sizeof tmp);
@@ -3946,13 +3862,13 @@ JSObject::TradeGuts(JSContext *cx, JSObject *a, JSObject *b, TradeGutsReserved &
         a->updateFixedSlots(afixed);
         a->slots = reserved.newaslots;
         a->capacity = Max(afixed, bcap);
-        a->copySlotRange(0, reserved.bvals.begin(), bcap);
+        a->copySlotRange(0, reserved.bvals.begin(), bcap, false);
         a->clearSlotRange(bcap, a->capacity - bcap);
 
         b->updateFixedSlots(bfixed);
         b->slots = reserved.newbslots;
         b->capacity = Max(bfixed, acap);
-        b->copySlotRange(0, reserved.avals.begin(), acap);
+        b->copySlotRange(0, reserved.avals.begin(), acap, false);
         b->clearSlotRange(acap, b->capacity - acap);
 
         /* Make sure the destructor for reserved doesn't free the slots. */
@@ -4309,7 +4225,7 @@ DefineConstructorAndPrototype(JSContext *cx, JSObject *obj, JSProtoKey key, JSAt
          * inference may need to access these, and js_GetClassPrototype will
          * fail if it tries to do a reentrant reconstruction of the class.
          */
-        if (key != JSProto_Null && !(clasp->flags & JSCLASS_CONSTRUCT_PROTOTYPE)) {
+        if (key != JSProto_Null) {
             if (!SetClassObject(cx, obj, key, fun, proto))
                 goto bad;
             cached = true;
@@ -4326,16 +4242,6 @@ DefineConstructorAndPrototype(JSContext *cx, JSObject *obj, JSProtoKey key, JSAt
          * XML support requires.
          */
         ctor = fun;
-        if (clasp->flags & JSCLASS_CONSTRUCT_PROTOTYPE) {
-            Value rval;
-            if (!InvokeConstructorWithGivenThis(cx, proto, ObjectOrNullValue(ctor),
-                                                0, NULL, &rval)) {
-                goto bad;
-            }
-            if (rval.isObject() && &rval.toObject() != proto)
-                proto = &rval.toObject();
-        }
-
         if (!LinkConstructorAndPrototype(cx, ctor, proto))
             goto bad;
 
@@ -4448,27 +4354,31 @@ JSObject::clearSlotRange(size_t start, size_t length)
 {
     JS_ASSERT(start + length <= capacity);
     if (isDenseArray()) {
-        ClearValueRange(slots + start, length, true);
+        ClearValueRange(compartment(), slots + start, length, true);
     } else {
         size_t fixed = numFixedSlots();
         if (start < fixed) {
             if (start + length < fixed) {
-                ClearValueRange(fixedSlots() + start, length, false);
+                ClearValueRange(compartment(), fixedSlots() + start, length, false);
             } else {
                 size_t localClear = fixed - start;
-                ClearValueRange(fixedSlots() + start, localClear, false);
-                ClearValueRange(slots, length - localClear, false);
+                ClearValueRange(compartment(), fixedSlots() + start, localClear, false);
+                ClearValueRange(compartment(), slots, length - localClear, false);
             }
         } else {
-            ClearValueRange(slots + start - fixed, length, false);
+            ClearValueRange(compartment(), slots + start - fixed, length, false);
         }
     }
 }
 
 void
-JSObject::copySlotRange(size_t start, const Value *vector, size_t length)
+JSObject::copySlotRange(size_t start, const Value *vector, size_t length, bool valid)
 {
     JS_ASSERT(start + length <= capacity);
+
+    if (valid)
+        prepareSlotRangeForOverwrite(start, start + length);
+
     if (isDenseArray()) {
         memcpy(slots + start, vector, length * sizeof(Value));
     } else {
@@ -4515,14 +4425,13 @@ JSObject::allocSlots(JSContext *cx, size_t newcap)
     }
 
     if (newcap > NSLOTS_LIMIT) {
-        if (!JS_ON_TRACE(cx))
-            js_ReportAllocationOverflow(cx);
+        js_ReportAllocationOverflow(cx);
         return false;
     }
 
     uint32 allocCount = numDynamicSlots(newcap);
 
-    Value *tmpslots = (Value*) cx->malloc_(allocCount * sizeof(Value));
+    HeapValue *tmpslots = (HeapValue*) cx->malloc_(allocCount * sizeof(HeapValue));
     if (!tmpslots)
         return false;  /* Leave slots at inline buffer. */
     slots = tmpslots;
@@ -4530,12 +4439,12 @@ JSObject::allocSlots(JSContext *cx, size_t newcap)
 
     if (isDenseArray()) {
         /* Copy over anything from the inline buffer. */
-        memcpy(slots, fixedSlots(), getDenseArrayInitializedLength() * sizeof(Value));
+        memcpy(slots, fixedSlots(), getDenseArrayInitializedLength() * sizeof(HeapValue));
         if (!cx->typeInferenceEnabled())
             backfillDenseArrayHoles(cx);
     } else {
         /* Clear out the new slots without copying. */
-        ClearValueRange(slots, allocCount, false);
+        InitValueRange(slots, allocCount, false);
     }
 
     Probes::resizeObject(cx, this, oldSize, slotsAndStructSize());
@@ -4592,8 +4501,8 @@ JSObject::growSlots(JSContext *cx, size_t newcap)
     uint32 oldAllocCount = numDynamicSlots(oldcap);
     uint32 allocCount = numDynamicSlots(actualCapacity);
 
-    Value *tmpslots = (Value*) cx->realloc_(slots, oldAllocCount * sizeof(Value),
-                                            allocCount * sizeof(Value));
+    HeapValue *tmpslots = (HeapValue*) cx->realloc_(slots, oldAllocCount * sizeof(HeapValue),
+                                                    allocCount * sizeof(HeapValue));
     if (!tmpslots)
         return false;    /* Leave dslots as its old size. */
 
@@ -4606,7 +4515,7 @@ JSObject::growSlots(JSContext *cx, size_t newcap)
             backfillDenseArrayHoles(cx);
     } else {
         /* Clear the new slots we added. */
-        ClearValueRange(slots + oldAllocCount, allocCount - oldAllocCount, false);
+        InitValueRange(slots + oldAllocCount, allocCount - oldAllocCount, false);
     }
 
     if (changed && isGlobal())
@@ -4629,6 +4538,8 @@ JSObject::shrinkSlots(JSContext *cx, size_t newcap)
     if (isCall())
         return;
 
+    JS_ASSERT_IF(isDenseArray(), initializedLength() <= newcap);
+
     uint32 oldcap = numSlots();
     JS_ASSERT(newcap <= oldcap);
     JS_ASSERT(newcap >= slotSpan());
@@ -4647,10 +4558,16 @@ JSObject::shrinkSlots(JSContext *cx, size_t newcap)
     }
 
     uint32 fill = newcap;
-    newcap = Max(newcap, size_t(SLOT_CAPACITY_MIN));
-    newcap = Max(newcap, numFixedSlots());
+    if (isDenseArray()) {
+        newcap = Max(newcap, size_t(SLOT_CAPACITY_MIN));
+        newcap = Max(newcap, numFixedSlots());
+    } else {
+        newcap = Max(newcap, numFixedSlots() + SLOT_CAPACITY_MIN);
+    }
 
-    Value *tmpslots = (Value*) cx->realloc_(slots, newcap * sizeof(Value));
+    uint32 allocCount = numDynamicSlots(newcap);
+
+    HeapValue *tmpslots = (HeapValue*) cx->realloc_(slots, allocCount * sizeof(Value));
     if (!tmpslots)
         return;  /* Leave slots at its old size. */
 
@@ -4930,16 +4847,10 @@ js_ConstructObject(JSContext *cx, Class *clasp, JSObject *proto, JSObject *paren
 
     /*
      * If the instance's class differs from what was requested, throw a type
-     * error.  If the given class has both the JSCLASS_HAS_PRIVATE and the
-     * JSCLASS_CONSTRUCT_PROTOTYPE flags, and the instance does not have its
-     * private data set at this point, then the constructor was replaced and
-     * we should throw a type error.
+     * error.
      */
     obj = &rval.toObject();
-    if (obj->getClass() != clasp ||
-        (!(~clasp->flags & (JSCLASS_HAS_PRIVATE |
-                            JSCLASS_CONSTRUCT_PROTOTYPE)) &&
-         !obj->getPrivate())) {
+    if (obj->getClass() != clasp) {
         JS_ReportErrorNumber(cx, js_GetErrorMessage, NULL,
                              JSMSG_WRONG_CONSTRUCTOR, clasp->name);
         return NULL;
@@ -5028,15 +4939,6 @@ PurgeProtoChain(JSContext *cx, JSObject *obj, jsid id)
         if (shape) {
             PCMETER(JS_PROPERTY_CACHE(cx).pcpurges++);
             obj->shadowingShapeChange(cx, *shape);
-
-            if (!obj->getParent()) {
-                /*
-                 * All scope chains end in a global object, so this will change
-                 * the global shape. jstracer.cpp assumes that the global shape
-                 * never changes on trace, so we must deep-bail here.
-                 */
-                LeaveTrace(cx);
-            }
             return JS_TRUE;
         }
         obj = obj->getProto();
@@ -5166,7 +5068,6 @@ DefineNativeProperty(JSContext *cx, JSObject *obj, jsid id, const Value &value,
 {
     JS_ASSERT((defineHow & ~(DNP_CACHE_RESULT | DNP_DONT_PURGE |
                              DNP_SET_METHOD | DNP_SKIP_TYPE)) == 0);
-    LeaveTraceIfGlobalObject(cx, obj);
 
     /* Convert string indices to integers if appropriate. */
     id = js_CheckForStringIndex(id);
@@ -5274,9 +5175,6 @@ DefineNativeProperty(JSContext *cx, JSObject *obj, jsid id, const Value &value,
         }
 
         if (const Shape *existingShape = obj->nativeLookup(cx, id)) {
-            if (existingShape->hasSlot())
-                AbortRecordingIfUnexpectedGlobalWrite(cx, obj, existingShape->slot);
-
             if (existingShape->isMethod() &&
                 ObjectValue(existingShape->methodObject()) == valueCopy)
             {
@@ -5334,19 +5232,10 @@ DefineNativeProperty(JSContext *cx, JSObject *obj, jsid id, const Value &value,
     }
 
     if (defineHow & DNP_CACHE_RESULT) {
-        JS_ASSERT_NOT_ON_TRACE(cx);
-        if (adding) {
+        if (adding)
             JS_PROPERTY_CACHE(cx).fill(cx, obj, 0, obj, shape, true);
-            TRACE_1(AddProperty, obj);
-        }
     }
     return shape;
-
-#ifdef JS_TRACER
-  error:
-    /* TRACE_1 jumps here on error. */
-    return NULL;
-#endif
 }
 
 } /* namespace js */
@@ -5542,7 +5431,6 @@ js_FindPropertyHelper(JSContext *cx, jsid id, bool cacheResult, bool global,
     int scopeIndex;
     JSProperty *prop;
 
-    JS_ASSERT_IF(cacheResult, !JS_ON_TRACE(cx));
     scopeChain = cx->stack.currentScriptedScopeChain();
 
     if (global) {
@@ -5657,7 +5545,6 @@ js_FindIdentifierBase(JSContext *cx, JSObject *scopeChain, jsid id)
      * trace and should have a valid cache entry for native scopeChain.
      */
     JS_ASSERT(scopeChain->getParent());
-    JS_ASSERT(!JS_ON_TRACE(cx));
 
     JSObject *obj = scopeChain;
 
@@ -5721,8 +5608,6 @@ static JS_ALWAYS_INLINE JSBool
 js_NativeGetInline(JSContext *cx, JSObject *receiver, JSObject *obj, JSObject *pobj,
                    const Shape *shape, uintN getHow, Value *vp)
 {
-    LeaveTraceIfGlobalObject(cx, pobj);
-
     uint32 slot;
     int32 sample;
 
@@ -5747,7 +5632,7 @@ js_NativeGetInline(JSContext *cx, JSObject *receiver, JSObject *obj, JSObject *p
 
     jsbytecode *pc;
     JSScript *script = cx->stack.currentScript(&pc);
-    if (script && script->hasAnalysis() && !cx->fp()->hasImacropc()) {
+    if (script && script->hasAnalysis()) {
         analyze::Bytecode *code = script->analysis()->maybeCode(pc);
         if (code)
             code->accessGetter = true;
@@ -5778,8 +5663,6 @@ js_NativeGet(JSContext *cx, JSObject *obj, JSObject *pobj, const Shape *shape, u
 JSBool
 js_NativeSet(JSContext *cx, JSObject *obj, const Shape *shape, bool added, bool strict, Value *vp)
 {
-    LeaveTraceIfGlobalObject(cx, obj);
-
     AddTypePropertyId(cx, obj, shape->propid, *vp);
 
     uint32 slot;
@@ -5794,8 +5677,6 @@ js_NativeSet(JSContext *cx, JSObject *obj, const Shape *shape, bool added, bool 
         /* If shape has a stub setter, keep obj locked and just store *vp. */
         if (shape->hasDefaultSetter()) {
             if (!added) {
-                AbortRecordingIfUnexpectedGlobalWrite(cx, obj, slot);
-
                 /* FIXME: This should pass *shape, not slot, but see bug 630354. */
                 if (!obj->methodWriteBarrier(cx, slot, *vp))
                     return false;
@@ -5825,7 +5706,6 @@ js_NativeSet(JSContext *cx, JSObject *obj, const Shape *shape, bool added, bool 
         (JS_LIKELY(cx->runtime->propertyRemovals == sample) ||
          obj->nativeContains(cx, *shape))) {
         if (!added) {
-            AbortRecordingIfUnexpectedGlobalWrite(cx, obj, slot);
             if (!obj->methodWriteBarrier(cx, *shape, *vp))
                 return false;
         }
@@ -5842,8 +5722,6 @@ js_GetPropertyHelperInline(JSContext *cx, JSObject *obj, JSObject *receiver, jsi
     JSObject *aobj, *obj2;
     JSProperty *prop;
     const Shape *shape;
-
-    JS_ASSERT_IF(getHow & JSGET_CACHE_RESULT, !JS_ON_TRACE(cx));
 
     /* Convert string indices to integers if appropriate. */
     id = js_CheckForStringIndex(id);
@@ -5875,17 +5753,14 @@ js_GetPropertyHelperInline(JSContext *cx, JSObject *obj, JSObject *receiver, jsi
             uintN flags;
 
             op = (JSOp) *pc;
-            if (op == JSOP_TRAP) {
-                JS_ASSERT_NOT_ON_TRACE(cx);
+            if (op == JSOP_TRAP)
                 op = JS_GetTrapOpcode(cx, cx->fp()->script(), pc);
-            }
             if (op == JSOP_GETXPROP) {
                 flags = JSREPORT_ERROR;
             } else {
                 if (!cx->hasStrictOption() ||
                     cx->stack.currentScript()->warnedAboutUndefinedProp ||
-                    (op != JSOP_GETPROP && op != JSOP_GETELEM) ||
-                    js_CurrentPCIsInImacro(cx)) {
+                    (op != JSOP_GETPROP && op != JSOP_GETELEM)) {
                     return JS_TRUE;
                 }
 
@@ -5898,7 +5773,6 @@ js_GetPropertyHelperInline(JSContext *cx, JSObject *obj, JSObject *receiver, jsi
 
                 /* Do not warn about tests like (obj[prop] == undefined). */
                 if (cx->resolveFlags == RESOLVE_INFER) {
-                    LeaveTrace(cx);
                     pc += js_CodeSpec[op].length;
                     if (Detecting(cx, pc))
                         return JS_TRUE;
@@ -5928,10 +5802,8 @@ js_GetPropertyHelperInline(JSContext *cx, JSObject *obj, JSObject *receiver, jsi
 
     shape = (Shape *) prop;
 
-    if (getHow & JSGET_CACHE_RESULT) {
-        JS_ASSERT_NOT_ON_TRACE(cx);
+    if (getHow & JSGET_CACHE_RESULT)
         JS_PROPERTY_CACHE(cx).fill(cx, aobj, 0, obj2, shape);
-    }
 
     /* This call site is hot -- use the always-inlined variant of js_NativeGet(). */
     if (!js_NativeGetInline(cx, receiver, obj, obj2, shape, getHow, vp))
@@ -6088,8 +5960,6 @@ js_SetPropertyHelper(JSContext *cx, JSObject *obj, jsid id, uintN defineHow,
     bool added;
 
     JS_ASSERT((defineHow & ~(DNP_CACHE_RESULT | DNP_SET_METHOD | DNP_UNQUALIFIED)) == 0);
-    if (defineHow & DNP_CACHE_RESULT)
-        JS_ASSERT_NOT_ON_TRACE(cx);
 
     /* Convert string indices to integers if appropriate. */
     id = js_CheckForStringIndex(id);
@@ -6294,9 +6164,6 @@ js_SetPropertyHelper(JSContext *cx, JSObject *obj, jsid id, uintN defineHow,
         if (!shape)
             return JS_FALSE;
 
-        if (defineHow & DNP_CACHE_RESULT)
-            TRACE_1(AddProperty, obj);
-
         /*
          * Initialize the new property value (passed to setter) to undefined.
          * Note that we store before calling addProperty, to match the order
@@ -6317,11 +6184,6 @@ js_SetPropertyHelper(JSContext *cx, JSObject *obj, jsid id, uintN defineHow,
         JS_PROPERTY_CACHE(cx).fill(cx, obj, 0, obj, shape, added);
 
     return js_NativeSet(cx, obj, shape, added, strict, vp);
-
-#ifdef JS_TRACER
-  error: // TRACE_1 jumps here in case of error.
-    return JS_FALSE;
-#endif
 }
 
 JSBool
@@ -7443,13 +7305,7 @@ js_DumpStackFrame(JSContext *cx, StackFrame *start)
                 fprintf(stderr, "*** pc && !script, skipping frame\n\n");
                 continue;
             }
-            if (fp->hasImacropc()) {
-                fprintf(stderr, "  pc in imacro at %p\n  called from ", pc);
-                pc = fp->imacropc();
-            } else {
-                fprintf(stderr, "  ");
-            }
-            fprintf(stderr, "pc = %p\n", pc);
+            fprintf(stderr, "  pc = %p\n", pc);
             fprintf(stderr, "  current op: %s\n", js_CodeName[*pc]);
         }
         Value *sp = i.sp();

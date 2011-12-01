@@ -14,6 +14,7 @@
 @DLL_PREFIX@mozjs@DLL_SUFFIX@
 #endif
 LICENSE
+update.locale
 browserconfig.properties
 chrome/US.jar
 chrome/app-chrome.manifest
@@ -251,6 +252,7 @@ res/fonts/mathfontMath4.properties
 res/fonts/mathfontPUA.properties
 res/fonts/pangoFontEncoding.properties
 res/forms.css
+res/full-screen-override.css
 res/hiddenWindow.html
 res/html.css
 res/html/gopher-audio.gif
@@ -313,6 +315,7 @@ searchplugins/atlas-sk.src
 searchplugins/baidu.gif
 searchplugins/baidu.png
 searchplugins/baidu.src
+searchplugins/bluu.xml
 searchplugins/bok-NO.gif
 searchplugins/bok-NO.png
 searchplugins/bok-NO.src
@@ -684,6 +687,7 @@ uninstall/uninst.exe
 uninstall/uninstall.exe
 xpicleanup@BIN_SUFFIX@
 #ifdef MOZ_OMNIJAR
+  omni.jar
   chrome/af.jar
   chrome/af.manifest
   chrome/ar.jar
@@ -1087,6 +1091,7 @@ xpicleanup@BIN_SUFFIX@
 #else
   components/binary.manifest
   omni.jar
+  omni.ja
 #endif
 #ifdef XP_MACOSX
   ../Plug-Ins/PrintPDE.plugin/Contents/Info.plist

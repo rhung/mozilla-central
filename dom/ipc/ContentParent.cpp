@@ -106,12 +106,16 @@
 
 #ifdef ANDROID
 #include "gfxAndroidPlatform.h"
+#endif
+#ifdef MOZ_WIDGET_ANDROID
 #include "AndroidBridge.h"
 #endif
 
 #include "nsIClipboard.h"
 #include "nsWidgetsCID.h"
 #include "nsISupportsPrimitives.h"
+#include "mozilla/dom/sms/SmsParent.h"
+
 static NS_DEFINE_CID(kCClipboardCID, NS_CLIPBOARD_CID);
 static const char* sClipboardTextFlavors[] = { kUnicodeMime };
 
@@ -122,6 +126,7 @@ using namespace mozilla::net;
 using namespace mozilla::places;
 using mozilla::unused; // heh
 using base::KillProcess;
+using namespace mozilla::dom::sms;
 
 namespace mozilla {
 namespace dom {
@@ -636,7 +641,7 @@ ContentParent::RecvClipboardHasText(bool* hasText)
 bool
 ContentParent::RecvGetSystemColors(const PRUint32& colorsCount, InfallibleTArray<PRUint32>* colors)
 {
-#ifdef ANDROID
+#ifdef MOZ_WIDGET_ANDROID
     NS_ASSERTION(AndroidBridge::Bridge() != nsnull, "AndroidBridge is not available");
     if (AndroidBridge::Bridge() == nsnull) {
         // Do not fail - the colors won't be right, but it's not critical
@@ -655,7 +660,7 @@ ContentParent::RecvGetSystemColors(const PRUint32& colorsCount, InfallibleTArray
 bool
 ContentParent::RecvGetIconForExtension(const nsCString& aFileExt, const PRUint32& aIconSize, InfallibleTArray<PRUint8>* bits)
 {
-#ifdef ANDROID
+#ifdef MOZ_WIDGET_ANDROID
     NS_ASSERTION(AndroidBridge::Bridge() != nsnull, "AndroidBridge is not available");
     if (AndroidBridge::Bridge() == nsnull) {
         // Do not fail - just no icon will be shown
@@ -674,7 +679,7 @@ ContentParent::RecvGetShowPasswordSetting(bool* showPassword)
 {
     // default behavior is to show the last password character
     *showPassword = true;
-#ifdef ANDROID
+#ifdef MOZ_WIDGET_ANDROID
     NS_ASSERTION(AndroidBridge::Bridge() != nsnull, "AndroidBridge is not available");
     if (AndroidBridge::Bridge() != nsnull)
         *showPassword = AndroidBridge::Bridge()->GetShowPasswordSetting();
@@ -927,6 +932,19 @@ ContentParent::DeallocPExternalHelperApp(PExternalHelperAppParent* aService)
 {
     ExternalHelperAppParent *parent = static_cast<ExternalHelperAppParent *>(aService);
     parent->Release();
+    return true;
+}
+
+PSmsParent*
+ContentParent::AllocPSms()
+{
+    return new SmsParent();
+}
+
+bool
+ContentParent::DeallocPSms(PSmsParent* aSms)
+{
+    delete aSms;
     return true;
 }
 

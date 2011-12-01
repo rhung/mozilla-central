@@ -231,6 +231,10 @@ nsImageFrame::DestroyFrom(nsIFrame* aDestructRoot)
       nsCxPusher pusher;
       pusher.PushNull();
 
+      // Notify our image loading content that we are going away so it can
+      // deregister with our refresh driver.
+      imageLoader->FrameDestroyed(this);
+
       imageLoader->RemoveObserver(mListener);
     }
     
@@ -275,6 +279,10 @@ nsImageFrame::Init(nsIContent*      aContent,
   
   if (!gIconLoad)
     LoadIcons(aPresContext);
+
+  // We have a PresContext now, so we need to notify the image content node
+  // that it can register images.
+  imageLoader->FrameCreated(this);
 
   // Give image loads associated with an image frame a small priority boost!
   nsCOMPtr<imgIRequest> currentRequest;
@@ -978,7 +986,8 @@ nsImageFrame::DisplayAltText(nsPresContext*      aPresContext,
   // Set font and color
   aRenderingContext.SetColor(GetStyleColor()->mColor);
   nsRefPtr<nsFontMetrics> fm;
-  nsLayoutUtils::GetFontMetricsForFrame(this, getter_AddRefs(fm));
+  nsLayoutUtils::GetFontMetricsForFrame(this, getter_AddRefs(fm),
+    nsLayoutUtils::FontSizeInflationFor(this));
   aRenderingContext.SetFont(fm);
 
   // Format the text to display within the formatting rect
@@ -1523,10 +1532,9 @@ nsImageFrame::GetContentForEvent(nsEvent* aEvent,
     nsIntPoint p;
     TranslateEventCoords(
       nsLayoutUtils::GetEventCoordinatesRelativeTo(aEvent, this), p);
-    bool inside = false;
     nsCOMPtr<nsIContent> area = map->GetArea(p.x, p.y);
     if (area) {
-      area.swap(*aContent);
+      area.forget(aContent);
       return NS_OK;
     }
   }
@@ -1949,6 +1957,12 @@ NS_IMETHODIMP
 nsImageFrame::IconLoad::OnStopDecode(imgIRequest *aRequest,
                                      nsresult status,
                                      const PRUnichar *statusArg)
+{
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsImageFrame::IconLoad::OnImageIsAnimated(imgIRequest *aRequest)
 {
   return NS_OK;
 }

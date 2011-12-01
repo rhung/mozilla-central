@@ -50,6 +50,8 @@
 #include "jsstr.h"
 #include "jsopcode.h"
 
+#include "gc/Barrier.h"
+
 /*
  * The high two bits of JSFunction.flags encode whether the function is native
  * or interpreted, and if interpreted, what kind of optimized closure form (if
@@ -92,8 +94,6 @@
                                        global object */
 
 #define JSFUN_EXPR_CLOSURE  0x1000  /* expression closure: function(x) x*x */
-                                    /* 0x2000 is JSFUN_TRCINFO:
-                                       u.n.trcinfo is non-null */
 #define JSFUN_INTERPRETED   0x4000  /* use u.i if kind >= this value else u.n */
 #define JSFUN_FLAT_CLOSURE  0x8000  /* flat (aka "display") closure */
 #define JSFUN_NULL_CLOSURE  0xc000  /* null closure entrains no scope chain */
@@ -108,11 +108,10 @@ struct JSFunction : public JSObject_Slots2
                                      reflected as f.length/f.arity */
     uint16          flags;        /* flags, see JSFUN_* below and in jsapi.h */
     union U {
-        struct {
+        struct Native {
             js::Native  native;   /* native method pointer or null */
             js::Class   *clasp;   /* class of objects constructed
                                      by this function */
-            JSNativeTraceInfo *trcinfo;
         } n;
         struct Scripted {
             JSScript    *script_; /* interpreted bytecode descriptor or null;
@@ -195,18 +194,16 @@ struct JSFunction : public JSObject_Slots2
 
     inline void setMethodAtom(JSAtom *atom);
 
-    JSScript *script() const {
+    js::HeapPtrScript &script() const {
         JS_ASSERT(isInterpreted());
-        return u.i.script_;
+        return *(js::HeapPtrScript *)&u.i.script_;
     }
 
-    void setScript(JSScript *script) {
-        JS_ASSERT(isInterpreted());
-        u.i.script_ = script;
-    }
+    inline void setScript(JSScript *script_);
+    inline void initScript(JSScript *script_);
 
     JSScript *maybeScript() const {
-        return isInterpreted() ? script() : NULL;
+        return isInterpreted() ? script().get() : NULL;
     }
 
     JSNative native() const {
@@ -237,28 +234,7 @@ struct JSFunction : public JSObject_Slots2
         JS_ASSERT(isNative());
         u.n.clasp = clasp;
     }
-
-    JSNativeTraceInfo *getTraceInfo() const {
-        JS_ASSERT(isNative());
-        JS_ASSERT(flags & JSFUN_TRCINFO);
-        return u.n.trcinfo;
-    }
 };
-
-/*
- * Trace-annotated native. This expands to a JSFunctionSpec initializer (like
- * JS_FN in jsapi.h). fastcall is a FastNative; trcinfo is a
- * JSNativeTraceInfo*.
- */
-#ifdef JS_TRACER
-/* MSVC demands the intermediate (void *) cast here. */
-# define JS_TN(name,fastcall,nargs,flags,trcinfo)                             \
-    JS_FN(name, JS_DATA_TO_FUNC_PTR(Native, trcinfo), nargs,                  \
-          (flags) | JSFUN_STUB_GSOPS | JSFUN_TRCINFO)
-#else
-# define JS_TN(name,fastcall,nargs,flags,trcinfo)                             \
-    JS_FN(name, fastcall, nargs, flags)
-#endif
 
 inline JSFunction *
 JSObject::getFunctionPrivate() const
@@ -268,6 +244,10 @@ JSObject::getFunctionPrivate() const
 }
 
 namespace js {
+
+struct FlatClosureData {
+    HeapValue upvars[1];
+};
 
 static JS_ALWAYS_INLINE bool
 IsFunctionObject(const js::Value &v)

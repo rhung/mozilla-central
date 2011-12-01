@@ -699,7 +699,7 @@ nsHTMLDocument::StartDocumentLoad(const char* aCommand,
   }
   
   // TODO: Proper about:blank treatment is bug 543435
-  if (loadAsHtml5 && !viewSource) {
+  if (loadAsHtml5 && aCommand && !nsCRT::strcmp(aCommand, "view")) {
     // mDocumentURI hasn't been set, yet, so get the URI from the channel
     nsCOMPtr<nsIURI> uri;
     aChannel->GetOriginalURI(getter_AddRefs(uri));
@@ -771,9 +771,6 @@ nsHTMLDocument::StartDocumentLoad(const char* aCommand,
   // and parentContentViewer
   nsCOMPtr<nsIDocShell> docShell(do_QueryInterface(aContainer));
 
-  // No support yet for docshell-less HTML
-  NS_ENSURE_TRUE(docShell || !IsHTML(), NS_ERROR_FAILURE);
-
   nsCOMPtr<nsIDocShellTreeItem> docShellAsItem(do_QueryInterface(docShell));
 
   nsCOMPtr<nsIDocShellTreeItem> parentAsItem;
@@ -810,9 +807,6 @@ nsHTMLDocument::StartDocumentLoad(const char* aCommand,
     }
   }
 
-  nsCAutoString scheme;
-  uri->GetScheme(scheme);
-
   nsCAutoString urlSpec;
   uri->GetSpec(urlSpec);
 #ifdef DEBUG_charset
@@ -830,8 +824,9 @@ nsHTMLDocument::StartDocumentLoad(const char* aCommand,
 
   nsCOMPtr<nsIWyciwygChannel> wyciwygChannel;
   
-  if (!IsHTML()) {
-    charsetSource = kCharsetFromDocTypeDefault;
+  if (!IsHTML() || !docShell) { // no docshell for text/html XHR
+    charsetSource = IsHTML() ? kCharsetFromWeakDocTypeDefault
+                             : kCharsetFromDocTypeDefault;
     charset.AssignLiteral("UTF-8");
     TryChannelCharset(aChannel, charsetSource, charset);
     parserCharsetSource = charsetSource;
@@ -946,14 +941,14 @@ nsHTMLDocument::StartDocumentLoad(const char* aCommand,
                  "not nsICachingChannel");
     rv = cachingChan->SetCacheTokenCachedCharset(charset);
     NS_WARN_IF_FALSE(NS_SUCCEEDED(rv), "cannot SetMetaDataElement");
+    rv = NS_OK; // don't propagate error
   }
 
   // Set the parser as the stream listener for the document loader...
   if (mParser) {
-    rv = mParser->GetStreamListener(aDocListener);
-    if (NS_FAILED(rv)) {
-      return rv;
-    }
+    rv = NS_OK;
+    nsCOMPtr<nsIStreamListener> listener = mParser->GetStreamListener();
+    listener.forget(aDocListener);
 
 #ifdef DEBUG_charset
     printf(" charset = %s source %d\n",
@@ -1298,11 +1293,9 @@ nsHTMLDocument::GetURL(nsAString& aURL)
 }
 
 nsIContent*
-nsHTMLDocument::GetBody(nsresult *aResult)
+nsHTMLDocument::GetBody()
 {
   Element* body = GetBodyElement();
-
-  *aResult = NS_OK;
 
   if (body) {
     // There is a body element, return that as the body.
@@ -1322,10 +1315,9 @@ nsHTMLDocument::GetBody(nsIDOMHTMLElement** aBody)
 {
   *aBody = nsnull;
 
-  nsresult rv;
-  nsIContent *body = GetBody(&rv);
+  nsIContent *body = GetBody();
 
-  return body ? CallQueryInterface(body, aBody) : rv;
+  return body ? CallQueryInterface(body, aBody) : NS_OK;
 }
 
 NS_IMETHODIMP
@@ -1597,6 +1589,16 @@ nsHTMLDocument::Open(const nsAString& aContentTypeOrUrl,
 
   // If we already have a parser we ignore the document.open call.
   if (mParser) {
+    return NS_OK;
+  }
+
+  // No calling document.open() without a script global object
+  if (!mScriptGlobalObject) {
+    return NS_OK;
+  }
+
+  nsPIDOMWindow* outer = GetWindow();
+  if (!outer || (GetInnerWindow() != outer->GetCurrentInnerWindow())) {
     return NS_OK;
   }
 

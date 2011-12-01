@@ -159,6 +159,20 @@ Shape::removeChild(Shape *child)
     }
 }
 
+/*
+ * We need a read barrier for the shape tree, since these are weak pointers.
+ */
+static Shape *
+ReadBarrier(Shape *shape)
+{
+#ifdef JSGC_INCREMENTAL
+    JSCompartment *comp = shape->compartment();
+    if (comp->needsBarrier())
+        MarkShapeUnbarriered(comp->barrierTracer(), shape, "read barrier");
+#endif
+    return shape;
+}
+
 Shape *
 PropertyTree::getChild(JSContext *cx, Shape *parent, const Shape &child)
 {
@@ -179,11 +193,11 @@ PropertyTree::getChild(JSContext *cx, Shape *parent, const Shape &child)
     if (kidp->isShape()) {
         shape = kidp->toShape();
         if (shape->matches(&child))
-            return shape;
+            return ReadBarrier(shape);
     } else if (kidp->isHash()) {
         shape = *kidp->toHash()->lookup(&child);
         if (shape)
-            return shape;
+            return ReadBarrier(shape);
     } else {
         /* If kidp->isNull(), we always insert. */
     }
@@ -192,7 +206,7 @@ PropertyTree::getChild(JSContext *cx, Shape *parent, const Shape &child)
     if (!shape)
         return NULL;
 
-    new (shape) Shape(child.propid, child.rawGetter, child.rawSetter, child.slot, child.attrs,
+    new (shape) Shape(child.propid, child.getter(), child.setter(), child.slot, child.attrs,
                       child.flags, child.shortid, js_GenerateShape(cx));
 
     if (!insertChild(cx, parent, shape))
@@ -256,8 +270,8 @@ Shape::dump(JSContext *cx, FILE *fp) const
     }
 
     fprintf(fp, " g/s %p/%p slot %u attrs %x ",
-            JS_FUNC_TO_DATA_PTR(void *, rawGetter),
-            JS_FUNC_TO_DATA_PTR(void *, rawSetter),
+            JS_FUNC_TO_DATA_PTR(void *, getter()),
+            JS_FUNC_TO_DATA_PTR(void *, setter()),
             slot, attrs);
     if (attrs) {
         int first = 1;
@@ -337,14 +351,14 @@ js::PropertyTree::dumpShapes(JSContext *cx)
     JSRuntime *rt = cx->runtime;
     fprintf(dumpfp, "rt->gcNumber = %lu", (unsigned long)rt->gcNumber);
 
-    for (JSCompartment **c = rt->compartments.begin(); c != rt->compartments.end(); ++c) {
-        if (rt->gcCurrentCompartment != NULL && rt->gcCurrentCompartment != *c)
+    for (CompartmentsIter c(rt); !c.done(); c.next()) {
+        if (rt->gcCurrentCompartment != NULL && rt->gcCurrentCompartment != c)
             continue;
 
-        fprintf(dumpfp, "*** Compartment %p ***\n", (void *)*c);
+        fprintf(dumpfp, "*** Compartment %p ***\n", (void *)c.get());
 
         typedef JSCompartment::EmptyShapeSet HS;
-        HS &h = (*c)->emptyShapes;
+        HS &h = c->emptyShapes;
         for (HS::Range r = h.all(); !r.empty(); r.popFront()) {
             Shape *empty = r.front();
             empty->dumpSubtree(cx, 0, dumpfp);

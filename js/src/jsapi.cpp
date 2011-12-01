@@ -56,7 +56,6 @@
 #include "jsarray.h"
 #include "jsatom.h"
 #include "jsbool.h"
-#include "jsbuiltins.h"
 #include "jsclone.h"
 #include "jscntxt.h"
 #include "jsversion.h"
@@ -78,7 +77,6 @@
 #include "jsscope.h"
 #include "jsscript.h"
 #include "jsstr.h"
-#include "jstracer.h"
 #include "prmjtime.h"
 #include "jsweakmap.h"
 #include "jswrapper.h"
@@ -96,6 +94,7 @@
 #include "jsscriptinlines.h"
 
 #include "vm/RegExpObject-inl.h"
+#include "vm/RegExpStatics-inl.h"
 #include "vm/Stack-inl.h"
 #include "vm/String-inl.h"
 
@@ -656,8 +655,10 @@ JSRuntime::JSRuntime()
     gcMaxBytes(0),
     gcMaxMallocBytes(0),
     gcEmptyArenaPoolLifespan(0),
+    gcNumFreeArenas(0),
     gcNumber(0),
-    gcMarkingTracer(NULL),
+    gcIncrementalTracer(NULL),
+    gcVerifyData(NULL),
     gcChunkAllocationSinceLastGC(false),
     gcNextFullGCTime(0),
     gcJitReleaseTime(0),
@@ -679,6 +680,7 @@ JSRuntime::JSRuntime()
     gcDebugCompartmentGC(false),
 #endif
     gcCallback(NULL),
+    gcFinishedCallback(NULL),
     gcMallocBytes(0),
     gcBlackRootsTraceOp(NULL),
     gcBlackRootsData(NULL),
@@ -720,6 +722,8 @@ JSRuntime::JSRuntime()
     functionNamespaceObject(NULL),
 #ifdef JS_THREADSAFE
     interruptCounter(0),
+#else
+    threadData(thisFromCtor()),
 #endif
     trustedPrincipals_(NULL),
     shapeGen(0),
@@ -744,10 +748,6 @@ JSRuntime::init(uint32 maxbytes)
 
 #ifdef JS_METHODJIT_SPEW
     JMCheckLogging();
-#endif
-
-#ifdef JS_TRACER
-    InitJIT();
 #endif
 
     if (!js_InitGC(this, maxbytes))
@@ -806,10 +806,6 @@ JSRuntime::~JSRuntime()
 "JS API usage error: %u context%s left in runtime upon JS_DestroyRuntime.\n",
                 cxcount, (cxcount == 1) ? "" : "s");
     }
-#endif
-
-#ifdef JS_TRACER
-    FinishJIT();
 #endif
 
     FinishRuntimeNumberState(this);
@@ -912,10 +908,6 @@ JS_ShutDown(void)
 {
     Probes::shutdown();
 
-#ifdef MOZ_TRACEVIS
-    StopTraceVis();
-#endif
-
 #ifdef JS_THREADSAFE
     js_CleanupLocks();
 #endif
@@ -978,8 +970,6 @@ StopRequest(JSContext *cx)
     if (t->data.requestDepth != 1) {
         t->data.requestDepth--;
     } else {
-        LeaveTrace(cx);  /* for GC safety */
-
         t->data.conservativeGC.updateForRequestEnd(t->suspendCount);
 
         /* Lock before clearing to interlock with ClaimScope, in jslock.c. */
@@ -1326,7 +1316,7 @@ JS_EnterCrossCompartmentCallScript(JSContext *cx, JSScript *target)
 {
     CHECK_REQUEST(cx);
     JS_ASSERT(!target->isCachedEval);
-    GlobalObject *global = target->u.globalObject;
+    GlobalObject *global = target->globalObject;
     if (!global) {
         SwitchToCompartment sc(cx, target->compartment());
         global = GlobalObject::create(cx, &dummy_class);
@@ -1951,9 +1941,7 @@ JS_EnumerateStandardClasses(JSContext *cx, JSObject *obj)
     return JS_TRUE;
 }
 
-namespace js {
-
-JSIdArray *
+static JSIdArray *
 NewIdArray(JSContext *cx, jsint length)
 {
     JSIdArray *ida;
@@ -1963,8 +1951,6 @@ NewIdArray(JSContext *cx, jsint length)
     if (ida)
         ida->length = length;
     return ida;
-}
-
 }
 
 /*
@@ -1999,7 +1985,7 @@ AddAtomToArray(JSContext *cx, JSAtom *atom, JSIdArray *ida, jsint *ip)
             return NULL;
         JS_ASSERT(i < ida->length);
     }
-    ida->vector[i] = ATOM_TO_JSID(atom);
+    ida->vector[i].init(ATOM_TO_JSID(atom));
     *ip = i + 1;
     return ida;
 }
@@ -2330,10 +2316,15 @@ JS_TraceRuntime(JSTracer *trc)
 }
 
 JS_PUBLIC_API(void)
+JS_TraceChildren(JSTracer *trc, void *thing, JSGCTraceKind kind)
+{
+    js::TraceChildren(trc, thing, kind);
+}
+
+JS_PUBLIC_API(void)
 JS_CallTracer(JSTracer *trc, void *thing, JSGCTraceKind kind)
 {
-    JS_ASSERT(thing);
-    MarkKind(trc, thing, kind);
+    js::CallTracer(trc, thing, kind);
 }
 
 #ifdef DEBUG
@@ -2741,8 +2732,7 @@ JS_CompartmentGC(JSContext *cx, JSCompartment *comp)
     /* We cannot GC the atoms compartment alone; use a full GC instead. */
     JS_ASSERT(comp != cx->runtime->atomsCompartment);
 
-    LeaveTrace(cx);
-
+    js::gc::VerifyBarriers(cx, true);
     js_GC(cx, comp, GC_NORMAL, gcstats::PUBLIC_API);
 }
 
@@ -2755,8 +2745,6 @@ JS_GC(JSContext *cx)
 JS_PUBLIC_API(void)
 JS_MaybeGC(JSContext *cx)
 {
-    LeaveTrace(cx);
-
     MaybeGC(cx);
 }
 
@@ -2781,8 +2769,8 @@ JS_PUBLIC_API(JSBool)
 JS_IsAboutToBeFinalized(JSContext *cx, void *thing)
 {
     JS_ASSERT(thing);
-    JS_ASSERT(!cx->runtime->gcMarkingTracer);
-    return IsAboutToBeFinalized(cx, thing);
+    JS_ASSERT(!cx->runtime->gcIncrementalTracer);
+    return IsAboutToBeFinalized(cx, (gc::Cell *)thing);
 }
 
 JS_PUBLIC_API(void)
@@ -2835,29 +2823,18 @@ JS_PUBLIC_API(void)
 JS_SetGCParameterForThread(JSContext *cx, JSGCParamKey key, uint32 value)
 {
     JS_ASSERT(key == JSGC_MAX_CODE_CACHE_BYTES);
-#ifdef JS_TRACER
-    SetMaxCodeCacheBytes(cx, value);
-#endif
 }
 
 JS_PUBLIC_API(uint32)
 JS_GetGCParameterForThread(JSContext *cx, JSGCParamKey key)
 {
     JS_ASSERT(key == JSGC_MAX_CODE_CACHE_BYTES);
-#ifdef JS_TRACER
-    return JS_THREAD_DATA(cx)->maxCodeCacheBytes;
-#else
     return 0;
-#endif
 }
 
 JS_PUBLIC_API(void)
 JS_FlushCaches(JSContext *cx)
 {
-#ifdef JS_TRACER
-    if (cx->compartment->hasTraceMonitor())
-        FlushJITCache(cx, cx->compartment->traceMonitor());
-#endif
 }
 
 JS_PUBLIC_API(intN)
@@ -2940,6 +2917,19 @@ JS_SetNativeStackQuota(JSContext *cx, size_t stackSize)
 }
 
 /************************************************************************/
+
+JS_PUBLIC_API(jsint)
+JS_IdArrayLength(JSContext *cx, JSIdArray *ida)
+{
+    return ida->length;
+}
+
+JS_PUBLIC_API(jsid)
+JS_IdArrayGet(JSContext *cx, JSIdArray *ida, jsint index)
+{
+    JS_ASSERT(index >= 0 && index < ida->length);
+    return ida->vector[index];
+}
 
 JS_PUBLIC_API(void)
 JS_DestroyIdArray(JSContext *cx, JSIdArray *ida)
@@ -4104,12 +4094,16 @@ prop_iter_trace(JSTracer *trc, JSObject *obj)
         return;
 
     if (obj->getSlot(JSSLOT_ITER_INDEX).toInt32() < 0) {
-        /* Native case: just mark the next property to visit. */
-        MarkShape(trc, (Shape *)pdata, "prop iter shape");
+        /*
+         * Native case: just mark the next property to visit. We don't need a
+         * barrier here because the pointer is updated via setPrivate, which
+         * always takes a barrier.
+         */
+        MarkShapeUnbarriered(trc, (Shape *)pdata, "prop iter shape");
     } else {
         /* Non-native case: mark each id in the JSIdArray private. */
         JSIdArray *ida = (JSIdArray *) pdata;
-        MarkIdRange(trc, ida->length, ida->vector, "prop iter");
+        MarkIdRange(trc, ida->vector, ida->vector + ida->length, "prop iter");
     }
 }
 
@@ -4137,7 +4131,7 @@ JS_PUBLIC_API(JSObject *)
 JS_NewPropertyIterator(JSContext *cx, JSObject *obj)
 {
     JSObject *iterobj;
-    const void *pdata;
+    void *pdata;
     jsint index;
     JSIdArray *ida;
 
@@ -4149,7 +4143,7 @@ JS_NewPropertyIterator(JSContext *cx, JSObject *obj)
 
     if (obj->isNative()) {
         /* Native case: start with the last property in obj. */
-        pdata = obj->lastProperty();
+        pdata = (void *)obj->lastProperty();
         index = -1;
     } else {
         /*
@@ -4167,7 +4161,7 @@ JS_NewPropertyIterator(JSContext *cx, JSObject *obj)
     }
 
     /* iterobj cannot escape to other threads here. */
-    iterobj->setPrivate(const_cast<void *>(pdata));
+    iterobj->setPrivate(pdata);
     iterobj->setSlot(JSSLOT_ITER_INDEX, Int32Value(index));
     return iterobj;
 }
@@ -4430,7 +4424,7 @@ JS_CloneFunctionObject(JSContext *cx, JSObject *funobj, JSObject *parent)
         Value v;
         if (!obj->getGeneric(cx, r.front().propid, &v))
             return NULL;
-        clone->getFlatClosureUpvars()[i] = v;
+        clone->setFlatClosureUpvar(i, v);
     }
 
     return clone;
@@ -4503,14 +4497,7 @@ js_generic_native_method_dispatcher(JSContext *cx, uintN argc, Value *vp)
     /* Clear the last parameter in case too few arguments were passed. */
     vp[2 + --argc].setUndefined();
 
-    Native native =
-#ifdef JS_TRACER
-                    (fs->flags & JSFUN_TRCINFO)
-                    ? JS_FUNC_TO_DATA_PTR(JSNativeTraceInfo *, fs->call)->native
-                    :
-#endif
-                      fs->call;
-    return native(cx, argc, vp);
+    return fs->call(cx, argc, vp);
 }
 
 JS_PUBLIC_API(JSBool)
@@ -4546,7 +4533,7 @@ JS_DefineFunctions(JSContext *cx, JSObject *obj, JSFunctionSpec *fs)
             fun = js_DefineFunction(cx, ctor, ATOM_TO_JSID(atom),
                                     js_generic_native_method_dispatcher,
                                     fs->nargs + 1,
-                                    flags & ~JSFUN_TRCINFO);
+                                    flags);
             if (!fun)
                 return JS_FALSE;
 
@@ -4881,9 +4868,9 @@ JS_PUBLIC_API(JSObject *)
 JS_GetGlobalFromScript(JSScript *script)
 {
     JS_ASSERT(!script->isCachedEval);
-    JS_ASSERT(script->u.globalObject);
+    JS_ASSERT(script->globalObject);
 
-    return script->u.globalObject;
+    return script->globalObject;
 }
 
 static JSFunction *
@@ -5301,10 +5288,6 @@ JS_IsRunning(JSContext *cx)
         return false;
 #endif
 
-#ifdef JS_TRACER
-    JS_ASSERT_IF(JS_ON_TRACE(cx) && JS_TRACE_MONITOR_ON_TRACE(cx)->tracecx == cx, cx->hasfp());
-#endif
-
     StackFrame *fp = cx->maybefp();
     while (fp && fp->isDummyFrame())
         fp = fp->prev();
@@ -5315,7 +5298,6 @@ JS_PUBLIC_API(JSBool)
 JS_SaveFrameChain(JSContext *cx)
 {
     CHECK_REQUEST(cx);
-    LeaveTrace(cx);
     return cx->stack.saveFrameChain();
 }
 
@@ -5323,7 +5305,6 @@ JS_PUBLIC_API(void)
 JS_RestoreFrameChain(JSContext *cx)
 {
     CHECK_REQUEST(cx);
-    JS_ASSERT_NOT_ON_TRACE(cx);
     cx->stack.restoreFrameChain();
 }
 
@@ -6344,9 +6325,10 @@ JS_ClearContextThread(JSContext *cx)
 JS_PUBLIC_API(void)
 JS_SetGCZeal(JSContext *cx, uint8 zeal, uint32 frequency, JSBool compartment)
 {
+    bool schedule = zeal >= js::gc::ZealAllocThreshold && zeal < js::gc::ZealVerifierThreshold;
     cx->runtime->gcZeal_ = zeal;
     cx->runtime->gcZealFrequency = frequency;
-    cx->runtime->gcNextScheduled = zeal >= 2 ? frequency : 0;
+    cx->runtime->gcNextScheduled = schedule ? frequency : 0;
     cx->runtime->gcDebugCompartmentGC = !!compartment;
 }
 
@@ -6362,6 +6344,79 @@ JS_FRIEND_API(void *)
 js_GetCompartmentPrivate(JSCompartment *compartment)
 {
     return compartment->data;
+}
+
+/************************************************************************/
+
+JS_PUBLIC_API(void)
+JS_RegisterReference(void **ref)
+{
+}
+
+JS_PUBLIC_API(void)
+JS_ModifyReference(void **ref, void *newval)
+{
+    // XPConnect uses the lower bits of its JSObject refs for evil purposes,
+    // so we need to fix this.
+    void *thing = *ref;
+    *ref = newval;
+    thing = (void *)((uintptr_t)thing & ~7);
+    if (!thing)
+        return;
+    JS_ASSERT(!static_cast<gc::Cell *>(thing)->compartment()->rt->gcRunning);
+    uint32 kind = GetGCThingTraceKind(thing);
+    if (kind == JSTRACE_OBJECT)
+        JSObject::writeBarrierPre((JSObject *) thing);
+    else if (kind == JSTRACE_STRING)
+        JSString::writeBarrierPre((JSString *) thing);
+    else
+        JS_NOT_REACHED("invalid trace kind");
+}
+
+JS_PUBLIC_API(void)
+JS_UnregisterReference(void **ref)
+{
+    // For now we just want to trigger a write barrier.
+    JS_ModifyReference(ref, NULL);
+}
+
+JS_PUBLIC_API(void)
+JS_UnregisterReferenceRT(JSRuntime *rt, void **ref)
+{
+    // For now we just want to trigger a write barrier.
+    if (!rt->gcRunning)
+        JS_ModifyReference(ref, NULL);
+}
+
+JS_PUBLIC_API(void)
+JS_RegisterValue(jsval *val)
+{
+}
+
+JS_PUBLIC_API(void)
+JS_ModifyValue(jsval *val, jsval newval)
+{
+    HeapValue::writeBarrierPre(*val);
+    *val = newval;
+}
+
+JS_PUBLIC_API(void)
+JS_UnregisterValue(jsval *val)
+{
+    JS_ModifyValue(val, JSVAL_VOID);
+}
+
+JS_PUBLIC_API(void)
+JS_UnregisterValueRT(JSRuntime *rt, jsval *val)
+{
+    if (!rt->gcRunning)
+        JS_ModifyValue(val, JSVAL_VOID);
+}
+
+JS_PUBLIC_API(JSTracer *)
+JS_GetIncrementalGCTracer(JSRuntime *rt)
+{
+    return rt->gcIncrementalTracer;
 }
 
 /************************************************************************/
@@ -6384,6 +6439,19 @@ JS_PUBLIC_API(JSBool)
 JS_IndexToId(JSContext *cx, uint32 index, jsid *id)
 {
     return IndexToId(cx, index, id);
+}
+
+JS_PUBLIC_API(JSBool)
+JS_IsIdentifier(JSContext *cx, JSString *str, JSBool *isIdentifier)
+{
+    assertSameCompartment(cx, str);
+
+    JSLinearString* linearStr = str->ensureLinear(cx);
+    if (!linearStr)
+        return false;
+
+    *isIdentifier = js::IsIdentifier(linearStr);
+    return true;
 }
 
 #ifdef JS_THREADSAFE
