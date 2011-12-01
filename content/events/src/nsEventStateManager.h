@@ -561,8 +561,8 @@ public:
                               nsGUIEvent* inMouseDownEvent ) ;
   void KillClickHoldTimer ( ) ;
   void FireContextClick ( ) ;
-  static void sClickHoldCallback ( nsITimer* aTimer, void* aESM );
-  void SetMouseLock( bool locked, nsIWidget* widget );
+  void SetMouseLock( bool aLocked, nsIWidget* aWidget ) ;
+  static void sClickHoldCallback ( nsITimer* aTimer, void* aESM ) ;
 };
 
 /**
