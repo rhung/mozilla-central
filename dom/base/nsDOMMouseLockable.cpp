@@ -47,6 +47,9 @@
 #include "nsINode.h"
 #include "nsPLDOMEvent.h"
 #include "nsIInterfaceRequestorUtils.h"
+#include "nsIPrefService.h"
+#include "nsIPrefBranch.h"
+#include "nsIServiceManager.h"
 
 DOMCI_DATA(MouseLockable, nsDOMMouseLockable)
 
@@ -163,6 +166,15 @@ nsDOMMouseLockable::ShouldLock(nsIDOMElement* aTarget)
   nsCOMPtr<nsIDOMHTMLElement> lockedElement;
   domDoc->GetMozFullScreenElement(getter_AddRefs(lockedElement));
   if (lockedElement != aTarget) {
+    return false;
+  }
+
+  // Check if mouselock is enabled in prefs
+  const char* PREF_MOUSE_LOCK_ENABLED = "full-screen-api.mousel-lock.enabled";
+  nsCOMPtr<nsIPrefBranch> prefs(do_GetService("@mozilla.org/preferences-service;1"));
+  PRBool mouseLockEnabled;
+  prefs->GetBoolPref(PREF_MOUSE_LOCK_ENABLED, (bool*)&mouseLockEnabled);
+  if (!mouseLockEnabled) {
     return false;
   }
 
