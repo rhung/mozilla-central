@@ -4040,7 +4040,8 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
         aEvent->lastRefPoint = nsIntPoint(bounds.width/2, bounds.height/2);
 
         // refPoint should not be the centre on mousemove
-        if (aEvent->refPoint.x == aEvent->lastRefPoint.x && aEvent->refPoint.y == aEvent->lastRefPoint.y) {
+        if (aEvent->refPoint.x == aEvent->lastRefPoint.x &&
+            aEvent->refPoint.y == aEvent->lastRefPoint.y) {
           aEvent->refPoint = sLastRefPoint;
         } else {
           aEvent->widget->SynthesizeNativeMouseMove(aEvent->lastRefPoint);
@@ -4063,8 +4064,8 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
       if (targetElement) {
         NotifyMouseOver(aEvent, targetElement);
       }
-      break;
     }
+    break;
   case NS_MOUSE_EXIT:
     {
       // This is actually the window mouse exit event. We're not moving
@@ -4091,7 +4092,6 @@ void
 nsEventStateManager::SetMouseLock(bool aLocked,
                                   nsIWidget* aWidget)
 {
-  // TODO: should do error checks, return nsresult...
   mMouseLocked = aLocked;
 
   if (!aWidget) {
@@ -4099,8 +4099,7 @@ nsEventStateManager::SetMouseLock(bool aLocked,
   }
 
   if (mMouseLocked) {
-    // Store the last known ref point so we can reposition the mouse after unlock
-    // TODO: this isn't perfect yet, it probably needs to get transformed into screen or widget space...
+    // Store the last known ref point so we can reposition the mouse after unlock.
     mPreLockPoint = sLastRefPoint + sLastScreenOffset;
 
     // Set the initial mouse lock movement (before the first mouse move event), to 0,0
@@ -4114,9 +4113,8 @@ nsEventStateManager::SetMouseLock(bool aLocked,
   }
 }
 
-/* static */
 void
-nsEventStateManager::StoreLastScreenOffset(nsIntPoint aScreenOffset) {
+nsEventStateManager::SetLastScreenOffset(nsIntPoint aScreenOffset) {
   sLastScreenOffset = aScreenOffset;
 }
 

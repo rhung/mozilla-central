@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim:set ts=2 sw=2 sts=2 et cindent: */
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
@@ -13,14 +11,19 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is Mozilla code.
+ * The Original Code is Mouse Lock.
  *
- * The Initial Developer of the Original Code is the Mozilla Foundation.
- * Portions created by the Initial Developer are Copyright (C) 2010
+ * The Initial Developer of the Original Code is Mozilla Foundation
+ * Portions created by the Initial Developer are Copyright (C) 2011
  * the Initial Developer. All Rights Reserved.
  *
  * Contributor(s):
- *  David Humphrey <david.humphrey@senecac.on.ca>
+ *   David Humphrey <david.humphrey@senecac.on.ca>
+ *   Diogo Golovanevsky <diogo.gmt@gmail.com>
+ *   Raymond Hung <hung.raymond@gmail.com>
+ *   Jesse Silver <jasilver1@learn.senecac.on.ca>
+ *   Matthew Schranz <schranz.m@gmail.com>
+ *   Joseph Hughes <CloudScorpion@gmail.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -104,8 +107,8 @@ NS_IMETHODIMP nsDOMMouseLockable::Unlock()
   nsCOMPtr<nsPIDOMWindow> domWindow( do_QueryInterface( mWindow ) );
   if (!domWindow) {
     NS_ERROR("Unlock(): No DOM found in nsCOMPtr<nsPIDOMWindow>");
-		return NS_ERROR_UNEXPECTED;
-	}
+    return NS_ERROR_UNEXPECTED;
+  }
 
   nsRefPtr<nsPresContext> presContext;
   domWindow->GetDocShell()->GetPresContext(getter_AddRefs(presContext));
@@ -173,15 +176,19 @@ nsDOMMouseLockable::ShouldLock(nsIDOMElement* aTarget)
     return false;
   }
 
+  // Check if the element belongs to the right DOM
+  nsCOMPtr<nsIDOMDocument> targetDoc;
+  parentNode->GetOwnerDocument(getter_AddRefs(targetDoc));
+  if (targetDoc != domDoc) {
+    return false;
+  }
+
   // Check if element is in fullscreen mode
   nsCOMPtr<nsIDOMHTMLElement> lockedElement;
   domDoc->GetMozFullScreenElement(getter_AddRefs(lockedElement));
   if (lockedElement != aTarget) {
     return false;
-  } 
-
-  // TODO: Check if window is in focus?
-  // TODO: Check if MouseLock preference is set to true
+  }
 
   return true;
 }
@@ -194,39 +201,41 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
     new nsMouseLockableRequest(aSuccessCallback, aFailureCallback);
   nsCOMPtr<nsIRunnable> ev;
 
-  // TODO: what can we move off the main thread?
-  if (ShouldLock(aTarget)) {
+  // If we're already locked to this target, recall success callback
+  if (mIsLocked && mTarget == aTarget){
+    ev = new nsRequestMouseLockEvent(true, request);
+  } else if (ShouldLock(aTarget)) {
     mIsLocked = PR_TRUE;
     mTarget = aTarget;
 
     nsCOMPtr<nsPIDOMWindow> domWindow( do_QueryInterface( mWindow ) );
     if (!domWindow) {
-		  NS_ERROR("Lock(): No DOM found in nsCOMPtr<nsPIDOMWindow>");
-		  return NS_ERROR_FAILURE;
-	  }
+      NS_ERROR("Lock(): No DOM found in nsCOMPtr<nsPIDOMWindow>");
+      return NS_ERROR_FAILURE;
+    }
 
     nsRefPtr<nsPresContext> presContext;
     domWindow->GetDocShell()->GetPresContext(getter_AddRefs(presContext));
     if (!presContext)	{
       NS_ERROR("Lock(): Unable to get presContext in \
-			          domWindow->GetDocShell()->GetPresContext()");
-		  return NS_ERROR_FAILURE;
-	  }
+                domWindow->GetDocShell()->GetPresContext()");
+      return NS_ERROR_FAILURE;
+    }
 
     nsCOMPtr<nsIPresShell> shell = presContext->PresShell();
     if (!shell) {
-		  NS_ERROR("Lock(): Unable to find presContext->PresShell()");
-		  return NS_ERROR_FAILURE;
-	  }
+      NS_ERROR("Lock(): Unable to find presContext->PresShell()");
+      return NS_ERROR_FAILURE;
+    }
 
     nsCOMPtr<nsIWidget> widget = shell->GetRootFrame()->GetNearestWidget();
     if (!widget) {
       NS_ERROR("Lock(): Unable to find widget in \
-				        shell->GetRootFrame()->GetNearestWidget();");
+                shell->GetRootFrame()->GetNearestWidget();");
       return NS_ERROR_FAILURE;
-	  }
+    }
 
-	  // Hide the cursor upon entering mouse lock
+    // Hide the cursor upon entering mouse lock
     presContext->EventStateManager()->SetCursor(NS_STYLE_CURSOR_NONE,
                                                 nsnull, false, 0.0f,
                                                 0.0f, widget, true);
