@@ -4468,7 +4468,7 @@ nsGlobalWindow::SetFullScreen(bool aFullScreen)
   if (!mFullScreen && aFullScreen) {
     nsIWidget* widget = GetNearestWidget();
     if (widget) {
-      nsEventStateManager::sOldScreenOffset = widget->WidgetToScreenOffset();
+      nsEventStateManager::StoreLastScreenOffset(widget->WidgetToScreenOffset());
     }
   }
   FORWARD_TO_OUTER(SetFullScreen, (aFullScreen), NS_ERROR_NOT_INITIALIZED);
