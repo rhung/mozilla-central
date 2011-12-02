@@ -175,7 +175,6 @@ nsDOMMouseLockable::ShouldLock(nsIDOMElement* aTarget)
     return false;
   }
 
-
   // Check if the element belongs to the right DOM
   nsCOMPtr<nsIDOMDocument> targetDoc;
   parentNode->GetOwnerDocument(getter_AddRefs(targetDoc));
@@ -188,10 +187,7 @@ nsDOMMouseLockable::ShouldLock(nsIDOMElement* aTarget)
   domDoc->GetMozFullScreenElement(getter_AddRefs(lockedElement));
   if (lockedElement != aTarget) {
     return false;
-  } 
-
-  // TODO: Check if window is in focus?
-  // TODO: Check if MouseLock preference is set to true
+  }
 
   return true;
 }
