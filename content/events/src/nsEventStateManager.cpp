@@ -4092,7 +4092,6 @@ void
 nsEventStateManager::SetMouseLock(bool aLocked,
                                   nsIWidget* aWidget)
 {
-  // TODO: should do error checks, return nsresult...
   mMouseLocked = aLocked;
 
   if (!aWidget) {
@@ -4100,8 +4099,7 @@ nsEventStateManager::SetMouseLock(bool aLocked,
   }
 
   if (mMouseLocked) {
-    // Store the last known ref point so we can reposition the mouse after unlock
-    // TODO: this isn't perfect yet, it probably needs to get transformed into screen or widget space...
+    // Store the last known ref point so we can reposition the mouse after unlock.
     mPreLockPoint = sLastRefPoint + sLastScreenOffset;
 
     // Set the initial mouse lock movement (before the first mouse move event), to 0,0
