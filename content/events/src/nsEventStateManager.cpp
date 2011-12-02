@@ -4064,8 +4064,8 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
       if (targetElement) {
         NotifyMouseOver(aEvent, targetElement);
       }
-      break;
     }
+    break;
   case NS_MOUSE_EXIT:
     {
       // This is actually the window mouse exit event. We're not moving
