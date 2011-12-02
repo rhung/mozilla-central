@@ -13,9 +13,9 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
     <a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">Mozilla Bug 633602</a>
     <div id="content">
         <map name="map" id="map">
-            <area shape="rect" coords="1, 1, 1, 1" onclick="point = true;" alt="single point" />
-            <area shape="rect" coords="2, 1, 2, 1" onclick="horizontal = true;" alt="horizontal movement" />
-            <area shape="rect" coords="3, 2, 3, 2" onclick="diagonal = true;" alt="diagonal movement" />
+            <area shape="rect" coords="1, 1, 1, 1" onclick="point++;" alt="single point" />
+            <area shape="rect" coords="2, 1, 2, 1" onclick="horizontal++;" alt="horizontal movement" />
+            <area shape="rect" coords="3, 2, 3, 2" onclick="diagonal++;" alt="diagonal movement" />
         </map>
         <img usemap="#map" id="lockArea" width="200" height="200" alt="Synethetic Mouse Event Test" 
             src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAIBAQIBAQICAgICAgICAwUDAwMDAwYEBAMFBwYHBwcGBwcICQsJCAgKCAcHCg0KCgsMDAwMBwkODw0MDgsMDAz/2wBDAQICAgMDAwYDAwYMCAcIDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAz/wAARCADIAMgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD9AKKKK/yPPnwooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigD/2Q%3D%3D" />
@@ -24,46 +24,47 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
         <script type="application/javascript">
             /** Test for Bug 633602 **/
             /** Test to see if Synthetic Mouse behave the same regardless of mouse lock state **/
-            SimpleTest.waitForExplicitFinish();
-            SimpleTest.waitForFocus(function () {
-                var point = false; // a single point
-                var horizontal = false; // moving the mouse horizontally
-                var diagonal = false; // moving the mouse in a diagonal direction
+            function runtest() {
+                SimpleTest.waitForExplicitFinish();
+                var point = 0; // a single point
+                var horizontal = 0; // moving the mouse horizontally
+                var diagonal = 0; // moving the mouse in a diagonal direction
                 var pointer = navigator.pointer;
                 var lockArea = document.getElementById("lockArea");
-                SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only", false);
-                lockArea.mozRequestFullScreen();
-                /* Run test with mouse unlocked */
-                //pointer.unlock();
-                synthesizeMouse(lockArea, 1, 1, {});
-                synthesizeMouse(lockArea, 2, 1, {});
-                synthesizeMouse(lockArea, 3, 2, {});
-                /* Resetting the test for mouse lock */
-                var unlock1 = point;
-                point = false;
-                var unlock2 = horizontal;
-                horizontal = false;
-                var unlock3 = diagonal;
-                diagonal = false;
-                ok(point, "screwed");
-                /* Run the same test with mouse locked */
-//                pointer.lock(lockArea,
-//					function () {
-//					    synthesizeMouse(lockArea, 1, 1, {});
-//					    synthesizeMouse(lockArea, 2, 1, {});
-//					    synthesizeMouse(lockArea, 3, 2, {});
-//					    is(unlock1, point, "Point click failed");
-//					    is(unlock2, horizontal, "Horizontal movement click failed");
-//					    is(unlock3, diagonal, "Diagonal movement click failed");
-//					    SimpleTest.finish();
-//					},
-//					function () {
-//					    ok(false, "Mouse lock failed to fire");
-//					    SimpleTest.finish();
-//					}
-//				);
-            });
-            //lockArea.mozCancelFullScreen();
+                function mouseEvents() {
+                    synthesizeMouse(lockArea, 1, 1, {});
+                    synthesizeMouse(lockArea, 2, 1, {});
+                    synthesizeMouse(lockArea, 3, 2, {});
+                }
+                
+                SimpleTest.waitForFocus(function () {
+                    SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only", false);
+                    lockArea.mozRequestFullScreen();
+                    /* Run test with mouse unlocked */
+                    //pointer.unlock();
+                    mouseEvents();
+                    is(point, 1, "Unlocked single point click: Synehtic mouse event failed.");
+                    is(horizontal, 1, "Unlocked move and click: Synehtic mouse event failed.");
+                    is(diagonal, 1, "Unlocked diagonal move and click: Synehtic mouse event failed.");
+                    SimpleTest.finish();
+                    /* Run the same test with mouse locked */
+                    pointer.lock(lockArea,
+                    	function () {
+                    	    mouseEvents();
+                    	    is(point, 2, "Locked single point click: Synehtic mouse event failed.");
+                    	    is(horizontal, 2, "Locked move and click: Synehtic mouse event failed.");
+                    	    is(diagonal, 2, "Locked diagonal move and click: Synehtic mouse event failed.");
+                    	    SimpleTest.finish();
+                    	},
+                    	function () {
+                    	    ok(false, "Mouse lock failed to fire");
+                    	    SimpleTest.finish();
+                    	}
+                    );
+                    document.mozCancelFullScreen();
+                });
+            };
+            document.addEventListener("DOMContentLoaded", runtest, false);
         </script>
     </pre>
 </body>
