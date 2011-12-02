@@ -180,7 +180,7 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
     new nsMouseLockableRequest(aSuccessCallback, aFailureCallback);
   nsCOMPtr<nsIRunnable> ev;
 
-  if(mIsLocked){
+  if(mIsLocked && mTarget == aTarget){
     ev = new nsRequestMouseLockEvent(true, request);
   }
   // TODO: what can we move off the main thread?
