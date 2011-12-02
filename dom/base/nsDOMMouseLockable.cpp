@@ -106,8 +106,8 @@ NS_IMETHODIMP nsDOMMouseLockable::Unlock()
   nsCOMPtr<nsPIDOMWindow> domWindow( do_QueryInterface( mWindow ) );
   if (!domWindow) {
     NS_ERROR("Unlock(): No DOM found in nsCOMPtr<nsPIDOMWindow>");
-		return NS_ERROR_UNEXPECTED;
-	}
+    return NS_ERROR_UNEXPECTED;
+  }
 
   nsRefPtr<nsPresContext> presContext;
   domWindow->GetDocShell()->GetPresContext(getter_AddRefs(presContext));

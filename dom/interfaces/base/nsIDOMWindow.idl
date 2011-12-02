@@ -274,6 +274,7 @@ interface nsIDOMWindow : nsISupports
    */
   void                      scrollBy(in long xScrollDif, in long yScrollDif);
 
+
   // client
            attribute long                        screenX;
            attribute long                        screenY;

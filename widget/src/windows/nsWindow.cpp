@@ -455,7 +455,6 @@ nsWindow::nsWindow() : nsBaseWidget()
   } // !sInstanceCount
 
   mIdleService = nsnull;
-  
   sInstanceCount++;
 }
 
