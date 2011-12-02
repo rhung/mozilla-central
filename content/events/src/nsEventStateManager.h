@@ -490,6 +490,7 @@ private:
   nsCOMPtr<nsIContent> mLastMouseOverElement;
   static nsWeakFrame sLastDragOverFrame;
   static nsIntPoint sLastRefPoint;
+  static nsIntPoint sLastScreenOffset;
 
   // member variables for the d&d gesture state machine
   nsIntPoint mGestureDownPoint; // screen coordinates
@@ -561,8 +562,10 @@ public:
                               nsGUIEvent* inMouseDownEvent ) ;
   void KillClickHoldTimer ( ) ;
   void FireContextClick ( ) ;
+
   void SetMouseLock( bool aLocked, nsIWidget* aWidget ) ;
   static void sClickHoldCallback ( nsITimer* aTimer, void* aESM ) ;
+  static void SetLastScreenOffset(nsIntPoint aScreenOffset) ;
 };
 
 /**
