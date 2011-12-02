@@ -149,8 +149,8 @@ nsDOMMouseLockable::ShouldLock(nsIDOMElement* aTarget)
 {
   // Check if mouselock is enabled in prefs
   nsCOMPtr<nsIPrefBranch> prefs(do_GetService("@mozilla.org/preferences-service;1"));
-  PRBool mouseLockEnabled;
-  prefs->GetBoolPref(PREF_MOUSE_LOCK_ENABLED, (bool*)&mouseLockEnabled);
+  bool mouseLockEnabled;
+  prefs->GetBoolPref(PREF_MOUSE_LOCK_ENABLED, &mouseLockEnabled);
   if (!mouseLockEnabled) {
     return false;
   }
