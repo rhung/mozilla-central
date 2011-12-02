@@ -12,31 +12,32 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
 <body>
     <a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">Mozilla Bug 633602</a>
     <div id="content">
-        <script type="application/javascript">
-            var point = false; // a single point
-            var horizontal = false; // moving the mouse horizontally
-            var diagonal = false; // moving the mouse in a diagonal direction
-            var pointer = navigator.pointer;
-        </script>
-        <div style="position: absolute; width: 50px; height: 50px; z-index: 100; border: 1px solid black" onclick="point = true;"></div>
-        <div style="position: absolute; width: 50px; height: 50px; left: 60px; z-index: 100; border: 1px solid black" onclick="horizontal = true;"></div>
-        <div style="position: absolute; width: 50px; height: 50px; left: 110px; top: 80px; z-index: 100; border: 1px solid black" 
-            onclick="diagonal = true;"></div>
-        <div id="lockArea" style="width: 100%; height: 200px; background: #3f3;">
-        </div>
+        <map name="map" id="map">
+            <area shape="rect" coords="1, 1, 1, 1" onclick="point = true;" alt="single point" />
+            <area shape="rect" coords="2, 1, 2, 1" onclick="horizontal = true;" alt="horizontal movement" />
+            <area shape="rect" coords="3, 2, 3, 2" onclick="diagonal = true;" alt="diagonal movement" />
+        </map>
+        <img usemap="#map" id="lockArea" width="200" height="200" alt="Synethetic Mouse Event Test" 
+            src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAIBAQIBAQICAgICAgICAwUDAwMDAwYEBAMFBwYHBwcGBwcICQsJCAgKCAcHCg0KCgsMDAwMBwkODw0MDgsMDAz/2wBDAQICAgMDAwYDAwYMCAcIDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAz/wAARCADIAMgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD9AKKKK/yPPnwooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigD/2Q%3D%3D" />
     </div>
     <pre id="test">
         <script type="application/javascript">
             /** Test for Bug 633602 **/
-            /** Test to see if Synthetic Mouse behave the same regardless of mouse lock state**/
+            /** Test to see if Synthetic Mouse behave the same regardless of mouse lock state **/
             SimpleTest.waitForExplicitFinish();
             SimpleTest.waitForFocus(function () {
+                var point = false; // a single point
+                var horizontal = false; // moving the mouse horizontally
+                var diagonal = false; // moving the mouse in a diagonal direction
+                var pointer = navigator.pointer;
                 var lockArea = document.getElementById("lockArea");
+                SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only", false);
+                lockArea.mozRequestFullScreen();
                 /* Run test with mouse unlocked */
-                pointer.unlock();
-                synthesizeMouse(lockArea, 25, 25, {});
-                synthesizeMouse(lockArea, 65, 25, {});
-                synthesizeMouse(lockArea, 120, 90, {});
+                //pointer.unlock();
+                synthesizeMouse(lockArea, 1, 1, {});
+                synthesizeMouse(lockArea, 2, 1, {});
+                synthesizeMouse(lockArea, 3, 2, {});
                 /* Resetting the test for mouse lock */
                 var unlock1 = point;
                 point = false;
@@ -44,22 +45,25 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
                 horizontal = false;
                 var unlock3 = diagonal;
                 diagonal = false;
+                ok(point, "screwed");
                 /* Run the same test with mouse locked */
-                pointer.lock(image,
-					function () {
-					    synthesizeMouse(lockArea, 25, 25, {});
-					    synthesizeMouse(lockArea, 65, 25, {});
-					    synthesizeMouse(lockArea, 120, 90, {});
-					    is(unlock1, point, "Point click failed");
-					    is(unlock2, horizontal, "Horizontal movement click failed");
-					    is(unlock3, diagonal, "Diagonal movement click failed");
-					},
-					function () {
-					    ok(false, "Mouse lock failed to fire");
-					}
-				);
-                SimpleTest.finish();
+//                pointer.lock(lockArea,
+//					function () {
+//					    synthesizeMouse(lockArea, 1, 1, {});
+//					    synthesizeMouse(lockArea, 2, 1, {});
+//					    synthesizeMouse(lockArea, 3, 2, {});
+//					    is(unlock1, point, "Point click failed");
+//					    is(unlock2, horizontal, "Horizontal movement click failed");
+//					    is(unlock3, diagonal, "Diagonal movement click failed");
+//					    SimpleTest.finish();
+//					},
+//					function () {
+//					    ok(false, "Mouse lock failed to fire");
+//					    SimpleTest.finish();
+//					}
+//				);
             });
+            //lockArea.mozCancelFullScreen();
         </script>
     </pre>
 </body>
