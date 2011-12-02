@@ -1,0 +1,66 @@
+<!DOCTYPE HTML>
+<html>
+<!--
+https://bugzilla.mozilla.org/show_bug.cgi?id=633602
+-->
+<head>
+    <title>Test for Bug 633602</title>
+    <script type="application/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
+    <script type="text/javascript" src="/tests/SimpleTest/EventUtils.js"></script>
+    <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css" />
+</head>
+<body>
+    <a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">Mozilla Bug 633602</a>
+    <div id="content">
+        <script type="application/javascript">
+            var point = false; // a single point
+            var horizontal = false; // moving the mouse horizontally
+            var diagonal = false; // moving the mouse in a diagonal direction
+            var pointer = navigator.pointer;
+        </script>
+        <div style="position: absolute; width: 50px; height: 50px; z-index: 100; border: 1px solid black" onclick="point = true;"></div>
+        <div style="position: absolute; width: 50px; height: 50px; left: 60px; z-index: 100; border: 1px solid black" onclick="horizontal = true;"></div>
+        <div style="position: absolute; width: 50px; height: 50px; left: 110px; top: 80px; z-index: 100; border: 1px solid black" 
+            onclick="diagonal = true;"></div>
+        <div id="lockArea" style="width: 100%; height: 200px; background: #3f3;">
+        </div>
+    </div>
+    <pre id="test">
+        <script type="application/javascript">
+            /** Test for Bug 633602 **/
+            /** Test to see if Synthetic Mouse behave the same regardless of mouse lock state**/
+            SimpleTest.waitForExplicitFinish();
+            SimpleTest.waitForFocus(function () {
+                var lockArea = document.getElementById("lockArea");
+                /* Run test with mouse unlocked */
+                pointer.unlock();
+                synthesizeMouse(lockArea, 25, 25, {});
+                synthesizeMouse(lockArea, 65, 25, {});
+                synthesizeMouse(lockArea, 120, 90, {});
+                /* Resetting the test for mouse lock */
+                var unlock1 = point;
+                point = false;
+                var unlock2 = horizontal;
+                horizontal = false;
+                var unlock3 = diagonal;
+                diagonal = false;
+                /* Run the same test with mouse locked */
+                pointer.lock(image,
+					function () {
+					    synthesizeMouse(lockArea, 25, 25, {});
+					    synthesizeMouse(lockArea, 65, 25, {});
+					    synthesizeMouse(lockArea, 120, 90, {});
+					    is(unlock1, point, "Point click failed");
+					    is(unlock2, horizontal, "Horizontal movement click failed");
+					    is(unlock3, diagonal, "Diagonal movement click failed");
+					},
+					function () {
+					    ok(false, "Mouse lock failed to fire");
+					}
+				);
+                SimpleTest.finish();
+            });
+        </script>
+    </pre>
+</body>
+</html>
