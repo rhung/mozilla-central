@@ -174,6 +174,14 @@ nsDOMMouseLockable::ShouldLock(nsIDOMElement* aTarget)
     return false;
   }
 
+
+  // Check if the element belongs to the right DOM
+  nsCOMPtr<nsIDOMDocument> targetDoc;
+  parentNode->GetOwnerDocument(getter_AddRefs(targetDoc));
+  if (targetDoc != domDoc) {
+    return false;
+  }
+
   // Check if element is in fullscreen mode
   nsCOMPtr<nsIDOMHTMLElement> lockedElement;
   domDoc->GetMozFullScreenElement(getter_AddRefs(lockedElement));

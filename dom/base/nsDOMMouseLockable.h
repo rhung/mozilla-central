@@ -69,10 +69,10 @@ private:
 class nsRequestMouseLockEvent : public nsRunnable {
 public:
   nsRequestMouseLockEvent(bool aAllow,
-                        nsMouseLockableRequest* aRequest)
+                          nsMouseLockableRequest* aRequest)
     : mRequest(aRequest),
-      mAllow(aAllow){
-  }
+      mAllow(aAllow)
+  {}
 
   NS_IMETHOD Run();
 
