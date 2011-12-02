@@ -468,6 +468,7 @@ protected:
   bool HandleCrossProcessEvent(nsEvent *aEvent,
                                  nsIFrame* aTargetFrame,
                                  nsEventStatus *aStatus);
+
 private:
   static inline void DoStateChange(mozilla::dom::Element* aElement,
                                    nsEventStates aState, bool aAddState);
@@ -490,6 +491,7 @@ private:
   nsCOMPtr<nsIContent> mLastMouseOverElement;
   static nsWeakFrame sLastDragOverFrame;
   static nsIntPoint sLastRefPoint;
+  static nsIntPoint sLastScreenOffset;
 
   // member variables for the d&d gesture state machine
   nsIntPoint mGestureDownPoint; // screen coordinates
@@ -561,8 +563,10 @@ public:
                               nsGUIEvent* inMouseDownEvent ) ;
   void KillClickHoldTimer ( ) ;
   void FireContextClick ( ) ;
-  static void sClickHoldCallback ( nsITimer* aTimer, void* aESM );
-  void SetMouseLock( bool locked, nsIWidget* widget );
+
+  void SetMouseLock( bool aLocked, nsIWidget* aWidget ) ;
+  static void sClickHoldCallback ( nsITimer* aTimer, void* aESM ) ;
+  static void SetLastScreenOffset(nsIntPoint aScreenOffset) ;
 };
 
 /**

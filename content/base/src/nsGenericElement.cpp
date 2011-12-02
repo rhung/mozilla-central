@@ -532,28 +532,26 @@ nsINode::RemoveChild(nsINode *aOldChild)
       domDoc->GetMozFullScreenElement(getter_AddRefs(lockedElement));
 
       nsCOMPtr<nsIDOMNode> lockedNode = do_QueryInterface(lockedElement);
-      // If the element being removed is the same element with the mouse locked
-      // Then unlock the element
+      // If the element being removed is also currently
+      // mouse locked, then unlock the element.
       if (node == lockedNode) {
-        // Get Window
         nsCOMPtr<nsIDOMWindow> window;
         domDoc->GetDefaultView(getter_AddRefs(window));
-        //Get Navigator
-        nsCOMPtr<nsIDOMNavigator> navigator;
-        window->GetNavigator(getter_AddRefs(navigator));
-        if (navigator) {
-          // Get Pointer
-          nsCOMPtr<nsIDOMMouseLockable> pointer;
-          navigator->GetPointer(getter_AddRefs(pointer));
-          if (pointer) {
-            // Unlock the mouse
-            pointer->Unlock();
+        if (window) {
+          nsCOMPtr<nsIDOMNavigator> navigator;
+          window->GetNavigator(getter_AddRefs(navigator));
+          if (navigator) {
+            nsCOMPtr<nsIDOMMouseLockable> pointer;
+            navigator->GetPointer(getter_AddRefs(pointer));
+            if (pointer) {
+              // Unlock the mouse
+              pointer->Unlock();
+            }
           }
         }
       }
     }
   }
-  
 
   if (!aOldChild) {
     return NS_ERROR_NULL_POINTER;
