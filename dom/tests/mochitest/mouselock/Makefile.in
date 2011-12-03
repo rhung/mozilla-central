@@ -54,6 +54,7 @@ _TEST_FILES	= \
     test_constantxy.html \
     test_isInstanceofMouselockable.html \
     test_mouseLockableHasRequiredMethods.html \
+    test_limitlessScroll.html \
     $(NULL)
 
 libs::	$(_TEST_FILES)
