@@ -50,6 +50,8 @@ _TEST_FILES	= \
     doubleLockCallBack.html \
     lockLostCallBack.html \
 	test_mouselocklost.html \
+	test_isInstanceofMouselockable.html \
+    test_mouseLockableHasRequiredMethods.html \
     $(NULL)
 
 libs::	$(_TEST_FILES)
