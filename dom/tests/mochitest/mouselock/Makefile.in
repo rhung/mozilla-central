@@ -47,7 +47,6 @@ include $(topsrcdir)/config/rules.mk
 _TEST_FILES	= \
     navigatorPointer.html \
     test_fullscreen.html \
-<<<<<<< HEAD
     test_DOMtree.html \
     doubleLockCallBack.html \
     lockLostCallBack.html \
