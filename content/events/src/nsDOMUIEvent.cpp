@@ -162,7 +162,7 @@ nsDOMUIEvent::GetMovementPoint()
   }
 
   if (!((nsGUIEvent*)mEvent)->widget ) {
-    return mEvent->lastRefPoint; // XXXhump: lastRefPoint - refPoint??
+    return mEvent->lastRefPoint;
   }
 
   // Calculate the delta between the previous screen point and the current one.

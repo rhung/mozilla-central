@@ -8533,14 +8533,16 @@ nsDocument::CancelFullScreen()
     if (::SetFullScreenState(doc, nsnull, false)) {
 
       nsCOMPtr<nsIDOMWindow> window = doc->GetWindow();
-      nsCOMPtr<nsIDOMNavigator> navigator;
-      window->GetNavigator(getter_AddRefs(navigator));
- 
-      if (navigator) {
-        nsCOMPtr<nsIDOMMouseLockable> pointer;
-        navigator->GetPointer(getter_AddRefs(pointer));
-        if (pointer) {
-          pointer->Unlock();
+      if (window) {
+        nsCOMPtr<nsIDOMNavigator> navigator;
+        window->GetNavigator(getter_AddRefs(navigator));
+
+        if (navigator) {
+          nsCOMPtr<nsIDOMMouseLockable> pointer;
+          navigator->GetPointer(getter_AddRefs(pointer));
+          if (pointer) {
+            pointer->Unlock();
+          }
         }
       }
 
