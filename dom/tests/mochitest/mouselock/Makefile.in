@@ -47,11 +47,13 @@ include $(topsrcdir)/config/rules.mk
 _TEST_FILES	= \
     navigatorPointer.html \
     test_fullscreen.html \
+    test_constantxy.html \
     doubleLockCallBack.html \
     lockLostCallBack.html \
-	test_mouselocklost.html \
-	test_isInstanceofMouselockable.html \
+    test_mouselocklost.html \
+    test_isInstanceofMouselockable.html \
     test_mouseLockableHasRequiredMethods.html \
+    test_mouselocklost.html \
     $(NULL)
 
 libs::	$(_TEST_FILES)
