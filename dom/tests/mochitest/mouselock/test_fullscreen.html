@@ -10,23 +10,23 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=92264
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
 </head>
 <body onload="runTests();">
-	<a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">Mozilla Bug 633602</a>
+  <a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">Mozilla Bug 633602</a>
 
-	<p id="display"></p>
+  <p id="display"></p>
 
-	<div id="content" style="display: none">
-	</div>
+  <div id="content" style="display: none">
+  </div>
 	
-	<canvas id="canvas" width="150" height="150"></canvas>
+  <canvas id="canvas" width="150" height="150"></canvas>
 
-	<pre id="test">
-		<script>
-			SimpleTest.waitForExplicitFinish();
-
-			var pointer = navigator.pointer;
-			var canvas = document.getElementById("canvas");
-            		var lockTestDone = false;
-            		var unlockTestDone = false;
+  <pre id="test">
+    <script>
+      SimpleTest.waitForExplicitFinish();
+      
+      var pointer = navigator.pointer;
+      var canvas = document.getElementById("canvas");
+      var lockTestDone = false;
+      var unlockTestDone = false;
 			SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only", false);
 
 			document.addEventListener("mozfullscreenchange", function (e) {     
