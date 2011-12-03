@@ -47,9 +47,6 @@ include $(topsrcdir)/config/rules.mk
 _TEST_FILES	= \
     navigatorPointer.html \
     test_fullscreen.html \
-<<<<<<< HEAD
-	test_limitlessScroll.html \
-=======
     test_DOMtree.html \
     doubleLockCallBack.html \
     lockLostCallBack.html \
@@ -57,7 +54,7 @@ _TEST_FILES	= \
     test_constantxy.html \
     test_isInstanceofMouselockable.html \
     test_mouseLockableHasRequiredMethods.html \
->>>>>>> 75ec707072d78c0bf66984cf0fc403344bcc1f2e
+    test_limitlessScroll.html \
     $(NULL)
 
 libs::	$(_TEST_FILES)
