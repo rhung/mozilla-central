@@ -4099,28 +4099,6 @@ nsGlobalWindow::SetScreenY(PRInt32 aScreenY)
   return NS_OK;
 }
 
-NS_IMETHODIMP
-nsGlobalWindow::GetLastScreenX(PRInt32* aScreenX)
-{
-  *aScreenX = mLastScreenPos.x;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsGlobalWindow::GetLastScreenY(PRInt32* aScreenY)
-{
-  *aScreenY = mLastScreenPos.y;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsGlobalWindow::SaveScreenPosition(PRInt32 x, PRInt32 y)
-{
-  mLastScreenPos.x = x;
-  mLastScreenPos.y = y;
-  return NS_OK;
-}
-
 // NOTE: Arguments to this function should have values scaled to
 // CSS pixels, not device pixels.
 nsresult
@@ -4465,6 +4443,12 @@ nsGlobalWindow::GetNearestWidget()
 NS_IMETHODIMP
 nsGlobalWindow::SetFullScreen(bool aFullScreen)
 {
+  if (!mFullScreen && aFullScreen) {
+    nsIWidget* widget = GetNearestWidget();
+    if (widget) {
+      nsEventStateManager::SetLastScreenOffset(widget->WidgetToScreenOffset());
+    }
+  }
   FORWARD_TO_OUTER(SetFullScreen, (aFullScreen), NS_ERROR_NOT_INITIALIZED);
 
   NS_ENSURE_TRUE(mDocShell, NS_ERROR_FAILURE);
