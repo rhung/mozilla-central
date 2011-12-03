@@ -161,6 +161,7 @@ nsEventStateManager* nsEventStateManager::sActiveESM = nsnull;
 nsIDocument* nsEventStateManager::sMouseOverDocument = nsnull;
 nsWeakFrame nsEventStateManager::sLastDragOverFrame = nsnull;
 nsIntPoint nsEventStateManager::sLastRefPoint = nsIntPoint(0,0);
+nsIntPoint nsEventStateManager::sLastScreenOffset = nsIntPoint(0,0);
 nsCOMPtr<nsIContent> nsEventStateManager::sDragOverContent = nsnull;
 
 static PRUint32 gMouseOrKeyboardEventCounter = 0;
@@ -775,6 +776,7 @@ nsMouseWheelTransaction::LimitToOnePageScroll(PRInt32 aScrollLines,
 nsEventStateManager::nsEventStateManager()
   : mLockCursor(0),
     mMouseLocked(false),
+    mPreLockPoint(0,0),
     mCurrentTarget(nsnull),
     mLastMouseOverFrame(nsnull),
     // init d&d gesture state machine variables
@@ -3895,6 +3897,11 @@ public:
 void
 nsEventStateManager::NotifyMouseOut(nsGUIEvent* aEvent, nsIContent* aMovingInto)
 {
+  // If the mouse is locked, don't fire mouseout events
+  if (mMouseLocked) {
+    return;
+  }
+
   if (!mLastMouseOverElement)
     return;
   // Before firing mouseout, check for recursion
@@ -3955,6 +3962,11 @@ nsEventStateManager::NotifyMouseOut(nsGUIEvent* aEvent, nsIContent* aMovingInto)
 void
 nsEventStateManager::NotifyMouseOver(nsGUIEvent* aEvent, nsIContent* aContent)
 {
+  // If the mouse is locked, don't fire mouseover events
+  if (mMouseLocked) {
+    return;
+  }
+
   NS_ASSERTION(aContent, "Mouse must be over something");
 
   if (mLastMouseOverElement == aContent)
@@ -4028,7 +4040,8 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
         aEvent->lastRefPoint = nsIntPoint(bounds.width/2, bounds.height/2);
 
         // refPoint should not be the centre on mousemove
-        if (aEvent->refPoint.x == aEvent->lastRefPoint.x && aEvent->refPoint.y == aEvent->lastRefPoint.y) {
+        if (aEvent->refPoint.x == aEvent->lastRefPoint.x &&
+            aEvent->refPoint.y == aEvent->lastRefPoint.y) {
           aEvent->refPoint = sLastRefPoint;
         } else {
           aEvent->widget->SynthesizeNativeMouseMove(aEvent->lastRefPoint);
@@ -4051,8 +4064,8 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
       if (targetElement) {
         NotifyMouseOver(aEvent, targetElement);
       }
-      break;
     }
+    break;
   case NS_MOUSE_EXIT:
     {
       // This is actually the window mouse exit event. We're not moving
@@ -4076,18 +4089,33 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
 }
 
 void
-nsEventStateManager::SetMouseLock(bool locked,
-                                  nsIWidget* widget)
+nsEventStateManager::SetMouseLock(bool aLocked,
+                                  nsIWidget* aWidget)
 {
-  // TODO: should do error checks, return nsresult...
-  mMouseLocked = locked;
-  if (widget && mMouseLocked) {
+  mMouseLocked = aLocked;
+
+  if (!aWidget) {
+    return;
+  }
+
+  if (mMouseLocked) {
+    // Store the last known ref point so we can reposition the mouse after unlock.
+    mPreLockPoint = sLastRefPoint + sLastScreenOffset;
+
     // Set the initial mouse lock movement (before the first mouse move event), to 0,0
     nsIntRect bounds;
-    widget->GetScreenBounds(bounds);
+    aWidget->GetScreenBounds(bounds);
     sLastRefPoint = nsIntPoint(bounds.width/2, bounds.height/2);
-    widget->SynthesizeNativeMouseMove(sLastRefPoint);
+    aWidget->SynthesizeNativeMouseMove(sLastRefPoint);
+  } else {
+    // Unlocking, so return mouse to the original position
+    aWidget->SynthesizeNativeMouseMove(mPreLockPoint);
   }
+}
+
+void
+nsEventStateManager::SetLastScreenOffset(nsIntPoint aScreenOffset) {
+  sLastScreenOffset = aScreenOffset;
 }
 
 void
