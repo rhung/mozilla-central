@@ -23,6 +23,7 @@
  *   Raymond Hung <hung.raymond@gmail.com>
  *   Jesse Silver <jasilver1@learn.senecac.on.ca>
  *   Matthew Schranz <schranz.m@gmail.com>
+ *   Joseph Hughes <CloudScorpion@gmail.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -106,8 +107,8 @@ NS_IMETHODIMP nsDOMMouseLockable::Unlock()
   nsCOMPtr<nsPIDOMWindow> domWindow( do_QueryInterface( mWindow ) );
   if (!domWindow) {
     NS_ERROR("Unlock(): No DOM found in nsCOMPtr<nsPIDOMWindow>");
-		return NS_ERROR_UNEXPECTED;
-	}
+    return NS_ERROR_UNEXPECTED;
+  }
 
   nsRefPtr<nsPresContext> presContext;
   domWindow->GetDocShell()->GetPresContext(getter_AddRefs(presContext));
@@ -175,7 +176,6 @@ nsDOMMouseLockable::ShouldLock(nsIDOMElement* aTarget)
     return false;
   }
 
-
   // Check if the element belongs to the right DOM
   nsCOMPtr<nsIDOMDocument> targetDoc;
   parentNode->GetOwnerDocument(getter_AddRefs(targetDoc));
@@ -188,10 +188,7 @@ nsDOMMouseLockable::ShouldLock(nsIDOMElement* aTarget)
   domDoc->GetMozFullScreenElement(getter_AddRefs(lockedElement));
   if (lockedElement != aTarget) {
     return false;
-  } 
-
-  // TODO: Check if window is in focus?
-  // TODO: Check if MouseLock preference is set to true
+  }
 
   return true;
 }
@@ -204,7 +201,10 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
     new nsMouseLockableRequest(aSuccessCallback, aFailureCallback);
   nsCOMPtr<nsIRunnable> ev;
 
-  if (ShouldLock(aTarget)) {
+  // If we're already locked to this target, recall success callback
+  if (mIsLocked && mTarget == aTarget){
+    ev = new nsRequestMouseLockEvent(true, request);
+  } else if (ShouldLock(aTarget)) {
     mIsLocked = PR_TRUE;
     mTarget = aTarget;
 

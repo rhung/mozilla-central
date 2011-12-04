@@ -468,6 +468,7 @@ protected:
   bool HandleCrossProcessEvent(nsEvent *aEvent,
                                  nsIFrame* aTargetFrame,
                                  nsEventStatus *aStatus);
+
 private:
   static inline void DoStateChange(mozilla::dom::Element* aElement,
                                    nsEventStates aState, bool aAddState);
