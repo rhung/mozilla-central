@@ -1,0 +1,56 @@
+<!DOCTYPE HTML>
+<html>
+<!--
+https://bugzilla.mozilla.org/show_bug.cgi?id=633602
+-->
+<head>
+  <title>Test for Bug 633602</title>
+  <script type="application/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
+  <script type="text/javascript" src="/tests/SimpleTest/EventUtils.js"></script>
+  <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
+</head>
+<body>
+  <a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">Mozilla Bug 633602</a>
+  <p id="display"></p>
+  <div id="content" style="display: none">
+  </div>
+  <div id="div" style="border:1px solid;width:150px;height:150px"></div>
+  <pre id="test">
+      <script type="application/javascript">
+   
+        /** Test for Bug 633602 **/
+        SimpleTest.waitForExplicitFinish()
+        SimpleTest.waitForFocus(function() {
+	
+	  SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only", false);    
+	  var pointer = navigator.pointer;
+	  var div = document.getElementById("div");
+	  div.mozRequestFullScreen();
+		
+	  document.addEventListener("mozfullscreenchange", function() {
+            if (document.mozFullScreen) {
+              // Mouse should be locked if the element is in fullscreen mode
+	      pointer.lock(div, function() {
+		window.blur();
+              });
+	      document.mozCancelFullScreen();
+	    }
+	  }, false);
+	  
+	  document.addEventListener("blur", blurHandler, false);
+	  
+	  function blurHandler(e) {
+	    document.removeEventListener("blur", blurHandler, false);
+	    is(pointer.islocked(), false, "Mouselock should exit when window loses focus");
+	  }
+	  
+          div.addEventListener("mouselocklost", function() {
+	    is(pointer.islocked(), false, "Mouselocklost event should trigger window loses focus");
+	    SimpleTest.finish();
+	  }, false);
+	  
+        });   
+        </script>
+    </pre>
+</body>
+</html>
