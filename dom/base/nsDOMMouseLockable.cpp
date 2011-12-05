@@ -23,6 +23,7 @@
  *   Raymond Hung <hung.raymond@gmail.com>
  *   Jesse Silver <jasilver1@learn.senecac.on.ca>
  *   Matthew Schranz <schranz.m@gmail.com>
+ *   Joseph Hughes <CloudScorpion@gmail.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -200,7 +201,10 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
     new nsMouseLockableRequest(aSuccessCallback, aFailureCallback);
   nsCOMPtr<nsIRunnable> ev;
 
-  if (ShouldLock(aTarget)) {
+  // If we're already locked to this target, recall success callback
+  if (mIsLocked && mTarget == aTarget){
+    ev = new nsRequestMouseLockEvent(true, request);
+  } else if (ShouldLock(aTarget)) {
     mIsLocked = PR_TRUE;
     mTarget = aTarget;
 
