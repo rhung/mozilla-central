@@ -61,8 +61,8 @@ _TEST_FILES	= \
     test_MouseEvents.html \
     test_doesunlock.html \
     test_mousePos.html \
-    TargetOutOfFocus.html \
-    LockWhenOutOfFocus.html \
+    test_TargetOutOfFocus.html \
+    test_LockWhenOutOfFocus.html \
     $(NULL)
 
 libs::	$(_TEST_FILES)
