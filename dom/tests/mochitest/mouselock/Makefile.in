@@ -60,7 +60,6 @@ _TEST_FILES	= \
     test_limitlessScroll.html \
     test_MouseEvents.html \
     test_doesunlock.html \
-    test_movement.html \
     $(NULL)
 
 libs::	$(_TEST_FILES)
