@@ -1,0 +1,40 @@
+<!DOCTYPE HTML>
+<html>
+<!--
+https://bugzilla.mozilla.org/show_bug.cgi?id=633602
+-->
+<head>
+    <title>Test for Bug 633602</title>
+    <script type="application/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
+    <script type="text/javascript" src="/tests/SimpleTest/EventUtils.js"></script>
+    <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
+</head>
+<body>
+    <a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">Mozilla Bug 633602</a>
+<div id="content">
+</div>
+    <pre id="test">
+        <script type="application/javascript">
+            /** Test for Bug 633602 **/
+            /** Test to see if unlock() will cancel the lock() state in MouseLockable **/
+            SimpleTest.waitForExplicitFinish()
+            SimpleTest.waitForFocus(function() {
+				var np = navigator.pointer;
+				var locked = np.islocked();
+				np.lock = np.lock();
+				var locked2 = np.islocked();
+				np.unlock();
+				var locked3 = np.islocked();
+				var allPassed = false;
+
+				if (!(locked) && (locked2) && !(locked3) ) {
+					allPassed = true;
+				}
+				is(allPassed, true, "Error message");
+				SimpleTest.finish();
+			});
+        </script>
+    </pre>
+</body>
+</html>
+
