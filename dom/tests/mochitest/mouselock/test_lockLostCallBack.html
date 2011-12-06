@@ -35,7 +35,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
         var eventCount = 0;
 
         var testFunction = function(){
-          if (document.getFullScreenElement) {
+          if (document.mozFullScreenElement === testElementTwo) {
             pointer.lock(testElementTwo, function(){
               is (i, 1, "CallBack function on first lock lost did not fire");
               document.mozCancelFullScreen();
