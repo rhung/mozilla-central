@@ -775,7 +775,7 @@ nsMouseWheelTransaction::LimitToOnePageScroll(PRInt32 aScrollLines,
 
 nsEventStateManager::nsEventStateManager()
   : mLockCursor(0),
-    mMouseLocked(false),
+    mMouseLockedElement(nsnull),
     mPreLockPoint(0,0),
     mCurrentTarget(nsnull),
     mLastMouseOverFrame(nsnull),
@@ -3898,7 +3898,7 @@ void
 nsEventStateManager::NotifyMouseOut(nsGUIEvent* aEvent, nsIContent* aMovingInto)
 {
   // If the mouse is locked, don't fire mouseout events
-  if (mMouseLocked) {
+  if (mMouseLockedElement) {
     return;
   }
 
@@ -3963,7 +3963,7 @@ void
 nsEventStateManager::NotifyMouseOver(nsGUIEvent* aEvent, nsIContent* aContent)
 {
   // If the mouse is locked, don't fire mouseover events
-  if (mMouseLocked) {
+  if (mMouseLockedElement) {
     return;
   }
 
@@ -4033,7 +4033,7 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
   switch(aEvent->message) {
   case NS_MOUSE_MOVE:
     {
-      if (mMouseLocked && aEvent->widget) {
+      if (mMouseLockedElement && aEvent->widget) {
         // Perform mouse lock by recentering the mouse directly, then remembering the deltas.
         nsIntRect bounds;
         aEvent->widget->GetScreenBounds(bounds);
@@ -4089,16 +4089,18 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
 }
 
 void
-nsEventStateManager::SetMouseLock(bool aLocked,
-                                  nsIWidget* aWidget)
+nsEventStateManager::SetMouseLock(nsIWidget* aWidget,
+                                  nsIContent* aElement)
 {
-  mMouseLocked = aLocked;
+  // Remember which element is locked so we don't dispatch events for
+  // elements that aren't locked. aElement will be nsnull when unlocking.
+  mMouseLockedElement = aElement;
 
   if (!aWidget) {
     return;
   }
 
-  if (mMouseLocked) {
+  if (mMouseLockedElement) {
     // Store the last known ref point so we can reposition the mouse after unlock.
     mPreLockPoint = sLastRefPoint + sLastScreenOffset;
 
