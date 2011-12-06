@@ -6,21 +6,21 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
 <head>
   <title>Test for Bug 633602</title>
   <script src="/tests/SimpleTest/SimpleTest.js"></script>
-	<script src="/tests/SimpleTest/EventUtils.js"></script>
+  <script src="/tests/SimpleTest/EventUtils.js"></script>
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
 </head>
 <body>
-	<a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">Mozilla Bug 633602</a>
+  <a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">Mozilla Bug 633602</a>
 
-	<p id="display"></p>
+  <p id="display"></p>
 
-	<div id="content" style="display: none">
-	</div>
-	
-	<canvas id="canvas" width="150" height="150"></canvas>
-	<pre id="test">
+  <div id="content" style="display: none">
+  </div>
+  
+  <canvas id="canvas" width="150" height="150"></canvas>
+  <pre id="test">
     <script>
-		  SimpleTest.waitForExplicitFinish();
+      SimpleTest.waitForExplicitFinish();
       SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only", false);
 
       const canvas = document.getElementById("canvas");
@@ -51,7 +51,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
       document.addEventListener("mozfullscreenchange", onFullScreen, false);
 
       canvas.mozRequestFullScreen();
-		</script>
-	</pre>
+    </script>
+  </pre>
 </body>
 </html>
