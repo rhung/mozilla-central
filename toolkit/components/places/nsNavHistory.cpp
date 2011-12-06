@@ -30,6 +30,7 @@
  *   Drew Willcoxon <adw@mozilla.com>
  *   Philipp von Weitershausen <philipp@weitershausen.de>
  *   Paolo Amadini <http://www.amadzone.org/>
+ *   Richard Newman <rnewman@mozilla.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -720,10 +721,10 @@ nsNavHistory::FindLastVisit(nsIURI* aURI,
 bool nsNavHistory::IsURIStringVisited(const nsACString& aURIString)
 {
   nsCOMPtr<mozIStorageStatement> stmt = mDB->GetStatement(
-    "SELECT h.id "
+    "SELECT 1 "
     "FROM moz_places h "
     "WHERE url = ?1 "
-      "AND EXISTS(SELECT id FROM moz_historyvisits WHERE place_id = h.id LIMIT 1) "
+      "AND last_visit_date NOTNULL "
   );
   NS_ENSURE_TRUE(stmt, false);
   mozStorageStatementScoper scoper(stmt);

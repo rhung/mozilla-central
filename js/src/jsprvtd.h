@@ -117,7 +117,6 @@ class JSWrapper;
 namespace js {
 
 struct ArgumentsData;
-struct FlatClosureData;
 struct Class;
 
 class RegExpObject;
@@ -130,6 +129,7 @@ namespace detail {
 
 class RegExpPrivate;
 class RegExpPrivateCode;
+class RegExpPrivateCacheValue;
 
 } /* namespace detail */
 
@@ -217,8 +217,11 @@ class LifoAlloc;
 class PropertyCache;
 struct PropertyCacheEntry;
 
+class BaseShape;
+class UnownedBaseShape;
 struct Shape;
 struct EmptyShape;
+class ShapeKindArray;
 class Bindings;
 
 class MultiDeclRange;
@@ -236,7 +239,10 @@ typedef HashMap<jsbytecode *, BreakpointSite *, DefaultHasher<jsbytecode *>, Run
 class Debugger;
 class WatchpointMap;
 
-typedef HashMap<JSAtom *, detail::RegExpPrivate *, DefaultHasher<JSAtom *>, RuntimeAllocPolicy>
+typedef HashMap<JSAtom *,
+                detail::RegExpPrivateCacheValue,
+                DefaultHasher<JSAtom *>,
+                RuntimeAllocPolicy>
     RegExpPrivateCache;
 
 typedef JSNative             Native;
