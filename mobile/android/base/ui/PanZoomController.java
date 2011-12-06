@@ -38,21 +38,24 @@
 package org.mozilla.gecko.ui;
 
 import org.json.JSONObject;
+import org.json.JSONException;
 import org.mozilla.gecko.gfx.FloatSize;
 import org.mozilla.gecko.gfx.LayerController;
+import org.mozilla.gecko.gfx.PointUtils;
+import org.mozilla.gecko.gfx.RectUtils;
 import org.mozilla.gecko.FloatUtils;
 import org.mozilla.gecko.GeckoApp;
 import org.mozilla.gecko.GeckoAppShell;
 import org.mozilla.gecko.GeckoEvent;
-import android.graphics.Point;
+import org.mozilla.gecko.GeckoEventListener;
 import android.graphics.PointF;
-import android.graphics.Rect;
 import android.graphics.RectF;
 import android.util.Log;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
 import java.lang.Math;
+import java.util.Date;
 import java.util.Timer;
 import java.util.TimerTask;
 
@@ -64,7 +67,7 @@ import java.util.TimerTask;
  */
 public class PanZoomController
     extends GestureDetector.SimpleOnGestureListener
-    implements ScaleGestureDetector.OnScaleGestureListener
+    implements ScaleGestureDetector.OnScaleGestureListener, GeckoEventListener
 {
     private static final String LOGTAG = "GeckoPanZoomController";
 
@@ -90,6 +93,8 @@ public class PanZoomController
     // The maximum velocity change factor between events, per ms, in %.
     // Direction changes are excluded.
     private static final float MAX_EVENT_ACCELERATION = 0.012f;
+    // Length of time to spend zooming. in ms
+    public static final int ZOOM_DURATION         = 200;
 
     private Timer mFlingTimer;
     private Axis mX, mY;
@@ -108,9 +113,14 @@ public class PanZoomController
                          * similar to TOUCHING but after starting a pan */
         PANNING_HOLD_LOCKED, /* like PANNING_HOLD, but axis lock still in effect */
         PINCHING,       /* nth touch-start, where n > 1. this mode allows pan and zoom */
+        ANIMATED_ZOOM   /* animated zoom to a new rect */
     }
 
     private PanZoomState mState;
+
+    private boolean mOverridePanning;
+    private boolean mOverrideScrollAck;
+    private boolean mOverrideScrollPending;
 
     public PanZoomController(LayerController controller) {
         mController = controller;
@@ -118,6 +128,76 @@ public class PanZoomController
         mState = PanZoomState.NOTHING;
 
         populatePositionAndLength();
+
+        GeckoAppShell.registerGeckoEventListener("Browser:ZoomToRect", this);
+        GeckoAppShell.registerGeckoEventListener("Browser:ZoomToPageWidth", this);
+        GeckoAppShell.registerGeckoEventListener("Panning:Override", this);
+        GeckoAppShell.registerGeckoEventListener("Panning:CancelOverride", this);
+        GeckoAppShell.registerGeckoEventListener("Gesture:ScrollAck", this);
+    }
+
+    protected void finalize() throws Throwable {
+        GeckoAppShell.unregisterGeckoEventListener("Browser:ZoomToRect", this);
+        GeckoAppShell.unregisterGeckoEventListener("Browser:ZoomToPageWidth", this);
+        GeckoAppShell.unregisterGeckoEventListener("Panning:Override", this);
+        GeckoAppShell.unregisterGeckoEventListener("Panning:CancelOverride", this);
+        GeckoAppShell.unregisterGeckoEventListener("Gesture:ScrollAck", this);
+        super.finalize();
+    }
+
+    public void handleMessage(String event, JSONObject message) {
+        Log.i(LOGTAG, "Got message: " + event);
+        try {
+            if ("Panning:Override".equals(event)) {
+                mOverridePanning = true;
+                mOverrideScrollAck = true;
+            } else if ("Panning:CancelOverride".equals(event)) {
+                mOverridePanning = false;
+            } else if ("Gesture:ScrollAck".equals(event)) {
+                mController.post(new Runnable() {
+                    public void run() {
+                        mOverrideScrollAck = true;
+                        if (mOverridePanning && mOverrideScrollPending)
+                            updatePosition();
+                    }
+                });
+            } else if (event.equals("Browser:ZoomToRect")) {
+                if (mController != null) {
+                    float scale = mController.getZoomFactor();
+                    float x = (float)message.getDouble("x");
+                    float y = (float)message.getDouble("y");
+                    final RectF zoomRect = new RectF(x, y,
+                                         x + (float)message.getDouble("w"),
+                                         y + (float)message.getDouble("h"));
+                    mController.post(new Runnable() {
+                        public void run() {
+                            animatedZoomTo(zoomRect);
+                        }
+                    });
+                }
+            } else if (event.equals("Browser:ZoomToPageWidth")) {
+                if (mController != null) {
+                    float scale = mController.getZoomFactor();
+                    FloatSize pageSize = mController.getPageSize();
+
+                    RectF viewableRect = mController.getViewport();
+                    float y = viewableRect.top;
+                    // attempt to keep zoom keep focused on the center of the viewport
+                    float dh = viewableRect.height()*(1 - pageSize.width/viewableRect.width()); // increase in the height
+                    final RectF r = new RectF(0.0f,
+                                        y + dh/2,
+                                        pageSize.width,
+                                        (y + pageSize.width * viewableRect.height()/viewableRect.width()));
+                    mController.post(new Runnable() {
+                        public void run() {
+                            animatedZoomTo(r);
+                        }
+                    });
+                }
+            }
+        } catch (Exception e) {
+            Log.e(LOGTAG, "Exception handling message \"" + event + "\":", e);
+        }
     }
 
     public boolean onTouchEvent(MotionEvent event) {
@@ -160,8 +240,11 @@ public class PanZoomController
             mFlingTimer.cancel();
             mFlingTimer = null;
         }
+        mOverridePanning = false;
 
         switch (mState) {
+        case ANIMATED_ZOOM:
+            return false;
         case FLING:
         case NOTHING:
             mState = PanZoomState.TOUCHING;
@@ -208,6 +291,7 @@ public class PanZoomController
         case PANNING:
             track(event);
             return true;
+        case ANIMATED_ZOOM:
         case PINCHING:
             // scale gesture listener will handle this
             return false;
@@ -252,6 +336,8 @@ public class PanZoomController
                 // still pinching, do nothing
             }
             return true;
+        case ANIMATED_ZOOM:
+            return false;
         }
         Log.e(LOGTAG, "Unhandled case " + mState + " in onTouchEnd");
         return false;
@@ -356,14 +442,22 @@ public class PanZoomController
 
         mX.setFlingState(Axis.FlingStates.PANNING);
         mY.setFlingState(Axis.FlingStates.PANNING);
-        mX.applyEdgeResistance(); mX.displace();
-        mY.applyEdgeResistance(); mY.displace();
+
+        if (!mOverridePanning) {
+            mX.applyEdgeResistance();
+            mY.applyEdgeResistance();
+        }
+        mX.displace();
+        mY.displace();
+
         updatePosition();
     }
 
     private void fling() {
         if (mState != PanZoomState.FLING)
             mX.velocity = mY.velocity = 0.0f;
+
+        mX.disableSnap = mY.disableSnap = mOverridePanning;
 
         mX.displace(); mY.displace();
         updatePosition();
@@ -387,7 +481,32 @@ public class PanZoomController
     }
 
     private void updatePosition() {
-        mController.scrollTo(new PointF(mX.viewportPos, mY.viewportPos));
+        if (mOverridePanning) {
+            if (!mOverrideScrollAck) {
+                mOverrideScrollPending = true;
+                return;
+            }
+
+            mOverrideScrollPending = false;
+            JSONObject json = new JSONObject();
+
+            try {
+                json.put("x", mX.displacement);
+                json.put("y", mY.displacement);
+            } catch (JSONException e) {
+                Log.e(LOGTAG, "Error forming Gesture:Scroll message: " + e);
+            }
+
+            GeckoEvent e = new GeckoEvent("Gesture:Scroll", json.toString());
+            GeckoAppShell.sendEventToGecko(e);
+            mOverrideScrollAck = false;
+        } else {
+            mController.scrollBy(new PointF(mX.displacement, mY.displacement));
+            mX.viewportPos += mX.displacement;
+            mY.viewportPos += mY.displacement;
+        }
+
+        mX.displacement = mY.displacement = 0;
     }
 
     // Populates the viewport info and length in the axes.
@@ -407,24 +526,25 @@ public class PanZoomController
     // The callback that performs the fling animation.
     private class FlingRunnable implements Runnable {
         public void run() {
-            populatePositionAndLength();
             mX.advanceFling(); mY.advanceFling();
 
-            // If both X and Y axes are overscrolled, we have to wait until both axes have stopped
-            // to snap back to avoid a jarring effect.
-            boolean waitingToSnapX = mX.getFlingState() == Axis.FlingStates.WAITING_TO_SNAP;
-            boolean waitingToSnapY = mY.getFlingState() == Axis.FlingStates.WAITING_TO_SNAP;
-            if ((mX.getOverscroll() == Axis.Overscroll.PLUS || mX.getOverscroll() == Axis.Overscroll.MINUS) &&
-                (mY.getOverscroll() == Axis.Overscroll.PLUS || mY.getOverscroll() == Axis.Overscroll.MINUS))
-            {
-                if (waitingToSnapX && waitingToSnapY) {
-                    mX.startSnap(); mY.startSnap();
+            if (!mOverridePanning) {
+                // If both X and Y axes are overscrolled, we have to wait until both axes have stopped
+                // to snap back to avoid a jarring effect.
+                boolean waitingToSnapX = mX.getFlingState() == Axis.FlingStates.WAITING_TO_SNAP;
+                boolean waitingToSnapY = mY.getFlingState() == Axis.FlingStates.WAITING_TO_SNAP;
+                if ((mX.getOverscroll() == Axis.Overscroll.PLUS || mX.getOverscroll() == Axis.Overscroll.MINUS) &&
+                    (mY.getOverscroll() == Axis.Overscroll.PLUS || mY.getOverscroll() == Axis.Overscroll.MINUS))
+                {
+                    if (waitingToSnapX && waitingToSnapY) {
+                        mX.startSnap(); mY.startSnap();
+                    }
+                } else {
+                    if (waitingToSnapX)
+                        mX.startSnap();
+                    if (waitingToSnapY)
+                        mY.startSnap();
                 }
-            } else {
-                if (waitingToSnapX)
-                    mX.startSnap();
-                if (waitingToSnapY)
-                    mY.startSnap();
             }
 
             mX.displace(); mY.displace();
@@ -476,15 +596,19 @@ public class PanZoomController
         public float lastTouchPos;              /* Position of the touch event before touchPos. */
         public float velocity;                  /* Velocity in this direction. */
         public boolean locked;                  /* Whether movement on this axis is locked. */
+        public boolean disableSnap;             /* Whether overscroll snapping is disabled. */
 
         private FlingStates mFlingState;        /* The fling state we're in on this axis. */
         private EaseOutAnimation mSnapAnim;     /* The animation when the page is snapping back. */
 
         /* These three need to be kept in sync with the layer controller. */
-        public float viewportPos;
+        private float viewportPos;
         private float mViewportLength;
         private int mScreenLength;
         private float mPageLength;
+
+        public float displacement;
+        private float mSnapPosition;
 
         public FlingStates getFlingState() { return mFlingState; }
 
@@ -534,8 +658,7 @@ public class PanZoomController
                 return;
             }
 
-            float excess = getExcess();
-            if (FloatUtils.fuzzyEquals(excess, 0.0f))
+            if (disableSnap || FloatUtils.fuzzyEquals(getExcess(), 0.0f))
                 setFlingState(FlingStates.STOPPED);
             else
                 setFlingState(FlingStates.WAITING_TO_SNAP);
@@ -560,7 +683,7 @@ public class PanZoomController
         private void scroll() {
             // If we aren't overscrolled, just apply friction.
             float excess = getExcess();
-            if (FloatUtils.fuzzyEquals(excess, 0.0f)) {
+            if (disableSnap || FloatUtils.fuzzyEquals(excess, 0.0f)) {
                 velocity *= FRICTION;
                 if (Math.abs(velocity) < 0.1f) {
                     velocity = 0.0f;
@@ -586,10 +709,10 @@ public class PanZoomController
         public void startSnap() {
             switch (getOverscroll()) {
             case MINUS:
-                mSnapAnim = new EaseOutAnimation(viewportPos, viewportPos + getExcess());
+                mSnapAnim = new EaseOutAnimation(0, getExcess());
                 break;
             case PLUS:
-                mSnapAnim = new EaseOutAnimation(viewportPos, viewportPos - getExcess());
+                mSnapAnim = new EaseOutAnimation(0, -getExcess());
                 break;
             default:
                 // no overscroll to deal with, so we're done
@@ -597,13 +720,16 @@ public class PanZoomController
                 return;
             }
 
+            displacement = 0;
+            mSnapPosition = mSnapAnim.getPosition();
             setFlingState(FlingStates.SNAPPING);
         }
 
         // Performs one frame of a snap-into-place operation.
         private void snap() {
             mSnapAnim.advance();
-            viewportPos = mSnapAnim.getPosition();
+            displacement += mSnapAnim.getPosition() - mSnapPosition;
+            mSnapPosition = mSnapAnim.getPosition();
 
             if (mSnapAnim.getFinished()) {
                 mSnapAnim = null;
@@ -617,9 +743,9 @@ public class PanZoomController
                 return;
 
             if (mFlingState == FlingStates.PANNING)
-                viewportPos += lastTouchPos - touchPos;
+                displacement += lastTouchPos - touchPos;
             else
-                viewportPos += velocity;
+                displacement += velocity;
         }
     }
 
@@ -688,12 +814,15 @@ public class PanZoomController
      */
     @Override
     public boolean onScale(ScaleGestureDetector detector) {
+        if (mState == PanZoomState.ANIMATED_ZOOM)
+            return false;
+
         float newZoomFactor = mController.getZoomFactor() *
                               (detector.getCurrentSpan() / detector.getPreviousSpan());
 
         mController.scrollBy(new PointF(mLastZoomFocus.x - detector.getFocusX(),
                                         mLastZoomFocus.y - detector.getFocusY()));
-        mController.scaleTo(newZoomFactor, new PointF(detector.getFocusX(), detector.getFocusY()));
+        mController.scaleWithFocus(newZoomFactor, new PointF(detector.getFocusX(), detector.getFocusY()));
 
         mLastZoomFocus.set(detector.getFocusX(), detector.getFocusY());
 
@@ -702,6 +831,9 @@ public class PanZoomController
 
     @Override
     public boolean onScaleBegin(ScaleGestureDetector detector) {
+        if (mState == PanZoomState.ANIMATED_ZOOM)
+            return false;
+
         mState = PanZoomState.PINCHING;
         mLastZoomFocus = new PointF(detector.getFocusX(), detector.getFocusY());
         GeckoApp.mAppContext.hidePluginViews();
@@ -712,15 +844,28 @@ public class PanZoomController
 
     @Override
     public void onScaleEnd(ScaleGestureDetector detector) {
+        PointF o = mController.getOrigin();
+        if (mState == PanZoomState.ANIMATED_ZOOM)
+            return;
+
         mState = PanZoomState.PANNING_HOLD_LOCKED;
-        mX.firstTouchPos = mX.touchPos = detector.getFocusX();
-        mY.firstTouchPos = mY.touchPos = detector.getFocusY();
+        mX.firstTouchPos = mX.lastTouchPos = mX.touchPos = detector.getFocusX();
+        mY.firstTouchPos = mY.lastTouchPos = mY.touchPos = detector.getFocusY();
 
-        GeckoApp.mAppContext.showPluginViews();
+        RectF viewport = mController.getViewport();
 
-        // Force a viewport synchronisation
-        mController.setForceRedraw();
-        mController.notifyLayerClientOfGeometryChange();
+        FloatSize pageSize = mController.getPageSize();
+        RectF pageRect = new RectF(0,0, pageSize.width, pageSize.height);
+
+        if (!pageRect.contains(viewport)) {
+            // animatedZoomTo will ensure that our destRect is within the page bounds
+            animatedZoomTo(viewport);
+        } else {
+            // Force a viewport synchronisation
+            mController.setForceRedraw();
+            mController.notifyLayerClientOfGeometryChange();
+            GeckoApp.mAppContext.showPluginViews();
+        }
     }
 
     @Override
@@ -783,5 +928,83 @@ public class PanZoomController
     private void cancelTouch() {
         GeckoEvent e = new GeckoEvent("Gesture:CancelTouch", "");
         GeckoAppShell.sendEventToGecko(e);
+    }
+
+    @Override
+    public boolean onDoubleTap(MotionEvent motionEvent) {
+        JSONObject ret = new JSONObject();
+        try {
+            PointF point = new PointF(motionEvent.getX(), motionEvent.getY());
+            point = mController.convertViewPointToLayerPoint(point);
+            ret.put("x", (int)Math.round(point.x));
+            ret.put("y", (int)Math.round(point.y));
+        } catch(Exception ex) {
+            throw new RuntimeException(ex);
+        }
+
+        GeckoEvent e = new GeckoEvent("Gesture:DoubleTap", ret.toString());
+        GeckoAppShell.sendEventToGecko(e);
+        return true;
+    }
+
+    private Timer mZoomTimer;
+    public boolean animatedZoomTo(RectF zoomToRect) {
+        GeckoApp.mAppContext.hidePluginViews();
+
+        if (mZoomTimer != null) {
+            mZoomTimer.cancel();
+        }
+
+        mState = PanZoomState.ANIMATED_ZOOM;
+        final float startZoom = mController.getZoomFactor();
+        final PointF startPoint = mController.getOrigin();
+
+        RectF viewport = mController.getViewport();
+
+        float newHeight = zoomToRect.width() * viewport.height() / viewport.width();
+        // if the requested rect would not fill the screen, shift it to be centered
+        if (zoomToRect.height() < newHeight) {
+            zoomToRect.top -= (newHeight - zoomToRect.height())/2;
+            zoomToRect.bottom = zoomToRect.top + newHeight;
+        }
+
+        zoomToRect = mController.restrictToPageSize(zoomToRect);
+        final float finalZoom = viewport.width() * startZoom / zoomToRect.width();
+        zoomToRect = RectUtils.scale(zoomToRect, finalZoom/startZoom);
+        final PointF finalPoint = new PointF(zoomToRect.left, zoomToRect.top);
+
+        mZoomTimer = new Timer();
+        final long startTime = new Date().getTime();
+
+        mZoomTimer.scheduleAtFixedRate(new TimerTask() {
+            public void run() {
+                long now = new Date().getTime();
+                final float dt = (float)(now - startTime)/ZOOM_DURATION;
+
+                if (dt < 1) {
+                    mController.post(new Runnable() {
+                        public void run() {
+                            PointF currentPoint = PointUtils.interpolate(finalPoint, startPoint, dt);
+                            float  currentScale = startZoom + (finalZoom-startZoom)*dt;
+                            mController.scaleWithOrigin(currentScale, currentPoint);
+                        }
+                    });
+                } else {
+                    mController.post(new Runnable() {
+                        public void run() {
+                            mController.scaleWithOrigin(finalZoom, finalPoint);
+                            mController.setForceRedraw();
+                            GeckoApp.mAppContext.showPluginViews();
+                            mController.notifyLayerClientOfGeometryChange();
+                            populatePositionAndLength();
+                        }
+                    });
+                    mZoomTimer.cancel();
+                    mZoomTimer = null;
+                    mState = PanZoomState.NOTHING;
+               }
+            }
+        }, 0, 1000L/60L);
+        return true;
     }
 }

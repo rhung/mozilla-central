@@ -37,34 +37,50 @@
 
 package org.mozilla.gecko.gfx;
 
-import android.graphics.Point;
-import android.graphics.PointF;
-import java.lang.Math;
+import java.util.ArrayList;
+import java.util.List;
+import android.os.SystemClock;
+import android.util.Log;
 
-public final class PointUtils {
-    public static PointF add(PointF one, PointF two) {
-        return new PointF(one.x + two.x, one.y + two.y);
+public class PanningPerfAPI {
+    private static final String LOGTAG = "GeckoPanningPerfAPI";
+
+    // make this large enough to avoid having to resize the frame time
+    // list, as that may be expensive and impact the thing we're trying
+    // to measure.
+    private static final int EXPECTED_FRAME_COUNT = 2048;
+
+    private static boolean mRecording = false;
+    private static List<Long> mFrameTimes;
+    private static long mStartTime;
+
+    public static void startFrameTimeRecording() {
+        if (mRecording) {
+            Log.e(LOGTAG, "Error: startFrameTimeRecording() called while already recording!");
+            return;
+        }
+        mRecording = true;
+        if (mFrameTimes == null) {
+            mFrameTimes = new ArrayList<Long>(EXPECTED_FRAME_COUNT);
+        } else {
+            mFrameTimes.clear();
+        }
+        mStartTime = SystemClock.uptimeMillis();
     }
 
-    public static PointF subtract(PointF one, PointF two) {
-        return new PointF(one.x - two.x, one.y - two.y);
+    public static List<Long> stopFrameTimeRecording() {
+        if (!mRecording) {
+            Log.e(LOGTAG, "Error: stopFrameTimeRecording() called when not recording!");
+            return null;
+        }
+        mRecording = false;
+        return mFrameTimes;
     }
 
-    public static PointF scale(PointF point, float factor) {
-        return new PointF(point.x * factor, point.y * factor);
+    public static void recordFrameTime() {
+        // this will be called often, so try to make it as quick as possible
+        if (mRecording) {
+            mFrameTimes.add(SystemClock.uptimeMillis() - mStartTime);
+        }
     }
-
-    public static Point round(PointF point) {
-        return new Point(Math.round(point.x), Math.round(point.y));
-    }
-
-   /* Returns a new point that is a linear interpolation between start and end points. weight conrols the weighting
-    * of each of the original points (weight = 1 returns endPoint, weight = 0 returns startPoint)
-    */
-   public static PointF interpolate(PointF startPoint, PointF endPoint, float weight) {
-       float x = (startPoint.x-endPoint.x)*weight + endPoint.x;
-       float y = (startPoint.y-endPoint.y)*weight + endPoint.y;
-       return new PointF(x, y);
-   }
 }
-

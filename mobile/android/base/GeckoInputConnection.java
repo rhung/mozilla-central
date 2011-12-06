@@ -854,6 +854,7 @@ public class GeckoInputConnection
         if (mIMEState == IME_STATE_DISABLED ||
             keyCode == KeyEvent.KEYCODE_ENTER ||
             keyCode == KeyEvent.KEYCODE_DEL ||
+            keyCode == KeyEvent.KEYCODE_TAB ||
             (event.getFlags() & KeyEvent.FLAG_SOFT_KEYBOARD) != 0 ||
             !mKeyListener.onKeyDown(v, mEditable, keyCode, event))
             GeckoAppShell.sendEventToGecko(new GeckoEvent(event));
@@ -910,6 +911,10 @@ public class GeckoInputConnection
         return false;
     }
 
+    public boolean isIMEEnabled() {
+        // make sure this picks up PASSWORD and PLUGIN states as well
+        return mIMEState != IME_STATE_DISABLED;
+    }
 
     public void notifyIME(int type, int state) {
 

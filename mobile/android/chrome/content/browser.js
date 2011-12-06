@@ -210,7 +210,6 @@ var BrowserApp = {
     // XXX maybe we don't do this if the launch was kicked off from external
     Services.io.offline = false;
     let newTab = this.addTab(uri);
-    newTab.active = true;
 
     // Broadcast a UIReady message so add-ons know we are finished with startup
     let event = document.createEvent("Events");
@@ -335,8 +334,12 @@ var BrowserApp = {
   },
 
   addTab: function addTab(aURI, aParams) {
+    aParams = aParams || { selected: true };
     let newTab = new Tab(aURI, aParams);
     this._tabs.push(newTab);
+    if ("selected" in aParams && aParams.selected)
+      newTab.active = true;
+
     return newTab;
   },
 
@@ -515,8 +518,10 @@ var BrowserApp = {
     if (!doc)
       return;
     let focused = doc.activeElement;
-    if ((focused instanceof HTMLInputElement && focused.mozIsTextField(false)) || (focused instanceof HTMLTextAreaElement))
+    if ((focused instanceof HTMLInputElement && focused.mozIsTextField(false)) || (focused instanceof HTMLTextAreaElement)) {
       focused.scrollIntoView(false);
+      BrowserApp.getTabForBrowser(aBrowser).sendViewportUpdate();
+    }
   },
 
   getDrawMetadata: function getDrawMetadata() {
@@ -539,7 +544,6 @@ var BrowserApp = {
     } else if (aTopic == "Tab:Add") {
       let uri = URIFixup.createFixupURI(aData, Ci.nsIURIFixup.FIXUP_FLAG_ALLOW_KEYWORD_LOOKUP);
       let newTab = this.addTab(uri ? uri.spec : aData);
-      newTab.active = true;
     } else if (aTopic == "Tab:Load") {
       let uri = URIFixup.createFixupURI(aData, Ci.nsIURIFixup.FIXUP_FLAG_ALLOW_KEYWORD_LOOKUP);
       browser.loadURI(uri ? uri.spec : aData);
@@ -705,7 +709,7 @@ var NativeWindow = {
                this.linkContext,
                function(aTarget) {
                  let url = NativeWindow.contextmenus._getLinkURL(aTarget);
-                 BrowserApp.addTab(url, {selected: false});
+                 BrowserApp.addTab(url, { selected: false });
                });
 
       this.add(Strings.browser.GetStringFromName("contextmenu.changeInputMethod"),
@@ -939,6 +943,7 @@ function Tab(aURL, aParams) {
   this._viewport = { x: 0, y: 0, width: gScreenWidth, height: gScreenHeight, offsetX: 0, offsetY: 0,
                      pageWidth: 1, pageHeight: 1, zoom: 1.0 };
   this.viewportExcess = { x: 0, y: 0 };
+  this.userScrollPos = { x: 0, y: 0 };
 }
 
 Tab.prototype = {
@@ -963,7 +968,7 @@ Tab.prototype = {
     this.browser.stop();
 
     this.id = ++gTabIDFactory;
-    let aParams = aParams || { selected: true };
+    aParams = aParams || { selected: true };
     let message = {
       gecko: {
         type: "Tab:Added",
@@ -979,6 +984,10 @@ Tab.prototype = {
                 Ci.nsIWebProgress.NOTIFY_SECURITY;
     this.browser.addProgressListener(this, flags);
     this.browser.sessionHistory.addSHistoryListener(this);
+    this.browser.addEventListener("DOMContentLoaded", this, true);
+    this.browser.addEventListener("DOMLinkAdded", this, true);
+    this.browser.addEventListener("DOMTitleChanged", this, true);
+    this.browser.addEventListener("scroll", this, true);
     Services.obs.addObserver(this, "http-on-modify-request", false);
     this.browser.loadURI(aURL);
   },
@@ -1011,6 +1020,10 @@ Tab.prototype = {
       return;
 
     this.browser.removeProgressListener(this);
+    this.browser.removeEventListener("DOMContentLoaded", this, true);
+    this.browser.removeEventListener("DOMLinkAdded", this, true);
+    this.browser.removeEventListener("DOMTitleChanged", this, true);
+    this.browser.removeEventListener("scroll", this, true);
     BrowserApp.deck.removeChild(this.vbox);
     Services.obs.removeObserver(this, "http-on-modify-request", false);
     this.browser = null;
@@ -1050,12 +1063,15 @@ Tab.prototype = {
     aViewport.y /= aViewport.zoom;
 
     // Set scroll position
-    this.browser.contentWindow.scrollTo(aViewport.x, aViewport.y);
+    let win = this.browser.contentWindow;
+    win.scrollTo(aViewport.x, aViewport.y);
+    this.userScrollPos.x = win.scrollX;
+    this.userScrollPos.y = win.scrollY;
 
     // If we've been asked to over-scroll, do it via the transformation
     // and store it separately to the viewport.
-    let excessX = aViewport.x - this.browser.contentWindow.scrollX;
-    let excessY = aViewport.y - this.browser.contentWindow.scrollY;
+    let excessX = aViewport.x - win.scrollX;
+    let excessY = aViewport.y - win.scrollY;
 
     this._viewport.width = gScreenWidth = aViewport.width;
     this._viewport.height = gScreenHeight = aViewport.height;
@@ -1142,6 +1158,100 @@ Tab.prototype = {
         viewport: JSON.stringify(this.viewport)
       }
     });
+  },
+
+  handleEvent: function(aEvent) {
+    switch (aEvent.type) {
+      case "DOMContentLoaded": {
+        let target = aEvent.originalTarget;
+
+        // ignore on frames
+        if (target.defaultView != this.browser.contentWindow)
+          return;
+
+        this.updateViewport(true);
+
+        sendMessageToJava({
+          gecko: {
+            type: "DOMContentLoaded",
+            tabID: this.id,
+            windowID: 0,
+            uri: this.browser.currentURI.spec,
+            title: this.browser.contentTitle
+          }
+        });
+
+        // Attach a listener to watch for "click" events bubbling up from error
+        // pages and other similar page. This lets us fix bugs like 401575 which
+        // require error page UI to do privileged things, without letting error
+        // pages have any privilege themselves.
+        if (/^about:/.test(target.documentURI)) {
+          this.browser.addEventListener("click", ErrorPageEventHandler, false);
+          this.browser.addEventListener("pagehide", function listener() {
+            this.browser.removeEventListener("click", ErrorPageEventHandler, false);
+            this.browser.removeEventListener("pagehide", listener, true);
+          }, true);
+        }
+
+        break;
+      }
+
+      case "DOMLinkAdded": {
+        let target = aEvent.originalTarget;
+        if (!target.href || target.disabled)
+          return;
+
+        // ignore on frames
+        if (target.defaultView != this.browser.contentWindow)
+          return;
+
+        let json = {
+          type: "DOMLinkAdded",
+          tabID: this.id,
+          href: resolveGeckoURI(target.href),
+          charset: target.ownerDocument.characterSet,
+          title: target.title,
+          rel: target.rel
+        };
+
+        // rel=icon can also have a sizes attribute
+        if (target.hasAttribute("sizes"))
+          json.sizes = target.getAttribute("sizes");
+
+        sendMessageToJava({ gecko: json });
+        break;
+      }
+
+      case "DOMTitleChanged": {
+        if (!aEvent.isTrusted)
+          return;
+
+        // ignore on frames
+        if (aEvent.target.defaultView != this.browser.contentWindow)
+          return;
+
+        sendMessageToJava({
+          gecko: {
+            type: "DOMTitleChanged",
+            tabID: this.id,
+            title: aEvent.target.title
+          }
+        });
+        break;
+      }
+
+      case "scroll": {
+        let win = this.browser.contentWindow;
+        if (this.userScrollPos.x != win.scrollX || this.userScrollPos.y != win.scrollY) {
+          sendMessageToJava({
+            gecko: {
+              type: "Viewport:UpdateLater"
+            }
+          });
+        }
+        break;
+      }
+    }
   },
 
   onStateChange: function(aWebProgress, aRequest, aStateFlags, aStatus) {
@@ -1291,8 +1401,8 @@ Tab.prototype = {
     if (!browser)
       return;
 
-    let screenW = screen.width;
-    let screenH = screen.height;
+    let screenW = this._viewport.width;
+    let screenH = this._viewport.height;
     let viewportW, viewportH;
 
     let metadata = this.metadata;
@@ -1345,7 +1455,7 @@ Tab.prototype = {
     if (!this.browser.contentDocument || !this.browser.contentDocument.body)
       return 1.0;
 
-    return screen.width / this.browser.contentDocument.body.clientWidth;
+    return this._viewport.width / this.browser.contentDocument.body.clientWidth;
   },
 
   setBrowserSize: function(aWidth, aHeight) {
@@ -1403,23 +1513,46 @@ Tab.prototype = {
 
 var BrowserEventHandler = {
   init: function init() {
-    window.addEventListener("click", this, true);
-    window.addEventListener("mousedown", this, true);
-    window.addEventListener("mouseup", this, true);
-    window.addEventListener("mousemove", this, true);
-
     Services.obs.addObserver(this, "Gesture:SingleTap", false);
     Services.obs.addObserver(this, "Gesture:ShowPress", false);
     Services.obs.addObserver(this, "Gesture:CancelTouch", false);
+    Services.obs.addObserver(this, "Gesture:DoubleTap", false);
+    Services.obs.addObserver(this, "Gesture:Scroll", false);
 
-    BrowserApp.deck.addEventListener("DOMContentLoaded", this, true);
-    BrowserApp.deck.addEventListener("DOMLinkAdded", this, true);
-    BrowserApp.deck.addEventListener("DOMTitleChanged", this, true);
     BrowserApp.deck.addEventListener("DOMUpdatePageReport", PopupBlockerObserver.onUpdatePageReport, false);
   },
 
   observe: function(aSubject, aTopic, aData) {
-    if (aTopic == "Gesture:CancelTouch") {
+    if (aTopic == "Gesture:Scroll") {
+      // If we've lost our scrollable element, return. Don't cancel the
+      // override, as we probably don't want Java to handle panning until the
+      // user releases their finger.
+      if (this._scrollableElement == null)
+        return;
+
+      // If this is the first scroll event and we can't scroll in the direction
+      // the user wanted, and neither can any non-root sub-frame, cancel the
+      // override so that Java can handle panning the main document.
+      let data = JSON.parse(aData);
+      if (this._firstScrollEvent) {
+        while (this._scrollableElement != null &&
+               !this._elementCanScroll(this._scrollableElement, data.x, data.y))
+          this._scrollableElement = this._findScrollableElement(this._scrollableElement, false);
+
+        let doc = BrowserApp.selectedBrowser.contentDocument;
+        if (this._scrollableElement == doc.body ||
+            this._scrollableElement == doc.documentElement) {
+          sendMessageToJava({ gecko: { type: "Panning:CancelOverride" } });
+          return;
+        }
+
+        this._firstScrollEvent = false;
+      }
+
+      // Scroll the scrollable element
+      this._scrollElementBy(this._scrollableElement, data.x, data.y);
+      sendMessageToJava({ gecko: { type: "Gesture:ScrollAck" } });
+    } else if (aTopic == "Gesture:CancelTouch") {
       this._cancelTapHighlight();
     } else if (aTopic == "Gesture:ShowPress") {
       let data = JSON.parse(aData);
@@ -1428,8 +1561,22 @@ var BrowserEventHandler = {
       if (!closest)
         closest = ElementTouchHelper.anyElementFromPoint(BrowserApp.selectedBrowser.contentWindow,
                                                         data.x, data.y);
-      if (closest)
+      if (closest) {
         this._doTapHighlight(closest);
+
+        // If we've pressed a scrollable element, let Java know that we may
+        // want to override the scroll behaviour (for document sub-frames)
+        this._scrollableElement = this._findScrollableElement(closest, true);
+        this._firstScrollEvent = true;
+
+        if (this._scrollableElement != null) {
+          // Discard if it's the top-level scrollable, we let Java handle this
+          let doc = BrowserApp.selectedBrowser.contentDocument;
+          if (this._scrollableElement != doc.body &&
+              this._scrollableElement != doc.documentElement)
+            sendMessageToJava({ gecko: { type: "Panning:Override" } });
+        }
+      }
     } else if (aTopic == "Gesture:SingleTap") {
       let element = this._highlightElement;
       if (element && !FormAssistant.handleClick(element)) {
@@ -1441,10 +1588,63 @@ var BrowserEventHandler = {
         this._sendMouseEvent("mouseup",   element, data.x, data.y);
       }
       this._cancelTapHighlight();
+    } else if (aTopic == "Gesture:DoubleTap") {
+      this._cancelTapHighlight();
+      this.onDoubleTap(aData);
+    }
+  },
+ 
+  _zoomOut: function() {
+    this._zoomedToElement = null;
+    // zoom out, try to keep the center in the center of the page
+    setTimeout(function() {
+      sendMessageToJava({ gecko: { type: "Browser:ZoomToPageWidth"} });
+    }, 0);    
+  },
+
+  onDoubleTap: function(aData) {
+    let data = JSON.parse(aData);
+
+    let rect = {};
+    let win = BrowserApp.selectedBrowser.contentWindow;
+    
+    let zoom = BrowserApp.selectedTab._viewport.zoom;
+    let element = ElementTouchHelper.anyElementFromPoint(win, data.x, data.y);
+    if (!element) {
+      this._zoomOut();
+      return;
+    }
+
+    win = element.ownerDocument.defaultView;
+    while (element && win.getComputedStyle(element,null).display == "inline")
+      element = element.parentNode;
+    if (!element || element == this._zoomedToElement) {
+      this._zoomOut();
+    } else if (element) {
+      const margin = 15;
+      this._zoomedToElement = element;
+      rect = ElementTouchHelper.getBoundingContentRect(element);
+
+      let zoom = BrowserApp.selectedTab.viewport.zoom;
+      rect.x *= zoom;
+      rect.y *= zoom;
+      rect.w *= zoom;
+      rect.h *= zoom;
+
+      setTimeout(function() {
+        rect.type = "Browser:ZoomToRect";
+        rect.x -= margin;
+        rect.w += 2*margin;
+        sendMessageToJava({ gecko: rect });
+      }, 0);
     }
   },
 
-  _highlihtElement: null,
+  _firstScrollEvent: false,
+
+  _scrollableElement: null,
+
+  _highlightElement: null,
 
   _doTapHighlight: function _doTapHighlight(aElement) {
     DOMUtils.setContentState(aElement, kStateActive);
@@ -1454,94 +1654,6 @@ var BrowserEventHandler = {
   _cancelTapHighlight: function _cancelTapHighlight() {
     DOMUtils.setContentState(BrowserApp.selectedBrowser.contentWindow.document.documentElement, kStateActive);
     this._highlightElement = null;
-  },
-
-  handleEvent: function(aEvent) {
-    switch (aEvent.type) {
-      case "DOMContentLoaded": {
-        let browser = BrowserApp.getBrowserForDocument(aEvent.target);
-        if (!browser)
-          return;
-
-        let tab = BrowserApp.getTabForBrowser(browser);
-        tab.updateViewport(true);
-
-        sendMessageToJava({
-          gecko: {
-            type: "DOMContentLoaded",
-            tabID: tab.id,
-            windowID: 0,
-            uri: browser.currentURI.spec,
-            title: browser.contentTitle
-          }
-        });
-
-        // Attach a listener to watch for "click" events bubbling up from error
-        // pages and other similar page. This lets us fix bugs like 401575 which
-        // require error page UI to do privileged things, without letting error
-        // pages have any privilege themselves.
-        if (/^about:/.test(aEvent.originalTarget.documentURI)) {
-          let browser = BrowserApp.getBrowserForDocument(aEvent.originalTarget);
-          browser.addEventListener("click", ErrorPageEventHandler, false);
-          browser.addEventListener("pagehide", function listener() {
-            browser.removeEventListener("click", ErrorPageEventHandler, false);
-            browser.removeEventListener("pagehide", listener, true);
-          }, true);
-        }
-
-        break;
-      }
-
-      case "DOMLinkAdded": {
-        let target = aEvent.originalTarget;
-        if (!target.href || target.disabled)
-          return;
-
-        let browser = BrowserApp.getBrowserForDocument(target.ownerDocument);
-        if (!browser)
-          return;
-        let tabID = BrowserApp.getTabForBrowser(browser).id;
-
-        let json = {
-          type: "DOMLinkAdded",
-          tabID: tabID,
-          href: resolveGeckoURI(target.href),
-          charset: target.ownerDocument.characterSet,
-          title: target.title,
-          rel: target.rel
-        };
-
-        // rel=icon can also have a sizes attribute
-        if (target.hasAttribute("sizes"))
-          json.sizes = target.getAttribute("sizes");
-
-        sendMessageToJava({ gecko: json });
-        break;
-      }
-
-      case "DOMTitleChanged": {
-        if (!aEvent.isTrusted)
-          return;
-
-        let contentWin = aEvent.target.defaultView;
-        if (contentWin != contentWin.top)
-          return;
-
-        let browser = BrowserApp.getBrowserForDocument(aEvent.target);
-        if (!browser)
-          return;
-        let tabID = BrowserApp.getTabForBrowser(browser).id;
-
-        sendMessageToJava({
-          gecko: {
-            type: "DOMTitleChanged",
-            tabID: tabID,
-            title: aEvent.target.title
-          }
-        });
-        break;
-      }
-    }
   },
 
   _updateLastPosition: function(x, y, dx, dy) {
@@ -1595,14 +1707,16 @@ var BrowserEventHandler = {
       /* Element is scrollable if its scroll-size exceeds its client size, and:
        * - It has overflow 'auto' or 'scroll'
        * - It's a textarea
-       * We don't consider HTML/BODY nodes here, since Java pans those.
+       * - It's an HTML/BODY node
        */
       if (checkElem) {
         if (((elem.scrollHeight > elem.clientHeight) ||
              (elem.scrollWidth > elem.clientWidth)) &&
             (elem.style.overflow == 'auto' ||
              elem.style.overflow == 'scroll' ||
-             elem.localName == 'textarea')) {
+             elem.localName == 'textarea' ||
+             elem.localName == 'html' ||
+             elem.localName == 'body')) {
           scrollable = true;
           break;
         }
@@ -1844,12 +1958,13 @@ const ElementTouchHelper = {
     }
     return false;
   },
+
   getContentClientRects: function(aElement) {
-    let offset = {x: 0, y: 0};
+    let offset = { x: 0, y: 0 };
 
     let nativeRects = aElement.getClientRects();
     // step out of iframes and frames, offsetting scroll values
-    for (let frame = aElement.ownerDocument.defaultView; frame != content; frame = frame.parent) {
+    for (let frame = aElement.ownerDocument.defaultView; frame.frameElement; frame = frame.parent) {
       // adjust client coordinates' origin to be top left of iframe viewport
       let rect = frame.frameElement.getBoundingClientRect();
       let left = frame.getComputedStyle(frame.frameElement, "").borderLeftWidth;
@@ -1868,6 +1983,39 @@ const ElementTouchHelper = {
                   });
     }
     return result;
+  },
+  getBoundingContentRect: function(aElement) {
+    if (!aElement)
+      return {x: 0, y: 0, w: 0, h: 0};
+  
+    let document = aElement.ownerDocument;
+    while (document.defaultView.frameElement)
+      document = document.defaultView.frameElement.ownerDocument;
+  
+    let cwu = document.defaultView.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindowUtils);
+    let scrollX = {}, scrollY = {};
+    cwu.getScrollXY(false, scrollX, scrollY);
+  
+    let r = aElement.getBoundingClientRect();
+ 
+    // step out of iframes and frames, offsetting scroll values
+    for (let frame = aElement.ownerDocument.defaultView; frame.frameElement && frame != content; frame = frame.parent) {
+      // adjust client coordinates' origin to be top left of iframe viewport
+      let rect = frame.frameElement.getBoundingClientRect();
+      let left = frame.getComputedStyle(frame.frameElement, "").borderLeftWidth;
+      let top = frame.getComputedStyle(frame.frameElement, "").borderTopWidth;
+      scrollX.value += rect.left + parseInt(left);
+      scrollY.value += rect.top + parseInt(top);
+    }
+
+    var x = r.left + scrollX.value;
+    var y = r.top + scrollY.value;
+    var x2 = x + r.width;
+    var y2 = y + r.height;
+    return {x: x,
+            y: y,
+            w: x2 - x,
+            h: y2 - y};
   }
 };
 

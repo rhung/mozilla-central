@@ -85,6 +85,14 @@ public class GeckoSoftwareLayerClient extends LayerClient implements GeckoEventL
     private static final long MIN_VIEWPORT_CHANGE_DELAY = 350L;
     private long mLastViewportChangeTime;
     private boolean mPendingViewportAdjust;
+    private boolean mViewportSizeChanged;
+
+    // mUpdateViewportOnEndDraw is used to indicate that we received a
+    // viewport update notification while drawing. therefore, when the
+    // draw finishes, we need to update the entire viewport rather than
+    // just the page size. this boolean should always be accessed from
+    // inside a transaction, so no synchronization is needed.
+    private boolean mUpdateViewportOnEndDraw;
 
     public GeckoSoftwareLayerClient(Context context) {
         mContext = context;
@@ -121,6 +129,7 @@ public class GeckoSoftwareLayerClient extends LayerClient implements GeckoEventL
             layerController.setViewportMetrics(mGeckoViewport);
         geometryChanged();
         GeckoAppShell.registerGeckoEventListener("Viewport:Update", this);
+        GeckoAppShell.registerGeckoEventListener("Viewport:UpdateLater", this);
     }
 
     public void beginDrawing() {
@@ -130,7 +139,14 @@ public class GeckoSoftwareLayerClient extends LayerClient implements GeckoEventL
     private void updateViewport(String viewportDescription, final boolean onlyUpdatePageSize) {
         try {
             JSONObject viewportObject = new JSONObject(viewportDescription);
+
+            // save and restore the viewport size stored in java; never let the
+            // JS-side viewport dimensions override the java-side ones because
+            // java is the One True Source of this information, and allowing JS
+            // to override can lead to race conditions where this data gets clobbered.
+            FloatSize viewportSize = getLayerController().getViewportSize();
             mGeckoViewport = new ViewportMetrics(viewportObject);
+            mGeckoViewport.setSize(viewportSize);
 
             mTileLayer.setOrigin(PointUtils.round(mGeckoViewport.getDisplayportOrigin()));
             mTileLayer.setResolution(mGeckoViewport.getZoomFactor());
@@ -166,7 +182,8 @@ public class GeckoSoftwareLayerClient extends LayerClient implements GeckoEventL
      */
     public void endDrawing(int x, int y, int width, int height, String metadata) {
         try {
-            updateViewport(metadata, true);
+            updateViewport(metadata, !mUpdateViewportOnEndDraw);
+            mUpdateViewportOnEndDraw = false;
             Rect rect = new Rect(x, y, x + width, y + height);
             mTileLayer.invalidate(rect);
         } finally {
@@ -221,6 +238,11 @@ public class GeckoSoftwareLayerClient extends LayerClient implements GeckoEventL
     }
 
     @Override
+    public void viewportSizeChanged() {
+        mViewportSizeChanged = true;
+    }
+
+    @Override
     public void render() {
         adjustViewportWithThrottling();
     }
@@ -259,6 +281,10 @@ public class GeckoSoftwareLayerClient extends LayerClient implements GeckoEventL
 
         GeckoEvent event = new GeckoEvent("Viewport:Change", viewportMetrics.toJSON());
         GeckoAppShell.sendEventToGecko(event);
+        if (mViewportSizeChanged) {
+            mViewportSizeChanged = false;
+            GeckoAppShell.viewSizeChanged();
+        }
 
         mLastViewportChangeTime = System.currentTimeMillis();
     }
@@ -273,6 +299,11 @@ public class GeckoSoftwareLayerClient extends LayerClient implements GeckoEventL
             } finally {
                 endTransaction(mTileLayer);
             }
+        } else if ("Viewport:UpdateLater".equals(event)) {
+            if (!mTileLayer.inTransaction()) {
+                Log.e(LOGTAG, "Viewport:UpdateLater called while not in transaction. You should be using Viewport:Update instead!");
+            }
+            mUpdateViewportOnEndDraw = true;
         }
     }
 }
