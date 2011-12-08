@@ -51,6 +51,7 @@ _TEST_FILES	= \
     test_syntheticMouseEvent.html \
     test_defaultUnlock.html \
     test_DOMtree.html \
+    file_DOMtree.html \
     test_doubleLockCallBack.html \
     test_lockLostCallBack.html \
     test_mouselocklost.html \

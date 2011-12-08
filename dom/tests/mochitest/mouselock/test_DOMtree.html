@@ -6,52 +6,83 @@
   <head>
     <title>Test for Bug 633602</title>
     <script type="application/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
-    <script type="text/javascript" src="/tests/SimpleTest/EventUtils.js"></script>
+    <script type="application/javascript" src="/tests/SimpleTest/EventUtils.js"></script>
     <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
   </head>
   <body>
-    <a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">Mozilla Bug 633602</a>
+    <a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">
+      Mozilla Bug 633602
+    </a>
     <div id="content">
     </div>
     <pre id="test">
       <script type="text/javascript">
-        /** Test for Bug 633602 **/
-        SimpleTest.waitForExplicitFinish()
-        SimpleTest.waitForFocus(function() {
-        /*------------test start----------*/
-          SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only", false);
-                   
-          var pointer = navigator.pointer;
-          var canvas = document.createElement('canvas');
-          canvas.id = "testCanvas";
-          canvas.width = 250;
-          canvas.height = 250;
-          canvas.className = "test";
-                    
-          pointer.lock(canvas);
-          is(pointer.islocked(), false, "Mouse should NOT be locked when DOM element is not in the tree.");
-                    
-          var bodyTag = document.getElementsByTagName('body')[0];
-          bodyTag.appendChild(canvas);
-          canvas.mozRequestFullScreen();
-                    
-          document.addEventListener("mozfullscreenchange", function (e) {
-            if (document.mozFullScreen) {
-              // Mouse should be lock if the element is in fullscreen mode
-              pointer.lock(canvas);
-              is(pointer.islocked(), true, "Mouse should be locked when DOM element is in the tree."); //if still fail, throw to inside the mozfullscreenchange event
-              pointer.unlock();
+        SimpleTest.waitForExplicitFinish();
+        // Ensure the full-screen api is enabled, and will be disabled on test exit.
+        var prevEnabled = SpecialPowers.getBoolPref("full-screen-api.enabled");
+        SpecialPowers.setBoolPref("full-screen-api.enabled", true);
+
+        // Disable the requirement for trusted contexts only, so the tests are easier to write.
+        var prevTrusted = SpecialPowers.getBoolPref("full-screen-api.allow-trusted-requests-only");
+        SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only", false);
+
+
+        /*var pointer = navigator.pointer;
+        var canvas = document.createElement('canvas');
+        canvas.id = "testCanvas";
+        canvas.width = 250;
+        canvas.height = 250;
+
+        var isMouseLocked = (function() {
+          is(pointer.islocked(), false,
+          "Mouse should NOT be locked if DOM element is not in tree"
+        );
+        });*/
+
+        /*document.addEventListener("mozfullscreenchange", function (e) {
+          if (document.mozFullScreen) {
+            pointer.lock(canvas,
+            function() {
+              ok(pointer.islocked(), "Mouse should be locked when DOM element is in the tree.");
               document.mozCancelFullScreen();
             }
-            else {
-              bodyTag.removeChild(canvas);
-              is(pointer.islocked(), false, "Mouse should NOT be locked when DOM element is removed from the tree.");
-              /*------------test end----------*/
-              SimpleTest.finish();
-            }
-          }, false);
-        });
-      </script>
+          );
+          }
+          else {
+            document.body.removeChild(canvas);
+            is(pointer.islocked(), false, "Mouse should NOT be locked when DOM element is removed from the tree.");
+            SpecialPowers.setBoolPref("full-screen-api.enabled", prevEnabled);
+            SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only", prevTrusted);
+            SimpleTest.finish();
+          }
+        }, false);*/
+
+        // Run the tests which go full-screen in new windows, as mochitests normally
+        // run in an iframe, which by default will not have the mozallowfullscreen
+        // attribute set, so full-screen won't work.
+        var gTestWindows = [
+          "file_DOMtree.html"
+        ];
+
+        var testWindow = null;
+        var gTestIndex = 0;
+
+        function nextTest() {
+          if (testWindow) {
+            testWindow.close();
+          }
+          if (gTestIndex < gTestWindows.length) {
+            testWindow = window.open(gTestWindows[gTestIndex], "", "width=500,height=500");
+            gTestIndex++;
+          } else {
+            SpecialPowers.setBoolPref("full-screen-api.enabled", prevEnabled);
+            SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only", prevTrusted);
+            SimpleTest.finish();
+          }
+        }
+
+        addLoadEvent(nextTest);
+            </script>
     </pre>
   </body>
 </html>
