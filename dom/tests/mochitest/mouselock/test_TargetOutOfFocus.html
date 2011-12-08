@@ -1,0 +1,58 @@
+
+<!DOCTYPE HTML>
+<html>
+<!--
+https://bugzilla.mozilla.org/show_bug.cgi?id=633602
+-->
+<head>
+  <title>Test for Bug 633602</title>
+  <script type="application/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
+  <script type="text/javascript" src="/tests/SimpleTest/EventUtils.js"></script>
+  <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
+</head>
+<body>
+  <a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">Mozilla Bug 633602</a>
+  <p id="display"></p>
+  <div id="content" style="display: none">
+  </div>
+  <div id="div"></div>
+  <input id="input" type="text" />
+  <pre id="test">
+    <script type="application/javascript">
+   
+      /** Test for Bug 633602 **/
+      SimpleTest.waitForExplicitFinish();
+
+      SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only", false);    
+      var pointer = navigator.pointer;
+      var div = document.getElementById("div");
+      var input = document.getElementById("input");
+
+
+      div.addEventListener("mouselocklost", function() {
+        SimpleTest.finish();
+      }, false);
+
+      var successCallback = function () {
+        // Even when the element being locked is not in focus, the mouse should be locked
+        ok(pointer.islocked(), "Mouse should be locked even if the element being locked is not focused");
+        document.mozCancelFullScreen();
+      };
+
+      document.addEventListener("mozfullscreenchange", function() {
+        if (document.mozFullScreenElement === div) {
+     		 	input.focus();
+          // Lock the mouse if the focused element is not the element being locked
+					if (document.activeElement === input) {
+          	pointer.lock(div, successCallback);            
+					}
+        }
+      }, false);
+
+      div.mozRequestFullScreen();
+ 
+    </script>
+  </pre>
+</body>
+</html>
+

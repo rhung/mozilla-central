@@ -1357,6 +1357,11 @@ class nsIWidget : public nsISupports {
                                                 PRUint32 aModifierFlags) = 0;
 
     /**
+     * A shortcut to SynthesizeNativeMouseEvent, abstracting away the native message.
+     */
+    virtual nsresult SynthesizeNativeMouseMove(nsIntPoint aPoint) = 0;
+
+    /**
      * Activates a native menu item at the position specified by the index
      * string. The index string is a string of positive integers separated
      * by the "|" (pipe) character. The last integer in the string represents

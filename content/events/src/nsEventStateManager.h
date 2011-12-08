@@ -480,12 +480,18 @@ private:
                                   bool aAddState);
 
   PRInt32     mLockCursor;
+  // The element that is mouse locked, if any.
+  nsCOMPtr<nsIContent> mMouseLockedElement;
+  // Point when mouse was locked, used to reposition after unlocking.
+  nsIntPoint  mPreLockPoint;
 
   nsWeakFrame mCurrentTarget;
   nsCOMPtr<nsIContent> mCurrentTargetContent;
   nsWeakFrame mLastMouseOverFrame;
   nsCOMPtr<nsIContent> mLastMouseOverElement;
   static nsWeakFrame sLastDragOverFrame;
+  static nsIntPoint sLastRefPoint;
+  static nsIntPoint sLastScreenOffset;
 
   // member variables for the d&d gesture state machine
   nsIntPoint mGestureDownPoint; // screen coordinates
@@ -557,7 +563,10 @@ public:
                               nsGUIEvent* inMouseDownEvent ) ;
   void KillClickHoldTimer ( ) ;
   void FireContextClick ( ) ;
+
+  void SetMouseLock( nsIWidget* aWidget, nsIContent* aElement ) ;
   static void sClickHoldCallback ( nsITimer* aTimer, void* aESM ) ;
+  static void SetLastScreenOffset(nsIntPoint aScreenOffset) ;
 };
 
 /**

@@ -207,6 +207,9 @@
 #include "imgILoader.h"
 #include "nsWrapperCacheInlines.h"
 
+#include "nsDOMMouseLockable.h"
+#include "Navigator.h"
+
 using namespace mozilla;
 using namespace mozilla::dom;
 

@@ -100,6 +100,8 @@
 #include "nsIDOMUIEvent.h"
 #include "nsDOMDragEvent.h"
 #include "nsIDOMNSEditableElement.h"
+#include "nsIDOMMouseLockable.h"
+#include "nsIDOMNavigator.h"
 
 #include "nsCaret.h"
 
@@ -158,6 +160,8 @@ bool nsEventStateManager::sNormalLMouseEventInProcess = false;
 nsEventStateManager* nsEventStateManager::sActiveESM = nsnull;
 nsIDocument* nsEventStateManager::sMouseOverDocument = nsnull;
 nsWeakFrame nsEventStateManager::sLastDragOverFrame = nsnull;
+nsIntPoint nsEventStateManager::sLastRefPoint = nsIntPoint(0,0);
+nsIntPoint nsEventStateManager::sLastScreenOffset = nsIntPoint(0,0);
 nsCOMPtr<nsIContent> nsEventStateManager::sDragOverContent = nsnull;
 
 static PRUint32 gMouseOrKeyboardEventCounter = 0;
@@ -771,6 +775,8 @@ nsMouseWheelTransaction::LimitToOnePageScroll(PRInt32 aScrollLines,
 
 nsEventStateManager::nsEventStateManager()
   : mLockCursor(0),
+    mMouseLockedElement(nsnull),
+    mPreLockPoint(0,0),
     mCurrentTarget(nsnull),
     mLastMouseOverFrame(nsnull),
     // init d&d gesture state machine variables
@@ -3891,6 +3897,11 @@ public:
 void
 nsEventStateManager::NotifyMouseOut(nsGUIEvent* aEvent, nsIContent* aMovingInto)
 {
+  // If the mouse is locked, don't fire mouseout events
+  if (mMouseLockedElement) {
+    return;
+  }
+
   if (!mLastMouseOverElement)
     return;
   // Before firing mouseout, check for recursion
@@ -3951,6 +3962,11 @@ nsEventStateManager::NotifyMouseOut(nsGUIEvent* aEvent, nsIContent* aMovingInto)
 void
 nsEventStateManager::NotifyMouseOver(nsGUIEvent* aEvent, nsIContent* aContent)
 {
+  // If the mouse is locked, don't fire mouseover events
+  if (mMouseLockedElement) {
+    return;
+  }
+
   NS_ASSERTION(aContent, "Mouse must be over something");
 
   if (mLastMouseOverElement == aContent)
@@ -4017,6 +4033,26 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
   switch(aEvent->message) {
   case NS_MOUSE_MOVE:
     {
+      if (mMouseLockedElement && aEvent->widget) {
+        // Perform mouse lock by recentering the mouse directly, then remembering the deltas.
+        nsIntRect bounds;
+        aEvent->widget->GetScreenBounds(bounds);
+        aEvent->lastRefPoint = nsIntPoint(bounds.width/2, bounds.height/2);
+
+        // refPoint should not be the centre on mousemove
+        if (aEvent->refPoint.x == aEvent->lastRefPoint.x &&
+            aEvent->refPoint.y == aEvent->lastRefPoint.y) {
+          aEvent->refPoint = sLastRefPoint;
+        } else {
+          aEvent->widget->SynthesizeNativeMouseMove(aEvent->lastRefPoint);
+        }
+      } else {
+        aEvent->lastRefPoint = nsIntPoint(sLastRefPoint.x, sLastRefPoint.y);
+      }
+
+      // Update the last known refPoint with the current refPoint.
+      sLastRefPoint = nsIntPoint(aEvent->refPoint.x, aEvent->refPoint.y);
+
       // Get the target content target (mousemove target == mouseover target)
       nsCOMPtr<nsIContent> targetElement = GetEventTargetContent(aEvent);
       if (!targetElement) {
@@ -4050,6 +4086,38 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
 
   // reset mCurretTargetContent to what it was
   mCurrentTargetContent = targetBeforeEvent;
+}
+
+void
+nsEventStateManager::SetMouseLock(nsIWidget* aWidget,
+                                  nsIContent* aElement)
+{
+  // Remember which element is locked so we don't dispatch events for
+  // elements that aren't locked. aElement will be nsnull when unlocking.
+  mMouseLockedElement = aElement;
+
+  if (!aWidget) {
+    return;
+  }
+
+  if (mMouseLockedElement) {
+    // Store the last known ref point so we can reposition the mouse after unlock.
+    mPreLockPoint = sLastRefPoint + sLastScreenOffset;
+
+    // Set the initial mouse lock movement (before the first mouse move event), to 0,0
+    nsIntRect bounds;
+    aWidget->GetScreenBounds(bounds);
+    sLastRefPoint = nsIntPoint(bounds.width/2, bounds.height/2);
+    aWidget->SynthesizeNativeMouseMove(sLastRefPoint);
+  } else {
+    // Unlocking, so return mouse to the original position
+    aWidget->SynthesizeNativeMouseMove(mPreLockPoint);
+  }
+}
+
+void
+nsEventStateManager::SetLastScreenOffset(nsIntPoint aScreenOffset) {
+  sLastScreenOffset = aScreenOffset;
 }
 
 void

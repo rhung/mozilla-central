@@ -69,6 +69,8 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/Telemetry.h"
 #include "BatteryManager.h"
+#include "nsIDOMMouseLockable.h"
+#include "nsDOMMouseLockable.h"
 #include "SmsManager.h"
 #include "nsISmsService.h"
 
@@ -736,6 +738,30 @@ Navigator::GetMozBattery(nsIDOMMozBatteryManager** aBattery)
   return NS_OK;
 }
 
+NS_IMETHODIMP
+Navigator::GetPointer(nsIDOMMouseLockable** aPointer)
+{
+  NS_ENSURE_ARG_POINTER(aPointer);
+
+  if (!mPointer) {
+    mPointer = new nsDOMMouseLockable();
+  }
+
+  nsCOMPtr<nsIDOMWindow> domWin(do_QueryReferent(mWindow));
+  if (!domWin) {
+    return NS_ERROR_FAILURE;
+  }
+
+  if (NS_FAILED(mPointer->Init(domWin))) {
+    mPointer = nsnull;
+    return NS_ERROR_FAILURE;
+  }
+
+  NS_ADDREF(*aPointer = mPointer);
+
+  return NS_OK;
+}
+
 //*****************************************************************************
 //    Navigator::nsIDOMNavigatorSms
 //*****************************************************************************
@@ -966,3 +992,4 @@ NS_GetNavigatorAppName(nsAString& aAppName)
   aAppName.AssignLiteral("Netscape");
   return NS_OK;
 }
+

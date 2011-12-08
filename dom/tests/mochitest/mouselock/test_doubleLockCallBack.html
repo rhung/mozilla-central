@@ -1,0 +1,48 @@
+<!DOCTYPE HTML>
+<html>
+<!--
+https://bugzilla.mozilla.org/show_bug.cgi?id=633602
+-->
+<head>
+    <title>Test for Bug 633602</title>
+    <script type="application/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
+    <script type="text/javascript" src="/tests/SimpleTest/EventUtils.js"></script>
+    <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
+    <style type="text/css">
+        #test-element { background-color: #94E01B; width:100px; height:100px}
+    </style>
+</head>
+<body>
+  <a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">Mozilla Bug 633602</a>
+  <div id="content">
+      <div id="test-element"></div>
+  </div>
+  <pre id="test">
+    <script type="application/javascript">
+      /** Test for Bug 633602 **/
+      SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only", false);
+
+      const pointer = navigator.pointer;
+      const testElement = document.getElementById("test-element");
+      var testLocked = function () {
+        ok(pointer.islocked() === true, "2nd Lock failed");
+        document.mozCancelFullScreen();
+        SimpleTest.finish();
+      };
+
+      SimpleTest.waitForExplicitFinish();
+
+      document.addEventListener("mozfullscreenchange", function (e) {
+        if (document.mozFullScreen) {
+          pointer.lock(testElement, function () {
+            pointer.lock(testElement, testLocked, testLocked);
+          });
+        }
+      });
+
+      testElement.mozRequestFullScreen();
+    </script>
+  </pre>
+</body>
+</html>
+
