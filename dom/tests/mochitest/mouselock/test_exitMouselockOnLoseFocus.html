@@ -32,17 +32,17 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
       }, false);
 
       var successCallback = function () {
-				// Test if mouse is locked when success callback is dispatched
-				ok(pointer.islocked(), "When success callback is dispatched, mouse should be locked");
+        // Test if mouse is locked when success callback is dispatched
+        ok(pointer.islocked(), "When success callback is dispatched, mouse should be locked");
 
-				// Open a new window to switch focus and blur the current window
-				window.open('data:text/html;charset=utf-8,%3C%21DOCTYPE%20' +
-  				'html%3E%0D%0A%3Chtml%20lang%3D%22en%22%3E%0D%0A%3Chead%' +
-  				'3E%3Ctitle%3EEmbedded%20Window%3C%2Ftitle%3E%3C%2Fhead%' +
-  				'3E%0D%0A%3Cbody%3E%3Ch1%3E42%3C%2Fh1%3E%3C%2Fbody%3E%0A' +
-  				'%3C%2Fhtml%3E%0A%0D%0A','_blank','height=300,width=400'
-				);
-			};
+        // Open a new window to switch focus and blur the current window
+        window.open('data:text/html;charset=utf-8,%3C%21DOCTYPE%20' +
+          'html%3E%0D%0A%3Chtml%20lang%3D%22en%22%3E%0D%0A%3Chead%' +
+          '3E%3Ctitle%3EEmbedded%20Window%3C%2Ftitle%3E%3C%2Fhead%' +
+          '3E%0D%0A%3Cbody%3E%3Ch1%3E42%3C%2Fh1%3E%3C%2Fbody%3E%0A' +
+          '%3C%2Fhtml%3E%0A%0D%0A','_blank','height=300,width=400'
+        );
+      };
 
       document.addEventListener("mozfullscreenchange", function() {
         if (document.mozFullScreenElement === div) {
