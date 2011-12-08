@@ -42,7 +42,7 @@
         else {
           document.body.removeChild(canvas);
           is(pointer.islocked(), false, "Mouse should NOT be locked when DOM element is removed from the tree.");
-          opener.nextTest();
+          SimpleTest.finish();
         }
       }, false);
 
@@ -53,7 +53,6 @@
           canvas.mozRequestFullScreen();
         });
       }
-
     </script>
     <div id="full-screen-element"></div>
   </body>
