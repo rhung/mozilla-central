@@ -1,58 +1,58 @@
+
 <!DOCTYPE HTML>
 <html>
 <!--
-Testing to ensure that mouse-lock still applies when target moves out of focus.
+https://bugzilla.mozilla.org/show_bug.cgi?id=633602
 -->
 <head>
-  <title>Test for Infocus</title>
-  <script src="/tests/SimpleTest/SimpleTest.js"></script>
-  <script src="/tests/SimpleTest/EventUtils.js"></script>
+  <title>Test for Bug 633602</title>
+  <script type="application/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
+  <script type="text/javascript" src="/tests/SimpleTest/EventUtils.js"></script>
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
 </head>
 <body>
+  <a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">Mozilla Bug 633602</a>
+  <p id="display"></p>
+  <div id="content" style="display: none">
+  </div>
+  <div id="div"></div>
+  <input id="input" type="text" />
+  <pre id="test">
+    <script type="application/javascript">
+   
+      /** Test for Bug 633602 **/
+      SimpleTest.waitForExplicitFinish();
 
-<a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">Mozilla Bug 633602</a>
-<div id="message">Setting Mouse-Lock while document is not in focus.</div><br />
-<canvas id="canvas" width="150" height="150"></canvas>
-
-<script type="text/javascript">
-SimpleTest.waitForExplicitFinish();
-var windowObjectReference = null; // global variable
-var pointer = navigator.pointer;
-var canvas = document.getElementById("canvas");
-
-canvas.mozRequestFullScreen();
-
-  document.addEventListener("mozfullscreenchange", function (e) {
-        if (document.mozFullScreen) {
-          if (document.mozFullScreenElement === canvas) {
-              // Mouse should not be lock because the window is not in focus
-            if(windowObjectReference == null || windowObjectReference.closed || )
-               /* if the pointer to the window object in memory does not exist
-                  or if such pointer exists but the window was closed */
-            {
-               pointer.lock(canvas);
-
-               windowObjectReference = window.open("http://www.spreadfirefox.com/",
-              "PromoteFirefoxWindowName", "resizable=yes,scrollbars=yes,status=yes");
-                 /* then create it. The new window will be created and
-                    will be brought on top of any other window. */
-            }
-            window.blur();//Sets the main window out of focus.
-            is(pointer.islocked(), true, "Mouse pointer should be locked");
+      SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only", false);    
+      var pointer = navigator.pointer;
+      var div = document.getElementById("div");
+      var input = document.getElementById("input");
 
 
-            window.focus();
-            is(pointer.islocked(), true, "Mouse should be locked after regaining focus");
-          }
+      div.addEventListener("mouselocklost", function() {
+        SimpleTest.finish();
+      }, false);
 
-          SimpleTest.finish();
+      var successCallback = function () {
+        // Even when the element being locked is not in focus, the mouse should be locked
+        ok(pointer.islocked(), "Mouse should be locked even if the element being locked is not focused");
+        document.mozCancelFullScreen();
+      };
+
+      document.addEventListener("mozfullscreenchange", function() {
+        if (document.mozFullScreenElement === div) {
+     		 	input.focus();
+          // Lock the mouse if the focused element is not the element being locked
+					if (document.activeElement === input) {
+          	pointer.lock(div, successCallback);            
+					}
         }
-        else {
-            canvas.mozRequestFullScreen();
-        }
-  }, false);
+      }, false);
 
-</script>
+      div.mozRequestFullScreen();
+ 
+    </script>
+  </pre>
 </body>
 </html>
+
