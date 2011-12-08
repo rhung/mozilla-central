@@ -15,37 +15,41 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=92264
    <div id="content" style="display: none">
    </div>
 	
-   <canvas id="canvas" width="150" height="150"></canvas>
+   <canvas style="background-color: #CCCCCC;" id="canvas" width="150" height="150"></canvas>
 
    <pre id="test">
       <script>
          SimpleTest.waitForExplicitFinish();
          var canvas = document.getElementById("canvas");
          var pointer = navigator.pointer;
-         var firstMove = true;
-         var clientX1, clientY1, clientX2, clientY2;
-         var screenX1, screenY1, screenX2, screenY2;
+         var move = 0;
+         var clientX1, clientY1;
+         var screenX1, screenY1;
          SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only", false);
 
          canvas.addEventListener('mousemove', function(e) {
-            if(firstMove) {
+            console.log("move");
+            if(move == 0) {
+               console.log("clientX: " + e.clientX);
+               console.log("clientY: " + e.clientY);
+               console.log("screenX: " + e.screenX);
+               console.log("screenY: " + e.screenY);
+               console.log("first move");
                clientX1 = e.clientX;
                clientY1 = e.clientY;
                screenX1 = e.screenX;
                screenY1 = e.screenY;
-               firstMove = false;
-            } else {
-               clientX2 = e.clientX;
-               clientY2 = e.clientY;
-               screenX2 = e.screenX;
-               screenY2 = e.screenY;
-               document.mozCancelFullScreen();
-
-               is(clientX1, clientX2, "clientX must remain constant");
-               is(clientY1, clientY2, "clientY must remain constant");
-               is(screenX1, screenX2, "screenX must remain constant");
-               is(screenY1, screenY2, "screenY must remain constant");
+               move++;
+            } else if (move == 1) {
+               console.log("second move");
+               is(clientX1, e.clientX, "clientX must remain constant");
+               is(clientY1, e.clientY, "clientY must remain constant");
+               is(screenX1, e.screenX, "screenX must remain constant");
+               is(screenY1, e.screenY, "screenY must remain constant");
+               move++;
+            } else if(move == 2) {   
                SimpleTest.finish();
+               document.mozCancelFullScreen();
             }
          }, false);
          
@@ -53,14 +57,32 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=92264
          document.addEventListener('mozfullscreenchange', function() {
             if(document.mozFullScreen) {
                if(document.mozFullScreenElement == canvas) {
-                  pointer.lock(canvas);
+                  /*
+                  console.log("moving mouse - while unlocked");
+                  synthesizeMouse(canvas, 10, 10, {type: "mousemove"});
+                  */
+                  pointer.lock(canvas, function() {
+                    synthesizeMouse(canvas, 10, 10, {type: "mousemove"}, window);
+                  });
                }
             }
          }, false);
-         
+         /*
+         document.addEventListener('mouselocklost', function() {
+            console.log("mouse lost");
+            sendMouseEvent({type: "click"}, canvas, window);
+         });
+         */
+         /*
+         document.addEventListener('click', function(e) {
+          console.log("clientX: " + e.clientX);
+          console.log("clientY: " + e.clientY);
+          console.log("screenX: " + e.screenX);
+          console.log("screenY: " + e.screenY);
+         });
+         */
          function runTests() {
-            canvas.mozRequestFullScreen();
-            synthesizeMouse(canvas, 1000, 1000, {type: "mousemove"});
+           canvas.mozRequestFullScreen();
          }
       </script>
    </pre>
