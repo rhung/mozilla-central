@@ -7,6 +7,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
     <title>Test for Bug 633602</title>
     <script type="application/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
     <script type="text/javascript" src="/tests/SimpleTest/EventUtils.js"></script>
+    <script type="text/javascript" src="mouselock_util.js"></script>
     <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css" />
 </head>
 <body>
@@ -29,7 +30,6 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
             var lockArea;
             function runtest() {
                 function mouseEvents() {
-                    console.log("mouse event");
                     sendMouseEvent({ type: 'click' }, lockArea);
                     sendMouseEvent({ type: 'mousedown' }, lockArea);
                     sendMouseEvent({ type: 'mouseup' }, lockArea);
@@ -37,7 +37,6 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
                 }
                 document.addEventListener('mozfullscreenchange', function () {
                     if (document.mozFullScreen) {
-                        console.log("full screen change");
                         /* Run test with mouse unlocked */
                         mouseEvents();
                         is(mClick, 1, "Unlocked click: Synehtic mouse event failed.");
@@ -48,7 +47,6 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
                         pointer.lock(lockArea,
                         function () {
                             mouseEvents();
-                            console.log("lock done");
                             is(mClick, 2, "Locked click: Synehtic mouse event failed.");
                             is(down, 2, "Locked mousedown: Synehtic mouse event failed.");
                             is(up, 2, "Locked mouseup: Synehtic mouse event failed.");
@@ -57,7 +55,6 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
                             document.mozCancelFullScreen();
                         },
                         function () {
-                            console.log("lock failed");
                             ok(false, "Mouse lock failed to fire");
                             SimpleTest.finish();
                             document.mozCancelFullScreen();
