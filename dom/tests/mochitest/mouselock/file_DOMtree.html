@@ -9,6 +9,7 @@
     <title>Test for Bug 633602</title>
     <script type="application/javascript" src="/tests/SimpleTest/EventUtils.js"></script>
     <script type="application/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
+    <script type="application/javascript" src="util.js"></script>
     <style>
       body {
         background-color: black;
@@ -22,14 +23,6 @@
       canvas.id = "testCanvas";
       canvas.width = 250;
       canvas.height = 250;
-
-      function ok(condition, msg) {
-        opener.ok(condition, msg);
-      }
-
-      function is(a, b, msg) {
-        opener.is(a, b, msg);
-      }
 
       var isMouseLocked = (function() {
         is(pointer.islocked(), false,

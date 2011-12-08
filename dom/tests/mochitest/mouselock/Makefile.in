@@ -50,7 +50,8 @@ _TEST_FILES	= \
     test_exitMouselockOnLoseFocus.html \
     test_syntheticMouseEvent.html \
     test_defaultUnlock.html \
-    test_DOMtree.html \
+    test_FullScreenHarness.html \
+    mouselock_util.js \
     file_DOMtree.html \
     test_doubleLockCallBack.html \
     test_lockLostCallBack.html \
