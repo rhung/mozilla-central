@@ -13,33 +13,36 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
     </style>
 </head>
 <body>
-    <a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">Mozilla Bug 633602</a>
-    <div id="content">
-        <div id="test-element" onclick="test();"></div>
-    </div>
-    <pre id="test">
-        <script type="application/javascript">
-            /** Test for Bug 633602 **/
-            SimpleTest.waitForExplicitFinish();
-            SimpleTest.waitForFocus(function() {
-                SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only", false);
-                var pointer = navigator.pointer;
-                var testElement = document.getElementById("test-element");
+  <a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">Mozilla Bug 633602</a>
+  <div id="content">
+      <div id="test-element"></div>
+  </div>
+  <pre id="test">
+    <script type="application/javascript">
+      /** Test for Bug 633602 **/
+      SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only", false);
 
-                document.addEventListener("mozfullscreenchange", function (e) {      
-                    pointer.lock(testElement, function(){
-                        pointer.lock(testElement,function(){
-                            ok(true, "2nd Lock failed");
-                            document.mozCancelFullScreen();
-                            SimpleTest.finish();    
-                        });
-                    });
-                });
-                
-                testElement.mozRequestFullScreen();
-            });
-        </script>
-    </pre>
+      const pointer = navigator.pointer;
+      const testElement = document.getElementById("test-element");
+      var testLocked = function () {
+        ok(pointer.islocked() === true, "2nd Lock failed");
+        document.mozCancelFullScreen();
+        SimpleTest.finish();
+      };
+
+      SimpleTest.waitForExplicitFinish();
+
+      document.addEventListener("mozfullscreenchange", function (e) {
+        if (document.mozFullScreen) {
+          pointer.lock(testElement, function () {
+            pointer.lock(testElement, testLocked, testLocked);
+          });
+        }
+      });
+
+      testElement.mozRequestFullScreen();
+    </script>
+  </pre>
 </body>
 </html>
 

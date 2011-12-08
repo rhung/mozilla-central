@@ -20,39 +20,38 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
   <pre id="test">
   <script type="text/javascript">
     SimpleTest.waitForExplicitFinish();
-
+    
     var pointer = navigator.pointer;
     var canvas = document.getElementById("canvas");
-    var totalTests = 2;
-    var nTests = 0;
-
     SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only", false);
-
-    document.addEventListener("mozfullscreenchange", function (e) {
+    
+    function doTests () {
       if (document.mozFullScreen) {
         if (document.mozFullScreenElement === canvas) {
           // Set Preference to True to see if lock succeeds and element is in fullscreen
-          pointer.lock(canvas);
-          nTests++;
-          is(pointer.islocked(), true, "Mouse should be locked when pref setting is true and element is in fullscreen.");
-          
-          pointer.unlock();
-          
+          pointer.lock(canvas, function() {
+            is(pointer.islocked(), true, "Mouse should be locked when pref setting is true and element is in fullscreen.");
+            pointer.unlock();
+          });
+
           // Set Preference to False to see if lock fails and element is in fullscreen
           SpecialPowers.setBoolPref("full-screen-api.mouse-lock.enabled", false);
-          pointer.lock(canvas);
-          nTests++;
-          is(pointer.islocked(), false, "Mouse shouldn't be locked when pref setting is false and element is in fullscreen.");
+          pointer.lock(canvas, function() {}, function() {
+            is(pointer.islocked(), false, "Mouse shouldn't be locked when pref setting is false and element is in fullscreen.");
+            document.removeEventListener( "mozfullscreenchange", doTests, false );
+            document.mozCancelFullScreen();
+            SimpleTest.finish();
+          });
         }
       }
-      if(nTests === totalTests) {
-        document.mozCancelFullScreen();
-        SimpleTest.finish();
-      }
-    }, false);
+    }
+    
+    document.addEventListener("mozfullscreenchange", doTests, false);
 
     function runTests() {
-      isnot(pointer.lock(canvas), true, "Mouse lock can't be locked if user preference is set to true.");
+      pointer.lock(canvas, function() {}, function() {
+        is(pointer.islocked(), false, "Mouse lock can't be locked if user preference is set to true.");
+      });
       canvas.mozRequestFullScreen();
     }
   </script>
