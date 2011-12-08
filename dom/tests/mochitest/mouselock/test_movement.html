@@ -60,7 +60,7 @@
                   type: "mousemove"
                 }, window);
               } else if (tests === 2) {
-                ++tests;
+                tests++;
                 ok(e.movementX === 200 && e.movementY === 50, 
                   "Movement values should equal to eNow - ePrevious.");
                 document.mozCancelFullScreen();
@@ -70,7 +70,7 @@
             }
           }
         });
-        document.addEventListener("mozfullscreenchange", function (e) {
+        document.addEventListener("mozfullscreenchange", function(e) {
           if (document.mozFullScreen) {
             if (document.mozFullScreenElement === canvas) {
               testMouseMovement = true;

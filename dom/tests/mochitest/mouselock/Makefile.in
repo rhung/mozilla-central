@@ -59,10 +59,8 @@ _TEST_FILES	= \
     test_mouseLockableHasRequiredMethods.html \
     test_limitlessScroll.html \
     test_MouseEvents.html \
-    test_doesunlock.html \
     test_mousePos.html \
     test_TargetOutOfFocus.html \
-    test_LockWhenOutOfFocus.html \
     test_UserAgentIsActive.html \
     test_movement.html \
     $(NULL)
