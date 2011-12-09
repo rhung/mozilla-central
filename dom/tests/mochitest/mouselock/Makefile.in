@@ -66,13 +66,14 @@ _TEST_FILES	= \
     file_constantxy.html \
     test_isInstanceofMouselockable.html \
     test_mouseLockableHasRequiredMethods.html \
-    test_limitlessScroll.html \
-    test_MouseEvents.html \
+    file_limitlessScroll.html \
+    file_MouseEvents.html \
     test_mousePos.html \
     test_TargetOutOfFocus.html \
     test_UserAgentIsActive.html \
-    test_movement.html \
-    test_userPref.html \
+    file_movement.html \
+    file_userPref.html \
+    file_syntheticMouseEvent.html \
     $(NULL)
 
 libs::	$(_TEST_FILES)
