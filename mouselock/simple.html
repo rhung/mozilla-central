@@ -13,24 +13,30 @@ function fullAndLock() {
   var div = document.getElementById('div');
 
   document.addEventListener('mozfullscreenchange', function() {
-    function moveHandler(e) {
-      div.innerHTML = "Mouse Locked: movementX=" + e.movementX + ", movementY=" + e.movementY;
-    }
+    var pointer = navigator.pointer;
 
-    navigator.pointer.lock(
-      div,
-      function() {
-        document.addEventListener('mouselocklost', function() {
-          div.remveEventListener('mousemove', moveHandler, false);
-          div.innerHTML = "Mouse Lock Lost"
-        }, false);
-
-        div.addEventListener('mousemove', moveHandler, false);
-      },
-      function() {
-        div.innerHTML = "Mouse Lock Failed";
+    if (document.mozFullScreen &&
+        document.mozFullScreenElement === div &&
+        !pointer.islocked()) {
+      function moveHandler(e) {
+        div.innerHTML = "Mouse Locked: movementX=" + e.movementX + ", movementY=" + e.movementY;
       }
-    );
+
+      pointer.lock(
+        div,
+        function() {
+          document.addEventListener('mouselocklost', function() {
+            div.removeEventListener('mousemove', moveHandler, false);
+            div.innerHTML = "Mouse Lock Lost"
+          }, false);
+
+          div.addEventListener('mousemove', moveHandler, false);
+        },
+        function() {
+          div.innerHTML = "Mouse Lock Failed";
+        }
+      );
+    }
   }, false);
 
   div.mozRequestFullScreen();
