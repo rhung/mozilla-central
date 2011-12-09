@@ -37,7 +37,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
         var onLockGet = function(e) {
           ok(pointer.islocked(),
              "Element should be locked after the lock() function is called");
-          netscape.security.PrivilegeManager.enablePrivilege("UniversalXPConnect");
+          netscape.security.PrivilegeManager.enablePrivilege("Universal" +
+		                                                     "XPConnect");
           utils.sendKeyEvent("keydown", 27, 27, 0);
           utils.sendKeyEvent("keyup", 27, 27, 0);
           setTimeout(function() {
@@ -47,7 +48,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
           },1000);
         };
         var onLockFail = function(e) {
-          ok(false,"Lock()'s failed callback was called, lock() did not succeed");
+          ok(false,"Lock()'s failed callback was called, lock() not succeed");
           SimpleTest.finish();
         };
         var onFullScreen = function(e) {
