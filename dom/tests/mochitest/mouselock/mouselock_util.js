@@ -1,12 +1,17 @@
 function ok() {
   opener.ok.apply(opener, arguments);
-  //opener.ok(condition, msg);
 }
 
 function is(a, b, msg) {
-  opener.is(a, b, msg);
+  opener.is.apply(opener, arguments);
 }
 
 function isnot(a, b, msg) {
-  opener.isnot(a, b, msg);
+  opener.is.apply(opener, arguments);
 }
+
+SimpleTest.finish = function () {
+  opener.nextTest();
+};
+
+SimpleTest.waitForExplicitFinish = function() {};
