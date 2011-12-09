@@ -59,6 +59,8 @@ _TEST_FILES	= \
     test_isInstanceofMouselockable.html \
     test_mouseLockableHasRequiredMethods.html \
     file_limitlessScroll.html \
+    TargetOutOfFocus.html \
+    LockWhenOutOfFocus.html \
     test_MouseEvents.html \
     test_mousePos.html \
     test_TargetOutOfFocus.html \
