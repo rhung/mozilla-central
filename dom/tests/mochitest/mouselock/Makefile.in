@@ -48,7 +48,6 @@ _TEST_FILES	= \
     test_navigatorPointer.html \
     test_fullscreen.html \
     test_exitMouselockOnLoseFocus.html \
-    test_syntheticMouseEvent.html \
     test_defaultUnlock.html \
     test_FullScreenHarness.html \
     mouselock_util.js \
