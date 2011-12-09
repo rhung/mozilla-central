@@ -55,15 +55,15 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
                               SimpleTest.finish();
                               document.removeEventListener("mozfullscreenchange",
                                 testEvent, false);
-                              document.mozCancelFullScreen();
-                            },
-                            function () {
-                              ok(false, "Mouse lock failed to fire");
-                              SimpleTest.finish();
-                              document.removeEventListener("mozfullscreenchange",
+                              document.mozCancelFullScreen(); },
+                              function () {
+                                ok(false, "Mouse lock failed to fire");
+                                SimpleTest.finish();
+                                document.removeEventListener("mozfullscreenchange",
                                 testEvent, false);
-                              document.mozCancelFullScreen();
-                            }
+                                document.mozCancelFullScreen();
+                              }
+                            });
                         }
                     }
                     document.addEventListener('mozfullscreenchange', testEvent);
