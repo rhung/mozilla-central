@@ -8518,6 +8518,31 @@ ResetFullScreen(nsIDocument* aDocument, void* aData) {
 
 /* static */
 void
+nsDocument::MaybeUnlockMouse(nsIDocument* aDocument)
+{
+  if (!aDocument) {
+    return;
+  }
+
+  // When exiting fullscreen, if the mouse is also locked to the/ fullscreen element,
+  // we'll need to unlock it as we the document exits fullscreen.
+  nsCOMPtr<nsIDOMWindow> window = aDocument->GetWindow();
+  if (window) {
+    nsCOMPtr<nsIDOMNavigator> navigator;
+    window->GetNavigator(getter_AddRefs(navigator));
+    if (navigator) {
+      nsCOMPtr<nsIDOMMouseLockable> pointer;
+      navigator->GetPointer(getter_AddRefs(pointer));
+      if (pointer) {
+        // Unlock will bail early if not really locked
+        pointer->Unlock();
+      }
+    }
+  }
+}
+
+/* static */
+void
 nsDocument::ExitFullScreen()
 {
   // Clear full-screen stacks in all descendant documents.
@@ -8535,6 +8560,12 @@ nsDocument::ExitFullScreen()
   // root-to-leaf order, so we save references to the documents we must
   // dispatch to so that we dispatch in the specified order.
   nsAutoTArray<nsIDocument*, 8> changed;
+
+  // We may also need to unlock the mouse pointer, if it's locked.
+  nsCOMPtr<nsIDocument> fullScreenDoc(do_QueryReferent(sFullScreenDoc));
+  if (fullScreenDoc) {
+    MaybeUnlockMouse(fullScreenDoc);
+  }
 
   // Walk the tree of full-screen documents, and reset their full-screen state.
   ResetFullScreen(root, static_cast<void*>(&changed));
@@ -8572,22 +8603,7 @@ nsDocument::RestorePreviousFullScreenState()
   while (doc != this) {
     NS_ASSERTION(doc->IsFullScreenDoc(), "Should be full-screen doc");
     static_cast<nsDocument*>(doc)->ClearFullScreenStack();
-
-    // Also unlock the mouse pointer if locked
-    nsCOMPtr<nsIDOMWindow> window = doc->GetWindow();
-    if (window) {
-      nsCOMPtr<nsIDOMNavigator> navigator;
-      window->GetNavigator(getter_AddRefs(navigator));
-
-      if (navigator) {
-        nsCOMPtr<nsIDOMMouseLockable> pointer;
-        navigator->GetPointer(getter_AddRefs(pointer));
-        if (pointer) {
-          pointer->Unlock();
-        }
-      }
-    }
-
+    MaybeUnlockMouse(doc);
     DispatchFullScreenChange(doc);
     doc = doc->GetParentDocument();
   }

@@ -961,6 +961,7 @@ public:
   virtual void RestorePreviousFullScreenState();
   virtual bool IsFullScreenDoc();
   static void ExitFullScreen();
+  static void MaybeUnlockMouse(nsIDocument* aDocument);
 
   // This is called asynchronously by nsIDocument::AsyncRequestFullScreen()
   // to move document into full-screen mode if allowed. aWasCallerChrome
