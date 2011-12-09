@@ -7,15 +7,15 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
   <title>Test for Bug 633602</title>
   <script src="/tests/SimpleTest/SimpleTest.js"></script>
   <script src="/tests/SimpleTest/EventUtils.js"></script>
-	<script type="text/javascript" src="/tests/SimpleTest/EventUtils.js">      
+  <script type="text/javascript" src="/tests/SimpleTest/EventUtils.js">
   </script>
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
 </head>
 <body>
   <a target="_blank"
-	   href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">
-		   Mozilla Bug 633602
-	</a>
+     href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">
+       Mozilla Bug 633602
+  </a>
 
   <p id="display"></p>
 
@@ -26,12 +26,11 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
     <script>
       SimpleTest.waitForExplicitFinish();
       var utils = window.QueryInterface(
-	                Components.interfaces.nsIInterfaceRequestor
-					).getInterface(Components.interfaces.nsIDOMWindowUtils);
+                  Components.interfaces.nsIInterfaceRequestor
+          ).getInterface(Components.interfaces.nsIDOMWindowUtils);
 
       var defaultTest = function(e) {
 
-      //Local Variables
         var canvas = document.getElementById("canvas");
         var pointer = navigator.pointer;
         var runOnce = false;
@@ -45,7 +44,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
           utils.sendKeyEvent("keyup", 27, 27, 0);
           setTimeout(function() {
             ok(!pointer.islocked(),
-               "Element should be unlock after ESC key was injected");
+              "Element should be unlock after ESC key was injected");
             SimpleTest.finish();
           },1000);
         };
@@ -60,7 +59,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
           }
         };
 
-      //Full screen
+        //Full screen
         document.body.mozRequestFullScreen();
         document.addEventListener("mozfullscreenchange",onFullScreen,false);
 
