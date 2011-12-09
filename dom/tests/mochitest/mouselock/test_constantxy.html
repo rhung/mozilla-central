@@ -14,9 +14,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=92264
    <p id="display"></p>
    <div id="content" style="display: none">
    </div>
-	
    <canvas style="background-color: #CCCCCC;" id="canvas" width="150" height="150"></canvas>
-
    <pre id="test">
       <script>
          SimpleTest.waitForExplicitFinish();
@@ -27,64 +25,40 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=92264
          var screenX1, screenY1;
          SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only", false);
 
-         canvas.addEventListener('mousemove', function(e) {
-            console.log("move");
-            if(move == 0) {
-               console.log("clientX: " + e.clientX);
-               console.log("clientY: " + e.clientY);
-               console.log("screenX: " + e.screenX);
-               console.log("screenY: " + e.screenY);
-               console.log("first move");
-               clientX1 = e.clientX;
-               clientY1 = e.clientY;
-               screenX1 = e.screenX;
-               screenY1 = e.screenY;
-               move++;
-            } else if (move == 1) {
-               console.log("second move");
-               is(clientX1, e.clientX, "clientX must remain constant");
-               is(clientY1, e.clientY, "clientY must remain constant");
-               is(screenX1, e.screenX, "screenX must remain constant");
-               is(screenY1, e.screenY, "screenY must remain constant");
-               move++;
-            } else if(move == 2) {   
-               SimpleTest.finish();
-               document.mozCancelFullScreen();
-            }
-         }, false);
-         
          // When fullscreen is enabled on canvas - lock the mouse 
          document.addEventListener('mozfullscreenchange', function() {
             if(document.mozFullScreen) {
                if(document.mozFullScreenElement == canvas) {
-                  /*
-                  console.log("moving mouse - while unlocked");
-                  synthesizeMouse(canvas, 10, 10, {type: "mousemove"});
-                  */
-                  pointer.lock(canvas, function() {
-                    synthesizeMouse(canvas, 10, 10, {type: "mousemove"}, window);
-                  });
+                 pointer.lock(canvas, function() {
+                   canvas.addEventListener('mousemove', function(e) {
+                     if(move === 0) {
+                       clientX1 = e.clientX;
+                       clientY1 = e.clientY;
+                       screenX1 = e.screenX;
+                       screenY1 = e.screenY;
+                       move++;
+                       synthesizeMouse(canvas, 15, 15, {type: "mousemove"}, window);
+                     } else if (move === 1) {
+                       is(clientX1, e.clientX, "clientX must remain constant");
+                       is(clientY1, e.clientY, "clientY must remain constant");
+                       is(screenX1, e.screenX, "screenX must remain constant");
+                       is(screenY1, e.screenY, "screenY must remain constant");
+                       move++;
+                       synthesizeMouse(canvas, 20, 20, {type: "mousemove"}, window);
+                     } else if(move === 2) {   
+                       SimpleTest.finish();
+                       document.mozCancelFullScreen();
+                     }
+                   }, false);
+                   synthesizeMouse(canvas, 10, 10, {type: "mousemove"}, window);
+                 });
                }
-            }
-         }, false);
-         /*
-         document.addEventListener('mouselocklost', function() {
-            console.log("mouse lost");
-            sendMouseEvent({type: "click"}, canvas, window);
-         });
-         */
-         /*
-         document.addEventListener('click', function(e) {
-          console.log("clientX: " + e.clientX);
-          console.log("clientY: " + e.clientY);
-          console.log("screenX: " + e.screenX);
-          console.log("screenY: " + e.screenY);
-         });
-         */
-         function runTests() {
-           canvas.mozRequestFullScreen();
-         }
-      </script>
+             }
+           }, false);
+           function runTests() {
+             canvas.mozRequestFullScreen();
+           }
+     </script>
    </pre>
 </body>
 </html>
