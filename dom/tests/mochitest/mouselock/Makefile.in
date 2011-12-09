@@ -48,14 +48,13 @@ _TEST_FILES	= \
     test_navigatorPointer.html \
     test_fullscreen.html \
     test_exitMouselockOnLoseFocus.html \
-    test_syntheticMouseEvent.html \
     test_defaultUnlock.html \
     test_FullScreenHarness.html \
     mouselock_util.js \
     file_DOMtree.html \
     test_doubleLockCallBack.html \
     test_mouselocklost.html \
-    test_constantxy.html \
+    file_constantxy.html \
     test_isInstanceofMouselockable.html \
     test_mouseLockableHasRequiredMethods.html \
     test_limitlessScroll.html \
@@ -66,7 +65,6 @@ _TEST_FILES	= \
     test_TargetOutOfFocus.html \
     test_UserAgentIsActive.html \
     test_movement.html \
-    test_userPref.html \
     $(NULL)
 
 libs::	$(_TEST_FILES)

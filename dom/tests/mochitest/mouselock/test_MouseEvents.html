@@ -32,8 +32,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
     <div id="outer" style="background-color:Gray;">
       <div id="inner" style="background-color:Red;margin:auto;"></div>
     </div>
-    <p id="outerResult">000000000</p>
-    <p id="innerResult">000000000</p>
+    <p id="outerResult">00000000</p>
+    <p id="innerResult">00000000</p>
   </div>
   <pre id="test">
     <script type="application/javascript">
@@ -67,8 +67,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
       function mouseCursorRequired() {
         if (document.mozFullScreen) {
           one.innerHTML = "0000";
-          outerResult.innerHTML = "000000000";
-          innerResult.innerHTML = "000000000";
+          outerResult.innerHTML = "00000000";
+          innerResult.innerHTML = "00000000";
           if (document.mozFullScreenElement == fs) {
             navigator.pointer.lock(fs);
             synthesizeMouse(fs, 50, 99, { type: 'mousemove' }, window);
@@ -103,56 +103,51 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
       function mouseClicks() {
         if (document.mozFullScreen) {
           one.innerHTML = "0000";
-          outerResult.innerHTML = "000000000";
-          innerResult.innerHTML = "000000000";
-          navigator.pointer.lock(outer);
-          sendMouseEvent({ type: 'click' }, inner, window);
-          synthesizeMouseAtCenter(outer, { type: 'mousedown',
-            button: LEFT_MOUSE_CLICK }, window);
-          synthesizeMouseAtCenter(outer, { type: 'mouseup',
-            button: LEFT_MOUSE_CLICK }, window);
-          synthesizeMouseAtCenter(outer, { type: 'mousedown',
-            button: RIGHT_MOUSE_CLICK }, window);
-          synthesizeMouseAtCenter(outer, { type: 'mouseup',
-            button: RIGHT_MOUSE_CLICK }, window);
-          synthesizeMouseAtCenter(outer, { type: 'mousedown',
-            button: MIDDLE_MOUSE_CLICK }, window);
-          synthesizeMouseAtCenter(outer, { type: 'mouseup',
-            button: MIDDLE_MOUSE_CLICK }, window);
-          var rect = outer.getBoundingClientRect();
-          synthesizeMouseScroll(outer, rect.width/2, rect.height/2,
-            {axis:"vertical", delta:10, type:"DOMMouseScroll"} , window);
-          synthesizeMouse(fs, rect.width/2 + 1, rect.height/2 + 1,
-            { type: 'mousemove' }, window);
+          outerResult.innerHTML = "00000000";
+          innerResult.innerHTML = "00000000";
           if (document.mozFullScreenElement == outer) {
-            todo_isnot(innerResult.innerHTML.substr(0,1), '1',
+            navigator.pointer.lock(outer);
+            sendMouseEvent({ type: 'click' }, inner, window);
+            synthesizeMouseAtCenter(outer, { type: 'mousedown',
+              button: LEFT_MOUSE_CLICK }, window);
+            synthesizeMouseAtCenter(outer, { type: 'mouseup',
+              button: LEFT_MOUSE_CLICK }, window);
+            synthesizeMouseAtCenter(outer, { type: 'mousedown',
+              button: RIGHT_MOUSE_CLICK }, window);
+            synthesizeMouseAtCenter(outer, { type: 'mouseup',
+              button: RIGHT_MOUSE_CLICK }, window);
+            synthesizeMouseAtCenter(outer, { type: 'mousedown',
+              button: MIDDLE_MOUSE_CLICK }, window);
+            synthesizeMouseAtCenter(outer, { type: 'mouseup',
+              button: MIDDLE_MOUSE_CLICK }, window);
+            var rect = outer.getBoundingClientRect();
+            synthesizeMouseScroll(outer, rect.width/2, rect.height/2,
+              {axis:"vertical", delta:10, type:"DOMMouseScroll"} , window);
+            isnot(innerResult.innerHTML.substr(0,1), '1',
               "The mouseup event for the right mouse button was sent to an \
               element that was not locked.");
-            todo_isnot(innerResult.innerHTML.substr(1,1), '1',
+            isnot(innerResult.innerHTML.substr(1,1), '1',
               "The mouseup event for the middle mouse button was sent to an \
               element that was not locked.");
-            todo_isnot(innerResult.innerHTML.substr(2,1), '1',
+            isnot(innerResult.innerHTML.substr(2,1), '1',
               "The mouseup event for the left mouse button was sent to an \
               element that was not locked.");
-            todo_isnot(innerResult.innerHTML.substr(3,1), '1',
+            isnot(innerResult.innerHTML.substr(3,1), '1',
               "The mousedown event for the right mouse button was sent to \
               an element that was not locked.");
-            todo_isnot(innerResult.innerHTML.substr(4,1), '1',
+            isnot(innerResult.innerHTML.substr(4,1), '1',
               "The mousedown event for the middle mouse button was sent \
               to an element that was not locked.");
-            todo_isnot(innerResult.innerHTML.substr(5,1), '1',
+            isnot(innerResult.innerHTML.substr(5,1), '1',
               "The mousedown event for the left mouse button was sent to \
               an element that was not locked.");
-            todo_isnot(innerResult.innerHTML.substr(6,1), '1',
+            isnot(innerResult.innerHTML.substr(6,1), '1',
               "The DOMMouseScroll event was sent to an element that was \
               not locked.");
-            todo_isnot(innerResult.innerHTML.substr(7,1), '1',
-              "The click event was sent to an element that was not locked.");
-						todo_isnot(innerResult.innerHTML.substr(8,1), '1',
-              "The mousemove event was sent to an element that was not \
-              locked.");
+            isnot(innerResult.innerHTML.substr(7,1), '1',
+              "The click event  was sent to an element that was not locked.");
             is(outerResult.innerHTML.substr(0,1), '1',
-						  "The full screened mouse locked element did not get the mouseup \
+              "The full screened mouse locked element did not get the mouseup \
               event for the right mouse button.");
             is(outerResult.innerHTML.substr(1,1), '1',
               "The full screened mouse locked element did not get the mouseup \
@@ -174,13 +169,26 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
                 DOMMouseScroll event.");
             is(outerResult.innerHTML.substr(7,1), '1',
                 "The full screened mouse locked element did not get the \
-                click event.");
-            is(outerResult.innerHTML.substr(8,1), '1',
-                "The full screened mouse locked element did not get the \
-                mousemove event.");
+                click event.");     
             document.mozCancelFullScreen();
           }
         } else {
+          var rect = outer.getBoundingClientRect();		
+          sendMouseEvent({ type: 'click' }, inner, window);
+          synthesizeMouseAtCenter(outer, { type: 'mousedown',
+            button: LEFT_MOUSE_CLICK }, window);
+          synthesizeMouseAtCenter(outer, { type: 'mouseup',
+            button: LEFT_MOUSE_CLICK }, window);
+          synthesizeMouseAtCenter(outer, { type: 'mousedown',
+            button: RIGHT_MOUSE_CLICK }, window);
+          synthesizeMouseAtCenter(outer, { type: 'mouseup',
+            button: RIGHT_MOUSE_CLICK }, window);
+          synthesizeMouseAtCenter(outer, { type: 'mousedown',
+            button: MIDDLE_MOUSE_CLICK }, window);
+          synthesizeMouseAtCenter(outer, { type: 'mouseup',
+            button: MIDDLE_MOUSE_CLICK }, window);
+          synthesizeMouseScroll(outer, rect.width/2, rect.height/2,
+            {axis:"vertical", delta:10, type:"DOMMouseScroll"} , window);
           is(innerResult.innerHTML.substr(0,1), '1',
             "The mouseup event for the right mouse button did not fire for \
             inner element under normal circumstances.");
@@ -248,18 +256,13 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
           one.innerHTML = one.innerHTML.substr(0,1) +
           '1' + one.innerHTML.substr(2); } , false);
 
-        one.addEventListener('mouseenter', function() {
+          one.addEventListener('mouseenter', function() {
           one.innerHTML = '1' + one.innerHTML.substr(1);
           } , false);
 
         // Events that should be there regardless of mouse state
         outer.addEventListener('click', function() {
-          outerResult.innerHTML = outerResult.innerHTML.substr(0,7) + '1' +
-          outerResult.innerHTML.substr(8);
-        },false);
-
-        outer.addEventListener('mousemove', function() {
-          outerResult.innerHTML = outerResult.innerHTML.substr(0,8) + '1';
+          outerResult.innerHTML = outerResult.innerHTML.substr(0,7) + '1';
         },false);
 
         outer.addEventListener('DOMMouseScroll', function() {
@@ -305,8 +308,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
         },false);
 
         inner.addEventListener('click', function() {
-          innerResult.innerHTML = innerResult.innerHTML.substr(0,7) + '1' +
-          innerResult.innerHTML.substr(8);
+          innerResult.innerHTML = innerResult.innerHTML.substr(0,7) + '1';
         },false);
 
         inner.addEventListener('DOMMouseScroll', function() {
@@ -349,10 +351,6 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
                 break;
             }
           }
-        },false);
-
-        inner.addEventListener('mousemove', function() {
-          innerResult.innerHTML = innerResult.innerHTML.substr(0,8) + '1';
         },false);
       }
     </script>
