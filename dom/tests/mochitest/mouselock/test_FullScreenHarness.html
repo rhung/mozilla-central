@@ -31,8 +31,8 @@
         // so the tests are easier to write.
         var prevTrusted = SpecialPowers.getBoolPref(
           "full-screen-api.allow-trusted-requests-only");
-        SpecialPowers.setBoolPref(
-          "full-screen-api.allow-trusted-requests-only", false);
+        SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only",
+                                  false);
 
         // Run the tests which go full-screen in new windows, as mochitests
         // normally run in an iframe, which by default will not have the
@@ -54,14 +54,16 @@
                                      "width=500,height=500");
             gTestIndex++;
           } else {
-            SpecialPowers.setBoolPref("full-screen-api.enabled", prevEnabled);
-            SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only", prevTrusted);
+            SpecialPowers.setBoolPref("full-screen-api.enabled",
+                                      prevEnabled);
+            SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only",
+                                      prevTrusted);
             SimpleTest.finish();
           }
         }
 
         addLoadEvent(nextTest);
-            </script>
+      </script>
     </pre>
   </body>
 </html>

@@ -14,55 +14,51 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=92264
    <p id="display"></p>
    <div id="content" style="display: none">
    </div>
-	
-   <canvas id="canvas" width="150" height="150"></canvas>
-
+   <canvas style="background-color: #CCCCCC;" id="canvas" width="150" height="150"></canvas>
    <pre id="test">
       <script>
          SimpleTest.waitForExplicitFinish();
          var canvas = document.getElementById("canvas");
          var pointer = navigator.pointer;
-         var firstMove = true;
-         var clientX1, clientY1, clientX2, clientY2;
-         var screenX1, screenY1, screenX2, screenY2;
+         var move = 0;
+         var clientX1, clientY1;
+         var screenX1, screenY1;
          SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only", false);
 
-         canvas.addEventListener('mousemove', function(e) {
-            if(firstMove) {
-               clientX1 = e.clientX;
-               clientY1 = e.clientY;
-               screenX1 = e.screenX;
-               screenY1 = e.screenY;
-               firstMove = false;
-            } else {
-               clientX2 = e.clientX;
-               clientY2 = e.clientY;
-               screenX2 = e.screenX;
-               screenY2 = e.screenY;
-               document.mozCancelFullScreen();
-
-               is(clientX1, clientX2, "clientX must remain constant");
-               is(clientY1, clientY2, "clientY must remain constant");
-               is(screenX1, screenX2, "screenX must remain constant");
-               is(screenY1, screenY2, "screenY must remain constant");
-               SimpleTest.finish();
-            }
-         }, false);
-         
          // When fullscreen is enabled on canvas - lock the mouse 
          document.addEventListener('mozfullscreenchange', function() {
             if(document.mozFullScreen) {
                if(document.mozFullScreenElement == canvas) {
-                  pointer.lock(canvas);
+                 pointer.lock(canvas, function() {
+                   canvas.addEventListener('mousemove', function(e) {
+                     if(move === 0) {
+                       clientX1 = e.clientX;
+                       clientY1 = e.clientY;
+                       screenX1 = e.screenX;
+                       screenY1 = e.screenY;
+                       move++;
+                       synthesizeMouse(canvas, 15, 15, {type: "mousemove"}, window);
+                     } else if (move === 1) {
+                       is(clientX1, e.clientX, "clientX must remain constant");
+                       is(clientY1, e.clientY, "clientY must remain constant");
+                       is(screenX1, e.screenX, "screenX must remain constant");
+                       is(screenY1, e.screenY, "screenY must remain constant");
+                       move++;
+                       synthesizeMouse(canvas, 20, 20, {type: "mousemove"}, window);
+                     } else if(move === 2) {   
+                       SimpleTest.finish();
+                       document.mozCancelFullScreen();
+                     }
+                   }, false);
+                   synthesizeMouse(canvas, 10, 10, {type: "mousemove"}, window);
+                 });
                }
-            }
-         }, false);
-         
-         function runTests() {
-            canvas.mozRequestFullScreen();
-            synthesizeMouse(canvas, 1000, 1000, {type: "mousemove"});
-         }
-      </script>
+             }
+           }, false);
+           function runTests() {
+             canvas.mozRequestFullScreen();
+           }
+     </script>
    </pre>
 </body>
 </html>
