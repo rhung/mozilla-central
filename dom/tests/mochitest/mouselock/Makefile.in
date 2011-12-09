@@ -49,11 +49,13 @@ _TEST_FILES	= \
     test_fullscreen.html \
     test_exitMouselockOnLoseFocus.html \
     test_defaultUnlock.html \
+    file_defaultUnlock.html \
     test_FullScreenHarness.html \
     mouselock_util.js \
     file_DOMtree.html \
     test_doubleLockCallBack.html \
     test_mouselocklost.html \
+    file_mouselocklost.html \
     file_constantxy.html \
     test_isInstanceofMouselockable.html \
     test_mouseLockableHasRequiredMethods.html \
@@ -63,7 +65,7 @@ _TEST_FILES	= \
     test_TargetOutOfFocus.html \
     test_UserAgentIsActive.html \
     test_movement.html \
-    test_userPref.html \
+    file_userPref.html \
     $(NULL)
 
 libs::	$(_TEST_FILES)
