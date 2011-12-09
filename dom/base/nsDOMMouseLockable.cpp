@@ -77,7 +77,8 @@ DispatchMouseLockLost(nsINode* aTarget)
 }
 
 nsDOMMouseLockable::nsDOMMouseLockable() :
-  mIsLocked(PR_FALSE)
+  mWindow(nsnull),
+  mMouseLockedElement(nsnull)
 {
 }
 
@@ -96,11 +97,15 @@ nsDOMMouseLockable::Init(nsIDOMWindow* aContentWindow)
 
 NS_IMETHODIMP nsDOMMouseLockable::Unlock()
 {
-  if (!mIsLocked) {
+  if (!mMouseLockedElement) {
     return NS_OK;
   }
 
-  nsCOMPtr<nsINode> node = do_QueryInterface(mTarget);
+  nsCOMPtr<nsINode> node = do_QueryInterface(mMouseLockedElement);
+  if (!node) {
+    NS_ERROR("Unlock(): unable to get nsINode for locked element.");
+    return NS_ERROR_UNEXPECTED;
+  }
   DispatchMouseLockLost(node);
 
   // Making the mouse reappear
@@ -131,11 +136,12 @@ NS_IMETHODIMP nsDOMMouseLockable::Unlock()
     return NS_ERROR_UNEXPECTED;
   }
 
-  presContext->EventStateManager()->SetCursor(NS_STYLE_CURSOR_AUTO,
-                                              nsnull, false, 0.0f,
-                                              0.0f, widget, true);
-  mIsLocked = PR_FALSE;
-  presContext->EventStateManager()->SetMouseLock(false, widget);
+  nsRefPtr<nsEventStateManager> esm = presContext->EventStateManager();
+  esm->SetCursor(NS_STYLE_CURSOR_AUTO, nsnull, false, 0.0f,
+                 0.0f, widget, true);
+  esm->SetMouseLock(widget, nsnull);
+
+  mMouseLockedElement = nsnull;
 
   return NS_OK;
 }
@@ -143,7 +149,7 @@ NS_IMETHODIMP nsDOMMouseLockable::Unlock()
 NS_IMETHODIMP nsDOMMouseLockable::Islocked(bool *_retval NS_OUTPARAM)
 {
   NS_ENSURE_ARG_POINTER(_retval);
-  *_retval = mIsLocked;
+  *_retval = mMouseLockedElement ? true : false;
   return NS_OK;
 }
 
@@ -201,13 +207,13 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
     new nsMouseLockableRequest(aSuccessCallback, aFailureCallback);
   nsCOMPtr<nsIRunnable> ev;
 
-  // If we're already locked to this target, recall success callback
-  if (mIsLocked && mTarget == aTarget){
+  // If we're already locked to this target, re-call success callback
+  if (mMouseLockedElement && mMouseLockedElement == aTarget){
     ev = new nsRequestMouseLockEvent(true, request);
   } else if (ShouldLock(aTarget)) {
-    mIsLocked = PR_TRUE;
-    mTarget = aTarget;
+    mMouseLockedElement = aTarget;
 
+    // TODO: should these throw or cause the error callback?
     nsCOMPtr<nsPIDOMWindow> domWindow( do_QueryInterface( mWindow ) );
     if (!domWindow) {
       NS_ERROR("Lock(): No DOM found in nsCOMPtr<nsPIDOMWindow>");
@@ -235,11 +241,18 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
       return NS_ERROR_FAILURE;
     }
 
-    // Hide the cursor upon entering mouse lock
-    presContext->EventStateManager()->SetCursor(NS_STYLE_CURSOR_NONE,
-                                                nsnull, false, 0.0f,
-                                                0.0f, widget, true);
-    presContext->EventStateManager()->SetMouseLock(true, widget);
+    nsCOMPtr<nsIContent> element (do_QueryInterface(aTarget));
+    if (!element) {
+      NS_ERROR("Lock: Unable to get nsIContent for locked element");
+      return NS_ERROR_FAILURE;
+    }
+
+    // Hide the cursor and set mouse lock for future mouse events
+    nsRefPtr<nsEventStateManager> esm = presContext->EventStateManager();
+    esm->SetCursor(NS_STYLE_CURSOR_NONE, nsnull, false,
+                   0.0f, 0.0f, widget, true);
+    esm->SetMouseLock(widget, element);
+
     ev = new nsRequestMouseLockEvent(true, request);
   } else {
     ev = new nsRequestMouseLockEvent(false, request);

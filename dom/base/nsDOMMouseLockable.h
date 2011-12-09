@@ -96,9 +96,8 @@ private:
   ~nsDOMMouseLockable();
   bool ShouldLock(nsIDOMElement*);
 
-  bool mIsLocked;
-  nsCOMPtr<nsIDOMWindow> mWindow;
-  nsIDOMElement* mTarget;
+  nsCOMPtr<nsIDOMWindow>  mWindow;
+  nsCOMPtr<nsIDOMElement> mMouseLockedElement;
 };
 
 #endif /* nsDOMMouseLockable_h___ */
