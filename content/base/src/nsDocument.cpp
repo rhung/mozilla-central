@@ -8524,7 +8524,7 @@ nsDocument::MaybeUnlockMouse(nsIDocument* aDocument)
     return;
   }
 
-  // When exiting fullscreen, if the mouse is also locked to the/ fullscreen element,
+  // When exiting fullscreen, if the mouse is also locked to the fullscreen element,
   // we'll need to unlock it as we the document exits fullscreen.
   nsCOMPtr<nsIDOMWindow> window = aDocument->GetWindow();
   if (window) {
