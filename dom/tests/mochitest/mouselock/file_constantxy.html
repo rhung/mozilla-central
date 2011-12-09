@@ -61,7 +61,6 @@
                     }, window);
                   } else if (move === 2) {
                     document.mozCancelFullScreen();
-                    SimpleTest.finish();
                   }
                 }, false);
                 synthesizeMouse(canvas, 10, 10, {
@@ -69,6 +68,8 @@
                 }, window);
               });
             }
+          } else {
+            SimpleTest.finish();
           }
         }, false);
 
