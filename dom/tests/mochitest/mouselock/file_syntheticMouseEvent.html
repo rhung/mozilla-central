@@ -31,42 +31,43 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
             var pointer = navigator.pointer;
             var lockArea;
             function runtest() {
-                function mouseEvents() {
-                    sendMouseEvent({ type: 'click' }, lockArea);
-                    sendMouseEvent({ type: 'mousedown' }, lockArea);
-                    sendMouseEvent({ type: 'mouseup' }, lockArea);
-                    sendMouseEvent({ type: 'mouseout' }, lockArea);
-                }
-                document.addEventListener('mozfullscreenchange', function () {
-                if (document.mozFullScreen) {
-                    /* Run test with mouse unlocked */
-                    mouseEvents();
-                    is(mClick, 1, "Unlocked click: Synthetic mouse event failed.");
-                    is(down, 1, "Unlocked mousedown: Synthetic mouse event failed.");
-                    is(up, 1, "Unlocked mouseup: Synthetic mouse event failed.");
-                    is(mOut, 1, "Unlocked mouseout: Synthetic mouse event failed."); 
-                    /* Run the same test with mouse locked */
-                    pointer.lock(lockArea,
-                    function () {
-                        mouseEvents();
-                        is(mClick, 2, "Locked click: Synthetic mouse event failed.");
-                        is(down, 2, "Locked mousedown: Synthetic mouse event failed.");
-                        is(up, 2, "Locked mouseup: Synthetic mouse event failed.");
-                        is(mOut, 2, "Locked mouseout: Synthetic mouse event failed.");
-                        SimpleTest.finish();
-                        document.mozCancelFullScreen();
-                    },
-                    function () {
-                        ok(false, "Mouse lock failed to fire");
-                        SimpleTest.finish();
-                        document.mozCancelFullScreen();
+                SimpleTest.waitForFocus(function () {
+                    function mouseEvents() {
+                        sendMouseEvent({ type: 'click' }, lockArea);
+                        sendMouseEvent({ type: 'mousedown' }, lockArea);
+                        sendMouseEvent({ type: 'mouseup' }, lockArea);
+                        sendMouseEvent({ type: 'mouseout' }, lockArea);
+                    }
+                    document.addEventListener('mozfullscreenchange', function () {
+                        if (document.mozFullScreen) {
+                            /* Run test with mouse unlocked */
+                            mouseEvents();
+                            is(mClick, 1, "Unlocked click: Synthetic mouse event failed.");
+                            is(down, 1, "Unlocked mousedown: Synthetic mouse event failed.");
+                            is(up, 1, "Unlocked mouseup: Synthetic mouse event failed.");
+                            is(mOut, 1, "Unlocked mouseout: Synthetic mouse event failed.");
+                            /* Run the same test with mouse locked */
+                            pointer.lock(lockArea,
+                        function () {
+                            mouseEvents();
+                            is(mClick, 2, "Locked click: Synthetic mouse event failed.");
+                            is(down, 2, "Locked mousedown: Synthetic mouse event failed.");
+                            is(up, 2, "Locked mouseup: Synthetic mouse event failed.");
+                            is(mOut, 2, "Locked mouseout: Synthetic mouse event failed.");
+                            SimpleTest.finish();
+                            document.mozCancelFullScreen();
+                        },
+                        function () {
+                            ok(false, "Mouse lock failed to fire");
+                            SimpleTest.finish();
+                            document.mozCancelFullScreen();
+                        });
+                        }
                     });
-                }
-            });
-            SimpleTest.waitForExplicitFinish();
-            lockArea = document.getElementById("lockArea");
-            SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only", false);
-            lockArea.mozRequestFullScreen();
+                    SimpleTest.waitForExplicitFinish();
+                    lockArea = document.getElementById("lockArea");
+                    lockArea.mozRequestFullScreen();
+                });
         }
     </script>
   </pre>
