@@ -7,10 +7,15 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
   <title>Test for Bug 633602</title>
   <script src="/tests/SimpleTest/SimpleTest.js"></script>
   <script src="/tests/SimpleTest/EventUtils.js"></script>
+	<script type="text/javascript" src="/tests/SimpleTest/EventUtils.js">      
+  </script>
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
 </head>
 <body>
-  <a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">Mozilla Bug 633602</a>
+  <a target="_blank"
+	   href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">
+		   Mozilla Bug 633602
+	</a>
 
   <p id="display"></p>
 
@@ -20,8 +25,6 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
   <pre id="test">
     <script>
       SimpleTest.waitForExplicitFinish();
-      SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only",
-	                            false);
       var utils = window.QueryInterface(
 	                Components.interfaces.nsIInterfaceRequestor
 					).getInterface(Components.interfaces.nsIDOMWindowUtils);
