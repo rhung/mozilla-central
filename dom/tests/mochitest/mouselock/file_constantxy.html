@@ -7,6 +7,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=92264
   <title>Test for Bug 633602</title>
   <script src="/tests/SimpleTest/SimpleTest.js"></script>
   <script src="/tests/SimpleTest/EventUtils.js"></script>
+  <script type="application/javascript" src="mouselock_util.js"></script>
+
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
 </head>
 <body onload="runTests();">
@@ -46,8 +48,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=92264
                        move++;
                        synthesizeMouse(canvas, 20, 20, {type: "mousemove"}, window);
                      } else if(move === 2) {   
-                       SimpleTest.finish();
                        document.mozCancelFullScreen();
+                       SimpleTest.finish();
                      }
                    }, false);
                    synthesizeMouse(canvas, 10, 10, {type: "mousemove"}, window);
