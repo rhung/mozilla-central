@@ -64,8 +64,9 @@ _TEST_FILES	= \
     test_mousePos.html \
     test_TargetOutOfFocus.html \
     test_UserAgentIsActive.html \
-    file_movement.html \
-    file_userPref.html \
+    test_movement.html \
+    test_userPref.html \
+    file_syntheticMouseEvent.html \
     $(NULL)
 
 libs::	$(_TEST_FILES)
