@@ -7,27 +7,12 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
   <title>Test for Bug 633602</title>
   <script src="/tests/SimpleTest/SimpleTest.js"></script>
   <script src="/tests/SimpleTest/EventUtils.js"></script>
-<<<<<<< HEAD
-  <script type="application/javascript" src="mouselock_util.js"></script>
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
 </head>
 <body>
   <a target="_blank" 
   href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">
   Mozilla Bug 633602</a>
-=======
-	<script type="text/javascript" src="/tests/SimpleTest/EventUtils.js">      
-  </script>
-  <script type="application/javascript" src="mouselock_util.js">      
-  </script>
-  <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
-</head>
-<body>
-  <a target="_blank"
-	   href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">
-		   Mozilla Bug 633602
-	</a>
->>>>>>> 772a073a1585e358316a8631369835806726ca44
 
   <p id="display"></p>
 
@@ -37,10 +22,6 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
   <pre id="test">
     <script>
       SimpleTest.waitForExplicitFinish();
-<<<<<<< HEAD
-
-=======
->>>>>>> 772a073a1585e358316a8631369835806726ca44
       var utils = window.QueryInterface(
 	                Components.interfaces.nsIInterfaceRequestor
 					).getInterface(Components.interfaces.nsIDOMWindowUtils);
@@ -56,12 +37,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
         var onLockGet = function(e) {
           ok(pointer.islocked(),
              "Element should be locked after the lock() function is called");
-<<<<<<< HEAD
           netscape.security.PrivilegeManager.enablePrivilege("Universal" +
 		                                                     "XPConnect");
-=======
-          netscape.security.PrivilegeManager.enablePrivilege("UniversalXPConnect");
->>>>>>> 772a073a1585e358316a8631369835806726ca44
           utils.sendKeyEvent("keydown", 27, 27, 0);
           utils.sendKeyEvent("keyup", 27, 27, 0);
           setTimeout(function() {
@@ -71,11 +48,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
           },1000);
         };
         var onLockFail = function(e) {
-<<<<<<< HEAD
           ok(false,"Lock()'s failed callback was called, lock() not succeed");
-=======
-          ok(false,"Lock()'s failed callback was called, lock() did not succeed");
->>>>>>> 772a073a1585e358316a8631369835806726ca44
           SimpleTest.finish();
         };
         var onFullScreen = function(e) {

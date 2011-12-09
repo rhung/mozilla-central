@@ -44,19 +44,12 @@ include $(DEPTH)/config/autoconf.mk
 
 include $(topsrcdir)/config/rules.mk
 
-<<<<<<< HEAD
-_TEST_FILES = \
-=======
 _TEST_FILES	= \
->>>>>>> 772a073a1585e358316a8631369835806726ca44
     test_navigatorPointer.html \
     test_fullscreen.html \
     test_exitMouselockOnLoseFocus.html \
     test_defaultUnlock.html \
-<<<<<<< HEAD
-=======
     file_defaultUnlock.html \
->>>>>>> 772a073a1585e358316a8631369835806726ca44
     test_FullScreenHarness.html \
     mouselock_util.js \
     file_DOMtree.html \
