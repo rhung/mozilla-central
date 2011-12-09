@@ -4,18 +4,33 @@
 <style>
 #div {
   background: #CCFFFF;
+  width: 500px;
+  height: 500px;
 }
 </style>
 <script>
 function fullAndLock() {
   var div = document.getElementById('div');
 
-  div.addEventListener('mozfullscreenchange', function() {
-    navigator.pointer.lock(div);
+  document.addEventListener('mozfullscreenchange', function() {
+    function moveHandler(e) {
+      div.innerHTML = "Mouse Locked: movementX=" + e.movementX + ", movementY=" + e.movementY;
+    }
 
-    div.addEventListener('mousemove', function(e) {
-      div.innerHTML = "movementX=" + e.movementX + ", movementY=" + e.movementY;
-    }, false);
+    navigator.pointer.lock(
+      div,
+      function() {
+        document.addEventListener('mouselocklost', function() {
+          div.remveEventListener('mousemove', moveHandler, false);
+          div.innerHTML = "Mouse Lock Lost"
+        }, false);
+
+        div.addEventListener('mousemove', moveHandler, false);
+      },
+      function() {
+        div.innerHTML = "Mouse Lock Failed";
+      }
+    );
   }, false);
 
   div.mozRequestFullScreen();
@@ -24,7 +39,7 @@ function fullAndLock() {
 </head>
 <body>
 <p>Click the button to go into fullscreen and lock the mouse.  The 'div' div will become the fullscreen, mouse locked element.</p>
-<button onclick="fullAndLock();">Mouse Lock</button>
-<div id="div">This is the 'div' div.</div>
+<div><button onclick="fullAndLock();">Mouse Lock</button></div>
+<div id="div">Mouse is not locked</div>
 </body>
 </html>
