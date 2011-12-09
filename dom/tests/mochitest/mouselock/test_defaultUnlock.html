@@ -16,41 +16,55 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
 
   <div id="content" style="display: none">
   </div>
-  
   <canvas id="canvas" width="150" height="150"></canvas>
   <pre id="test">
     <script>
       SimpleTest.waitForExplicitFinish();
-      SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only", false);
+      SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only",
+	                            false);
+      var utils = window.QueryInterface(
+	                Components.interfaces.nsIInterfaceRequestor
+					).getInterface(Components.interfaces.nsIDOMWindowUtils);
 
-      const canvas = document.getElementById("canvas");
-      const pointer = navigator.pointer;
-      var runOnce = false;
+      var defaultTest = function(e) {
 
-      var onLockGet = function (e) {
-        ok(pointer.islocked(), "Element should be locked after the pointer's lock() function is called");
-        synthesizeKey("VK_ESCAPE", { type: "keydown" }, window);
-        synthesizeKey("VK_ESCAPE", { type: "keyup" }, window);
-      };
-      
-      var onLockFail = function (e) {
-        ok(false, "Lock()'s failed callback was called, lock() did not succeed");
-        SimpleTest.finish();
-      };
-      
-      var onFullScreen = function (e) {
-        if (!runOnce) {
-          runOnce = true;
-          pointer.lock(canvas, onLockGet, onLockFail);
-        } else {
-          ok(!pointer.islocked(), "Element should be unlocked after ESC key was injected");
+      //Local Variables
+        var canvas = document.getElementById("canvas");
+        var pointer = navigator.pointer;
+        var runOnce = false;
+
+        //Local Functions
+        var onLockGet = function(e) {
+          ok(pointer.islocked(),
+             "Element should be locked after the lock() function is called");
+          netscape.security.PrivilegeManager.enablePrivilege("UniversalXPConnect");
+          utils.sendKeyEvent("keydown", 27, 27, 0);
+          utils.sendKeyEvent("keyup", 27, 27, 0);
+          setTimeout(function() {
+            ok(!pointer.islocked(),
+               "Element should be unlock after ESC key was injected");
+            SimpleTest.finish();
+          },1000);
+        };
+        var onLockFail = function(e) {
+          ok(false,"Lock()'s failed callback was called, lock() did not succeed");
           SimpleTest.finish();
-        }
+        };
+        var onFullScreen = function(e) {
+          if(!runOnce){
+            runOnce = true;
+            pointer.lock(canvas,onLockGet, onLockFail);
+          }
+        };
+
+      //Full screen
+        document.body.mozRequestFullScreen();
+        document.addEventListener("mozfullscreenchange",onFullScreen,false);
+
+        canvas.focus();
+        canvas.mozRequestFullScreen();
       };
-
-      document.addEventListener("mozfullscreenchange", onFullScreen, false);
-
-      canvas.mozRequestFullScreen();
+      defaultTest();
     </script>
   </pre>
 </body>
