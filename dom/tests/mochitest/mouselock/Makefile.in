@@ -60,7 +60,7 @@ _TEST_FILES	= \
     test_isInstanceofMouselockable.html \
     test_mouseLockableHasRequiredMethods.html \
     file_limitlessScroll.html \
-    test_MouseEvents.html \
+    file_MouseEvents.html \
     test_mousePos.html \
     test_TargetOutOfFocus.html \
     test_UserAgentIsActive.html \
