@@ -55,18 +55,16 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
                               SimpleTest.finish();
                               document.removeEventListener("mozfullscreenchange",
                                 testEvent, false);
-                              document.mozCancelFullScreen(); },
-                              function () {
+                              document.mozCancelFullScreen(); }, function () {
                                 ok(false, "Mouse lock failed to fire");
                                 SimpleTest.finish();
                                 document.removeEventListener("mozfullscreenchange",
-                                testEvent, false);
+                                  testEvent, false);
                                 document.mozCancelFullScreen();
-                              }
                             });
-                        }
+                         }
                     }
-                    document.addEventListener('mozfullscreenchange', testEvent);
+                    document.addEventListener('mozfullscreenchange', testEvent, false);
                     SimpleTest.waitForExplicitFinish();
                     lockArea = document.getElementById("lockArea");
                     lockArea.mozRequestFullScreen();
