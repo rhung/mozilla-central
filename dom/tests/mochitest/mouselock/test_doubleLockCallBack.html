@@ -23,6 +23,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
   <pre id="test">
     <script type="application/javascript">
       /** Test for Bug 633602 **/
+      //This test checks to ensure that if pointer.lock is called on the same
+      //element twice, it still fires the successful lock callback both times.
       SpecialPowers.setBoolPref(
         "full-screen-api.allow-trusted-requests-only", 
         false);
@@ -40,7 +42,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
       document.addEventListener("mozfullscreenchange", function (e) {
         if (document.mozFullScreen) {
           pointer.lock(testElement, function () {
-            pointer.lock(testElement, testLocked, testLocked);
+            pointer.lock(testElement, testLocked);
           });
         }
       });
