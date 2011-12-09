@@ -56,7 +56,8 @@
           } else {
             SpecialPowers.setBoolPref("full-screen-api.enabled",
                                       prevEnabled);
-            SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only", prevTrusted);
+            SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only",
+                                      prevTrusted);
             SimpleTest.finish();
           }
         }
