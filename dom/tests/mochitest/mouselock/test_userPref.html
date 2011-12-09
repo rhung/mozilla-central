@@ -40,6 +40,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
             is(pointer.islocked(), false, "Mouse shouldn't be locked when pref setting is false and element is in fullscreen.");
             document.removeEventListener( "mozfullscreenchange", doTests, false );
             document.mozCancelFullScreen();
+            SpecialPowers.setBoolPref("full-screen-api.mouse-lock.enabled", true );
             SimpleTest.finish();
           });
         }
