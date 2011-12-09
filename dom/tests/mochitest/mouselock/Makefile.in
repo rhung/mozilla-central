@@ -45,7 +45,25 @@ include $(DEPTH)/config/autoconf.mk
 include $(topsrcdir)/config/rules.mk
 
 _TEST_FILES	= \
+    test_navigatorPointer.html \
+    test_fullscreen.html \
+    test_exitMouselockOnLoseFocus.html \
+    test_defaultUnlock.html \
     test_FullScreenHarness.html \
+    mouselock_util.js \
+    file_DOMtree.html \
+    test_doubleLockCallBack.html \
+    test_mouselocklost.html \
+    file_constantxy.html \
+    test_isInstanceofMouselockable.html \
+    test_mouseLockableHasRequiredMethods.html \
+    test_limitlessScroll.html \
+    test_MouseEvents.html \
+    test_mousePos.html \
+    test_TargetOutOfFocus.html \
+    test_UserAgentIsActive.html \
+    test_movement.html \
+    test_userPref.html \
     $(NULL)
 
 libs::	$(_TEST_FILES)
