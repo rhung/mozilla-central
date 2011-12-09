@@ -65,6 +65,7 @@ _TEST_FILES	= \
     test_TargetOutOfFocus.html \
     test_UserAgentIsActive.html \
     test_movement.html \
+    test_userPref.html \
     $(NULL)
 
 libs::	$(_TEST_FILES)
