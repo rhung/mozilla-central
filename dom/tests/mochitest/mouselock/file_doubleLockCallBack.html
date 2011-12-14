@@ -34,11 +34,14 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
 
       document.addEventListener("mozfullscreenchange", function (e) {
         if (document.mozFullScreen) {
+dump("FULLSCREEN HANDLER!");
           pointer.lock(
             testElement,
             function () {
+dump("FIRST LOCK SUCCESS!");
               pointer.lock(testElement,
                 function() {
+dump("SECOND LOCK SUCCESS!");
                   ok(pointer.islocked(),
                      "Mouse was not locked when success callback was fired");
                   document.mozCancelFullScreen();
@@ -59,6 +62,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
       });
 
       function runTests() {
+dump("I WAS RUN!");
         testElement.mozRequestFullScreen();
       }
     </script>
