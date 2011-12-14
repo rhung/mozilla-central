@@ -30,12 +30,11 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
         SimpleTest.waitForExplicitFinish();
 
         SimpleTest.waitForFocus(function() {
-          var pointer = navigator.pointer,
-            testElement = document.getElementById("test-element");
+          var testElement = document.getElementById("test-element");
 
           document.addEventListener("mozfullscreenchange", function (e) {
             if (document.mozFullScreen && document.mozFullScreenElement === testElement) {
-              pointer.lock(
+              navigator.pointer.lock(
                 testElement,
                 function () {
                   window.close();
@@ -53,7 +52,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
       }
 
       function runUnload() {
-        isnot(pointer.islocked(), true,
+        isnot(navigator.pointer.islocked(), true,
               "Mouse was locked during unload");
         SimpleTest.finish();
       }
