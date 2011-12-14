@@ -98,12 +98,7 @@
                 }
               );
             }
-          } else if (finish === true) {
-            isnot(pointer.islocked(), true, "Mouse should unlock when \
-              fullscreen mode is taken away from element");
-
-            SimpleTest.finish();
-          } else {
+          } else if (finish === false) {
             if (lockTestDone === true && unlockTestDone === false) {
               pointer.lock(
                 canvas,
@@ -121,6 +116,11 @@
             } else {
               canvas.mozRequestFullScreen();
             }
+          } else {
+            isnot(pointer.islocked(), true, "Mouse should unlock when \
+              fullscreen mode is taken away from element");
+
+            SimpleTest.finish();
           }
         }, false);
 
