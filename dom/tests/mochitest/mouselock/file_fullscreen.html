@@ -6,10 +6,11 @@
     <title>
       Test for Bug 633602
     </title>
-    <script src="/tests/SimpleTest/SimpleTest.js">
-    </script>
     <script src="/tests/SimpleTest/EventUtils.js">
     </script>
+    <script src="/tests/SimpleTest/SimpleTest.js">
+    </script>
+    <script type="application/javascript" src="mouselock_util.js"></script>
     <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"
     />
   </head>
@@ -31,8 +32,6 @@
         
         var lockTestDone = false;
         var unlockTestDone = false;
-        
-        SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only", false);
 
         document.addEventListener("mozfullscreenchange", function(e) {
           if (document.mozFullScreen) {
