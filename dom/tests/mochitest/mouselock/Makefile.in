@@ -66,6 +66,7 @@ _TEST_FILES	= \
     file_userPref.html \
     file_syntheticMouseEvent.html \
     file_targetOutOfFocus.html \
+    file_fullscreen.html \
     file_nestedFullScreen.html \
     file_doubleLockCallBack.html \
     $(NULL)
