@@ -66,6 +66,9 @@
                            "Mouse wasn't locked when success callback was fired");
                         pointer.unlock();
 
+                        isnot(pointer.islocked(), true,
+                              "Mouse was locked after unlock call");
+
                         pointer.lock(
                           canvas,
                           function() {
