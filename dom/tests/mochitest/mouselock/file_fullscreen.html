@@ -56,7 +56,7 @@
                       canvas,
                       function() {
                         ok(pointer.islocked(),
-                           "Mouse wasn't locked when success callback was fired");
+                           "Mouse wasn't locked when success callback fired");
 
                         finish = true;
                         document.mozCancelFullScreen();
@@ -73,7 +73,7 @@
                       canvas,
                       function() {
                         ok(pointer.islocked(),
-                           "Mouse wasn't locked when success callback was fired");
+                           "Mouse wasn't locked when success callback fired");
                         pointer.unlock();
 
                         isnot(pointer.islocked(), true,
@@ -83,7 +83,7 @@
                           canvas,
                           function() {
                             ok(pointer.islocked(),
-                               "Mouse wasn't locked when success callback was fired after relock");
+                               "Mouse unlocked when success callback fired after relock");
                             lockTestDone = true;
                             document.mozCancelFullScreen();
                           },
