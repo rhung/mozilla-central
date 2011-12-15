@@ -29,6 +29,16 @@
     <pre id="test">
       <script>
         function runTests() {
+          /** Test for Bug 633602 **/
+          //This test validates the following requirements:
+
+          //* that islocked returns true if mouse is locked, false otherwise.
+          //* that lock expects 3 arguments, a DOM element, a success callback
+          //  and a failure callback.
+          //* that lock returns immediately and calls callbacks when lock
+          //  succeeds or fails.
+          //* that unlock cancels the locked state.
+
           SimpleTest.waitForExplicitFinish();
           SimpleTest.waitForFocus(function() {
             const pointer = navigator.pointer,
