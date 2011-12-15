@@ -161,7 +161,7 @@ nsDOMUIEvent::GetMovementPoint()
     return nsIntPoint(0, 0);
   }
 
-  if (!((nsGUIEvent*)mEvent)->widget ) {
+  if (!((nsGUIEvent*)mEvent)->widget) {
     return mEvent->lastRefPoint;
   }
 
