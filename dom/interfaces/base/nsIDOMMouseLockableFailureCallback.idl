@@ -34,10 +34,10 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-
 #include "domstubs.idl"
 
 [scriptable, function, uuid(3fd4368c-1662-11e1-82e6-206a8a092638)]
-interface nsIDOMMouseLockableFailureCallback : nsISupports {
+interface nsIDOMMouseLockableFailureCallback : nsISupports
+{
   void handleEvent();
 };
