@@ -26,14 +26,16 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
     <script type="application/javascript">
       function runTests() {
         /** Test for Bug 633602 **/
-        //This test checks to ensure that mouse lock is lost when a window unloads
+        //This test checks to ensure that mouse lock is lost when a 
+        //window unloads
         SimpleTest.waitForExplicitFinish();
 
         SimpleTest.waitForFocus(function() {
           var testElement = document.getElementById("test-element");
 
           document.addEventListener("mozfullscreenchange", function (e) {
-            if (document.mozFullScreen && document.mozFullScreenElement === testElement) {
+            if (document.mozFullScreen &&
+                document.mozFullScreenElement === testElement) {
               navigator.pointer.lock(
                 testElement,
                 function () {
