@@ -214,7 +214,7 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
     mMouseLockedElement = aTarget;
 
     // TODO: should these throw or cause the error callback?
-    nsCOMPtr<nsPIDOMWindow> domWindow( do_QueryInterface( mWindow ) );
+    nsCOMPtr<nsPIDOMWindow> domWindow(do_QueryInterface(mWindow));
     if (!domWindow) {
       NS_ERROR("Lock(): No DOM found in nsCOMPtr<nsPIDOMWindow>");
       return NS_ERROR_FAILURE;
