@@ -37,6 +37,7 @@
 #include "domstubs.idl"
 
 [scriptable, function, uuid(877ee0b4-1661-11e1-a667-206a8a092638)]
-interface nsIDOMMouseLockableSuccessCallback : nsISupports {
+interface nsIDOMMouseLockableSuccessCallback : nsISupports
+{
   void handleEvent();
 };
