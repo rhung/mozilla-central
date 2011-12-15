@@ -53,7 +53,8 @@
 #include "nsCOMPtr.h"
 #include "nsThreadUtils.h"
 
-class nsMouseLockableRequest : public nsISupports {
+class nsMouseLockableRequest : public nsISupports
+{
 public:
   NS_DECL_ISUPPORTS
 
@@ -68,7 +69,8 @@ private:
 };
 
 
-class nsRequestMouseLockEvent : public nsRunnable {
+class nsRequestMouseLockEvent : public nsRunnable
+{
 public:
   nsRequestMouseLockEvent(bool aAllow,
                           nsMouseLockableRequest* aRequest)
@@ -84,7 +86,8 @@ private:
 };
 
 
-class nsDOMMouseLockable : public nsIDOMMouseLockable {
+class nsDOMMouseLockable : public nsIDOMMouseLockable
+{
 public:
   NS_DECL_ISUPPORTS
   NS_DECL_NSIDOMMOUSELOCKABLE
