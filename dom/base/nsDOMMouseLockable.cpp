@@ -56,15 +56,20 @@
 
 DOMCI_DATA(MouseLockable, nsDOMMouseLockable)
 
-NS_INTERFACE_MAP_BEGIN(nsDOMMouseLockable)
+NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(nsDOMMouseLockable)
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIDOMMouseLockable)
   NS_INTERFACE_MAP_ENTRY(nsIDOMMouseLockable)
   NS_INTERFACE_MAP_ENTRY(nsIMutationObserver)
+  NS_INTERFACE_MAP_ENTRIES_CYCLE_COLLECTION(nsDOMMouseLockable)
   NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(MouseLockable)
 NS_INTERFACE_MAP_END
 
-NS_IMPL_ADDREF(nsDOMMouseLockable)
-NS_IMPL_RELEASE(nsDOMMouseLockable)
+NS_IMPL_CYCLE_COLLECTING_ADDREF(nsDOMMouseLockable)
+NS_IMPL_CYCLE_COLLECTING_RELEASE(nsDOMMouseLockable)
+
+NS_IMPL_CYCLE_COLLECTION_2(nsDOMMouseLockable,
+                           mWindow,
+                           mMouseLockedElement)
 
 static void
 DispatchMouseLockLost(nsINode* aTarget)
