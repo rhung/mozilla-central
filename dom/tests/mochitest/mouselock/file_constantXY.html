@@ -11,7 +11,9 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
 </head>
 <body onload="start();">
-  <a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">Mozilla Bug 633602</a>
+  <a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">
+    Mozilla Bug 633602
+  </a>
   <p id="display"></p>
   <div id="content" style="display: none">
   </div>
@@ -41,9 +43,12 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
       var moveUnlocked = function (e) {
         // Mouse should be unlocked here
         is(pointer.islocked(), false, "Mouse should be unlocked");
-        // clientXY should be equal to divWidth/divHeight since the mouse isn't locked
-        is(e.clientX, divWidth, "clientX should be equal to the width of div element when mouse isn't locked");
-        is(e.clientY, divHeight, "clientY should be equal to the height of div element when mouse isn't locked");
+        // clientXY should be equal to divWidth/divHeight since the 
+        // mouse isn't locked
+        is(e.clientX, divWidth, "clientX should be equal to the width of div " +
+          "element when mouse isn't locked");
+        is(e.clientY, divHeight, "clientY should be equal to the height of " +
+          "div  element when mouse isn't locked");
 
         // Remove the current mousemove listener from "div" and add a new one
         div.removeEventListener("mousemove", moveUnlocked, false);
@@ -60,7 +65,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
       var moveLocked = function (e) {
         // Mouse should be locked here
         ok(pointer.islocked(), "Mouse should be locked");
-        // clientXY and screenXY should be equal to zero when the mouse is locked
+        // clientXY and screenXY should be equal to zero when
+        // the mouse is locked
         is(e.clientX, 0, "clientX should be equal to 0 when mouse is locked");
         is(e.clientY, 0, "clientY should be equal to 0 when mouse is locked");
         is(e.screenX, 0, "screenX should be equal to 0 when mouse is locked");
@@ -101,3 +107,4 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
   </pre>
 </body>
 </html>
+
