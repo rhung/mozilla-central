@@ -54,8 +54,8 @@
 #include "nsIDOMMouseLockable.h"
 #include "nsIDOMNavigator.h"
 
-nsIntPoint nsDOMUIEvent::sScreenPoint = nsIntPoint(0,0);
-nsIntPoint nsDOMUIEvent::sClientPoint = nsIntPoint(0,0);
+nsIntPoint nsDOMUIEvent::sLastScreenPoint = nsIntPoint(0,0);
+nsIntPoint nsDOMUIEvent::sLastClientPoint = nsIntPoint(0,0);
 
 nsDOMUIEvent::nsDOMUIEvent(nsPresContext* aPresContext, nsGUIEvent* aEvent)
   : nsDOMEvent(aPresContext, aEvent ?
@@ -209,19 +209,19 @@ nsIntPoint
 nsDOMUIEvent::GetScreenPoint()
 {
   if (IsMouseLocked()) {
-    return sScreenPoint;
+    return sLastScreenPoint;
   }
 
-  sScreenPoint = ScreenPointInternal();
+  sLastScreenPoint = ScreenPointInternal();
 
-  return sScreenPoint;
+  return sLastScreenPoint;
 }
 
 nsIntPoint
 nsDOMUIEvent::GetClientPoint()
 {
   if (IsMouseLocked()) {
-    return sClientPoint;
+    return sLastClientPoint;
   }
 
   if (!mEvent ||
@@ -245,10 +245,10 @@ nsDOMUIEvent::GetClientPoint()
   if (rootFrame)
     pt = nsLayoutUtils::GetEventCoordinatesRelativeTo(mEvent, rootFrame);
 
-  sClientPoint = nsIntPoint(nsPresContext::AppUnitsToIntCSSPixels(pt.x),
-                    nsPresContext::AppUnitsToIntCSSPixels(pt.y));
+  sLastClientPoint = nsIntPoint(nsPresContext::AppUnitsToIntCSSPixels(pt.x),
+                     nsPresContext::AppUnitsToIntCSSPixels(pt.y));
 	
-  return sClientPoint;
+  return sLastClientPoint;
 }
 
 NS_IMETHODIMP
