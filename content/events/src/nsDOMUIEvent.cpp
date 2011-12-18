@@ -246,7 +246,7 @@ nsDOMUIEvent::GetClientPoint()
     pt = nsLayoutUtils::GetEventCoordinatesRelativeTo(mEvent, rootFrame);
 
   sLastClientPoint = nsIntPoint(nsPresContext::AppUnitsToIntCSSPixels(pt.x),
-                     nsPresContext::AppUnitsToIntCSSPixels(pt.y));
+                                nsPresContext::AppUnitsToIntCSSPixels(pt.y));
 	
   return sLastClientPoint;
 }
