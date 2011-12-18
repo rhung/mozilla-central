@@ -88,6 +88,8 @@ protected:
   nsIntPoint mLayerPoint;
   nsIntPoint mPagePoint;
   nsIntPoint mMovement;
+  static nsIntPoint sScreenPoint;
+  static nsIntPoint sClientPoint;
 
 private:
   bool IsMouseLocked();
