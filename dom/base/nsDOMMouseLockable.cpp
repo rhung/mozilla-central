@@ -173,6 +173,7 @@ nsDOMMouseLockable::ShouldLock(nsIDOMElement* aTarget)
     return false;
   }
 
+  // Get a reference to the mWindow DOMDocument
   nsCOMPtr<nsIDOMDocument> domDoc;
   mWindow->GetDocument(getter_AddRefs(domDoc));
   if (!domDoc) {
@@ -180,21 +181,18 @@ nsDOMMouseLockable::ShouldLock(nsIDOMElement* aTarget)
     return NS_ERROR_UNEXPECTED;
   }
 
-  // Check if element is in the DOM tree
-  nsCOMPtr<nsIDOMNode> targetNode(do_QueryInterface(aTarget));
+  // Get a reference to the nsINode interface of aTarget
+  nsCOMPtr<nsINode> targetNode(do_QueryInterface(aTarget));
   if (!targetNode) {
     return false;
   }
-  nsCOMPtr<nsIDOMNode> parentNode;
-  targetNode->GetParentNode(getter_AddRefs(parentNode));
-  if (!parentNode) {
-    return false;
-  }
 
+  // Check if element is in a DOM tree
   // Check if the element belongs to the right DOM
-  nsCOMPtr<nsIDOMDocument> targetDoc;
-  parentNode->GetOwnerDocument(getter_AddRefs(targetDoc));
-  if (targetDoc != domDoc) {
+  nsCOMPtr<nsIDocument> targetDoc = targetNode->GetCurrentDoc();
+  // Get a reference to the mWindow Document
+  nsCOMPtr<nsIDocument> doc(do_QueryInterface(domDoc));
+  if (!targetDoc || targetDoc != doc) {
     return false;
   }
 
