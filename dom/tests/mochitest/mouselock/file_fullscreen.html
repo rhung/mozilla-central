@@ -83,7 +83,8 @@
                           canvas,
                           function() {
                             ok(pointer.islocked(),
-                               "Mouse unlocked when success callback fired after relock");
+                               "Mouse unlocked when success callback fired " +
+                               "after relock");
                             lockTestDone = true;
                             document.mozCancelFullScreen();
                           },
