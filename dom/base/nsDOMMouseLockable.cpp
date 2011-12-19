@@ -57,8 +57,9 @@
 DOMCI_DATA(MouseLockable, nsDOMMouseLockable)
 
 NS_INTERFACE_MAP_BEGIN(nsDOMMouseLockable)
-  NS_INTERFACE_MAP_ENTRY(nsISupports)
+  NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIDOMMouseLockable)
   NS_INTERFACE_MAP_ENTRY(nsIDOMMouseLockable)
+  NS_INTERFACE_MAP_ENTRY(nsIMutationObserver)
   NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(MouseLockable)
 NS_INTERFACE_MAP_END
 
@@ -95,7 +96,8 @@ nsDOMMouseLockable::Init(nsIDOMWindow* aContentWindow)
   return NS_OK;
 }
 
-NS_IMETHODIMP nsDOMMouseLockable::Unlock()
+NS_IMETHODIMP
+nsDOMMouseLockable::Unlock()
 {
   if (!mMouseLockedElement) {
     return NS_OK;
@@ -107,6 +109,7 @@ NS_IMETHODIMP nsDOMMouseLockable::Unlock()
     return NS_ERROR_UNEXPECTED;
   }
   DispatchMouseLockLost(node);
+  node->RemoveMutationObserver(this);
 
   // Making the mouse reappear
   nsCOMPtr<nsPIDOMWindow> domWindow( do_QueryInterface( mWindow ) );
@@ -146,7 +149,8 @@ NS_IMETHODIMP nsDOMMouseLockable::Unlock()
   return NS_OK;
 }
 
-NS_IMETHODIMP nsDOMMouseLockable::Islocked(bool *_retval NS_OUTPARAM)
+NS_IMETHODIMP
+nsDOMMouseLockable::Islocked(bool *_retval NS_OUTPARAM)
 {
   NS_ENSURE_ARG_POINTER(_retval);
   *_retval = mMouseLockedElement ? true : false;
@@ -199,9 +203,10 @@ nsDOMMouseLockable::ShouldLock(nsIDOMElement* aTarget)
   return true;
 }
 
-NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
-                                       nsIDOMMouseLockableSuccessCallback* aSuccessCallback,
-                                       nsIDOMMouseLockableFailureCallback* aFailureCallback)
+NS_IMETHODIMP
+nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
+                         nsIDOMMouseLockableSuccessCallback* aSuccessCallback,
+                         nsIDOMMouseLockableFailureCallback* aFailureCallback)
 {
   nsRefPtr<nsMouseLockableRequest> request =
     new nsMouseLockableRequest(aSuccessCallback, aFailureCallback);
@@ -214,7 +219,7 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
     mMouseLockedElement = aTarget;
 
     // TODO: should these throw or cause the error callback?
-    nsCOMPtr<nsPIDOMWindow> domWindow( do_QueryInterface( mWindow ) );
+    nsCOMPtr<nsPIDOMWindow> domWindow = do_QueryInterface(mWindow);
     if (!domWindow) {
       NS_ERROR("Lock(): No DOM found in nsCOMPtr<nsPIDOMWindow>");
       return NS_ERROR_FAILURE;
@@ -241,11 +246,18 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
       return NS_ERROR_FAILURE;
     }
 
-    nsCOMPtr<nsIContent> element (do_QueryInterface(aTarget));
+    nsCOMPtr<nsIContent> element = do_QueryInterface(aTarget);
     if (!element) {
       NS_ERROR("Lock: Unable to get nsIContent for locked element");
       return NS_ERROR_FAILURE;
     }
+
+    nsCOMPtr<nsINode> node = do_QueryInterface(element);
+    if (!node) {
+      NS_ERROR("Lock(): unable to get nsINode for locked element.");
+      return NS_ERROR_UNEXPECTED;
+    }
+    node->AddMutationObserver(this);
 
     // Hide the cursor and set mouse lock for future mouse events
     nsRefPtr<nsEventStateManager> esm = presContext->EventStateManager();
@@ -261,6 +273,76 @@ NS_IMETHODIMP nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
   NS_DispatchToMainThread(ev);
 
   return NS_OK;
+}
+
+/**
+ * nsIMutationObserver
+ **/
+void
+nsDOMMouseLockable::AttributeChanged(nsIDocument* aDocument,
+                                     mozilla::dom::Element* aElement,
+                                     PRInt32 aNameSpaceID,
+                                     nsIAtom* aAttribute, PRInt32 aModType)
+{
+}
+
+void
+nsDOMMouseLockable::ContentAppended(nsIDocument* aDocument,
+                                    nsIContent* aContainer,
+                                    nsIContent* aChild,
+                                    PRInt32 aIndexInContainer)
+{
+}
+
+void
+nsDOMMouseLockable::ContentInserted(nsIDocument* aDocument,
+                                    nsIContent* aContainer,
+                                    nsIContent* aChild,
+                                    PRInt32 aIndexInContainer)
+{
+}
+
+void
+nsDOMMouseLockable::ContentRemoved(nsIDocument* aDocument,
+                                   nsIContent* aContainer,
+                                   nsIContent* aChild,
+                                   PRInt32 aIndexInContainer,
+                                   nsIContent* aPreviousSibling)
+{
+  // TODO: unlock here too??
+}
+
+void
+nsDOMMouseLockable::CharacterDataWillChange(nsIDocument* aDocument,
+                                            nsIContent* aContent,
+                                            CharacterDataChangeInfo* aInfo)
+{
+}
+
+void
+nsDOMMouseLockable::CharacterDataChanged(nsIDocument* aDocument,
+                                         nsIContent* aContent,
+                                         CharacterDataChangeInfo* aInfo)
+{
+}
+
+void
+nsDOMMouseLockable::AttributeWillChange(nsIDocument* aDocument,
+                                        mozilla::dom::Element* aElement,
+                                        PRInt32 aNameSpaceID,
+                                        nsIAtom* aAttribute, PRInt32 aModType)
+{
+}
+
+void
+nsDOMMouseLockable::ParentChainChanged(nsIContent* aContent)
+{
+  Unlock();
+}
+
+void
+nsDOMMouseLockable::NodeWillBeDestroyed(const nsINode* aNode)
+{
 }
 
 // nsMouseLockableRequest
