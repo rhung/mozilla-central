@@ -39,7 +39,7 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-#include "nsDOMMouseLockable.h"
+#include "nsDOMMozPointerLock.h"
 #include "nsContentUtils.h"
 #include "nsEventStateManager.h"
 #include "nsIWidget.h"
@@ -54,46 +54,46 @@
 #include "nsIPrefBranch.h"
 #include "nsIServiceManager.h"
 
-DOMCI_DATA(MouseLockable, nsDOMMouseLockable)
+DOMCI_DATA(MozPointerLock, nsDOMMozPointerLock)
 
-NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(nsDOMMouseLockable)
-  NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIDOMMouseLockable)
-  NS_INTERFACE_MAP_ENTRY(nsIDOMMouseLockable)
+NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(nsDOMMozPointerLock)
+  NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIDOMMozPointerLock)
+  NS_INTERFACE_MAP_ENTRY(nsIDOMMozPointerLock)
   NS_INTERFACE_MAP_ENTRY(nsIMutationObserver)
-  NS_INTERFACE_MAP_ENTRIES_CYCLE_COLLECTION(nsDOMMouseLockable)
-  NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(MouseLockable)
+  NS_INTERFACE_MAP_ENTRIES_CYCLE_COLLECTION(nsDOMMozPointerLock)
+  NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(MozPointerLock)
 NS_INTERFACE_MAP_END
 
-NS_IMPL_CYCLE_COLLECTING_ADDREF(nsDOMMouseLockable)
-NS_IMPL_CYCLE_COLLECTING_RELEASE(nsDOMMouseLockable)
+NS_IMPL_CYCLE_COLLECTING_ADDREF(nsDOMMozPointerLock)
+NS_IMPL_CYCLE_COLLECTING_RELEASE(nsDOMMozPointerLock)
 
-NS_IMPL_CYCLE_COLLECTION_2(nsDOMMouseLockable,
+NS_IMPL_CYCLE_COLLECTION_2(nsDOMMozPointerLock,
                            mWindow,
-                           mMouseLockedElement)
+                           mPointerLockedElement)
 
 static void
-DispatchMouseLockLost(nsINode* aTarget)
+DispatchPointerLockLost(nsINode* aTarget)
 {
   nsRefPtr<nsPLDOMEvent> e =
     new nsPLDOMEvent(aTarget,
-                     NS_LITERAL_STRING("mouselocklost"),
+                     NS_LITERAL_STRING("mozpointerlocklost"),
                      true,
                      false);
   e->PostDOMEvent();
 }
 
-nsDOMMouseLockable::nsDOMMouseLockable() :
+nsDOMMozPointerLock::nsDOMMozPointerLock() :
   mWindow(nsnull),
-  mMouseLockedElement(nsnull)
+  mPointerLockedElement(nsnull)
 {
 }
 
-nsDOMMouseLockable::~nsDOMMouseLockable()
+nsDOMMozPointerLock::~nsDOMMozPointerLock()
 {
 }
 
 nsresult
-nsDOMMouseLockable::Init(nsIDOMWindow* aContentWindow)
+nsDOMMozPointerLock::Init(nsIDOMWindow* aContentWindow)
 {
   NS_ENSURE_ARG_POINTER(aContentWindow);
   // Hang on to the window so we can check for fullscreen
@@ -102,21 +102,21 @@ nsDOMMouseLockable::Init(nsIDOMWindow* aContentWindow)
 }
 
 NS_IMETHODIMP
-nsDOMMouseLockable::Unlock()
+nsDOMMozPointerLock::Unlock()
 {
-  if (!mMouseLockedElement) {
+  if (!mPointerLockedElement) {
     return NS_OK;
   }
 
-  nsCOMPtr<nsINode> node = do_QueryInterface(mMouseLockedElement);
+  nsCOMPtr<nsINode> node = do_QueryInterface(mPointerLockedElement);
   if (!node) {
     NS_ERROR("Unlock(): unable to get nsINode for locked element.");
     return NS_ERROR_UNEXPECTED;
   }
-  DispatchMouseLockLost(node);
+  DispatchPointerLockLost(node);
   node->RemoveMutationObserver(this);
 
-  // Making the mouse reappear
+  // Making the pointer reappear
   nsCOMPtr<nsPIDOMWindow> domWindow( do_QueryInterface( mWindow ) );
   if (!domWindow) {
     NS_ERROR("Unlock(): No DOM found in nsCOMPtr<nsPIDOMWindow>");
@@ -147,29 +147,29 @@ nsDOMMouseLockable::Unlock()
   nsRefPtr<nsEventStateManager> esm = presContext->EventStateManager();
   esm->SetCursor(NS_STYLE_CURSOR_AUTO, nsnull, false, 0.0f,
                  0.0f, widget, true);
-  esm->SetMouseLock(widget, nsnull);
+  esm->SetPointerLock(widget, nsnull);
 
-  mMouseLockedElement = nsnull;
+  mPointerLockedElement = nsnull;
 
   return NS_OK;
 }
 
 NS_IMETHODIMP
-nsDOMMouseLockable::Islocked(bool *_retval NS_OUTPARAM)
+nsDOMMozPointerLock::IsLocked(bool *_retval NS_OUTPARAM)
 {
   NS_ENSURE_ARG_POINTER(_retval);
-  *_retval = mMouseLockedElement ? true : false;
+  *_retval = mPointerLockedElement ? true : false;
   return NS_OK;
 }
 
 bool
-nsDOMMouseLockable::ShouldLock(nsIDOMElement* aTarget)
+nsDOMMozPointerLock::ShouldLock(nsIDOMElement* aTarget)
 {
-  // Check if mouselock is enabled in prefs
+  // Check if fullscreen pointer lock pref is enabled
   nsCOMPtr<nsIPrefBranch> prefs(do_GetService("@mozilla.org/preferences-service;1"));
-  bool mouseLockEnabled;
-  prefs->GetBoolPref(PREF_MOUSE_LOCK_ENABLED, &mouseLockEnabled);
-  if (!mouseLockEnabled) {
+  bool pointerLockEnabled;
+  prefs->GetBoolPref(PREF_POINTER_LOCK_ENABLED, &pointerLockEnabled);
+  if (!pointerLockEnabled) {
     return false;
   }
 
@@ -209,19 +209,19 @@ nsDOMMouseLockable::ShouldLock(nsIDOMElement* aTarget)
 }
 
 NS_IMETHODIMP
-nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
-                         nsIDOMMouseLockableSuccessCallback* aSuccessCallback,
-                         nsIDOMMouseLockableFailureCallback* aFailureCallback)
+nsDOMMozPointerLock::Lock(nsIDOMElement* aTarget,
+                          nsIDOMMozPointerLockSuccessCallback* aSuccessCallback,
+                          nsIDOMMozPointerLockFailureCallback* aFailureCallback)
 {
-  nsRefPtr<nsMouseLockableRequest> request =
-    new nsMouseLockableRequest(aSuccessCallback, aFailureCallback);
+  nsRefPtr<nsPointerLockRequest> request =
+    new nsPointerLockRequest(aSuccessCallback, aFailureCallback);
   nsCOMPtr<nsIRunnable> ev;
 
   // If we're already locked to this target, re-call success callback
-  if (mMouseLockedElement && mMouseLockedElement == aTarget){
-    ev = new nsRequestMouseLockEvent(true, request);
+  if (mPointerLockedElement && mPointerLockedElement == aTarget){
+    ev = new nsRequestPointerLockEvent(true, request);
   } else if (ShouldLock(aTarget)) {
-    mMouseLockedElement = aTarget;
+    mPointerLockedElement = aTarget;
 
     // TODO: should these throw or cause the error callback?
     nsCOMPtr<nsPIDOMWindow> domWindow = do_QueryInterface(mWindow);
@@ -264,15 +264,15 @@ nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
     }
     node->AddMutationObserver(this);
 
-    // Hide the cursor and set mouse lock for future mouse events
+    // Hide the cursor and set pointer lock for future mouse events
     nsRefPtr<nsEventStateManager> esm = presContext->EventStateManager();
     esm->SetCursor(NS_STYLE_CURSOR_NONE, nsnull, false,
                    0.0f, 0.0f, widget, true);
-    esm->SetMouseLock(widget, element);
+    esm->SetPointerLock(widget, element);
 
-    ev = new nsRequestMouseLockEvent(true, request);
+    ev = new nsRequestPointerLockEvent(true, request);
   } else {
-    ev = new nsRequestMouseLockEvent(false, request);
+    ev = new nsRequestPointerLockEvent(false, request);
   }
 
   NS_DispatchToMainThread(ev);
@@ -284,85 +284,84 @@ nsDOMMouseLockable::Lock(nsIDOMElement* aTarget,
  * nsIMutationObserver
  **/
 void
-nsDOMMouseLockable::AttributeChanged(nsIDocument* aDocument,
-                                     mozilla::dom::Element* aElement,
-                                     PRInt32 aNameSpaceID,
-                                     nsIAtom* aAttribute, PRInt32 aModType)
+nsDOMMozPointerLock::AttributeChanged(nsIDocument* aDocument,
+                                      mozilla::dom::Element* aElement,
+                                      PRInt32 aNameSpaceID,
+                                      nsIAtom* aAttribute, PRInt32 aModType)
 {
 }
 
 void
-nsDOMMouseLockable::ContentAppended(nsIDocument* aDocument,
+nsDOMMozPointerLock::ContentAppended(nsIDocument* aDocument,
+                                     nsIContent* aContainer,
+                                     nsIContent* aChild,
+                                     PRInt32 aIndexInContainer)
+{
+}
+
+void
+nsDOMMozPointerLock::ContentInserted(nsIDocument* aDocument,
+                                     nsIContent* aContainer,
+                                     nsIContent* aChild,
+                                     PRInt32 aIndexInContainer)
+{
+}
+
+void
+nsDOMMozPointerLock::ContentRemoved(nsIDocument* aDocument,
                                     nsIContent* aContainer,
                                     nsIContent* aChild,
-                                    PRInt32 aIndexInContainer)
+                                    PRInt32 aIndexInContainer,
+                                    nsIContent* aPreviousSibling)
 {
 }
 
 void
-nsDOMMouseLockable::ContentInserted(nsIDocument* aDocument,
-                                    nsIContent* aContainer,
-                                    nsIContent* aChild,
-                                    PRInt32 aIndexInContainer)
+nsDOMMozPointerLock::CharacterDataWillChange(nsIDocument* aDocument,
+                                             nsIContent* aContent,
+                                             CharacterDataChangeInfo* aInfo)
 {
 }
 
 void
-nsDOMMouseLockable::ContentRemoved(nsIDocument* aDocument,
-                                   nsIContent* aContainer,
-                                   nsIContent* aChild,
-                                   PRInt32 aIndexInContainer,
-                                   nsIContent* aPreviousSibling)
-{
-  // TODO: unlock here too??
-}
-
-void
-nsDOMMouseLockable::CharacterDataWillChange(nsIDocument* aDocument,
-                                            nsIContent* aContent,
-                                            CharacterDataChangeInfo* aInfo)
+nsDOMMozPointerLock::CharacterDataChanged(nsIDocument* aDocument,
+                                          nsIContent* aContent,
+                                          CharacterDataChangeInfo* aInfo)
 {
 }
 
 void
-nsDOMMouseLockable::CharacterDataChanged(nsIDocument* aDocument,
-                                         nsIContent* aContent,
-                                         CharacterDataChangeInfo* aInfo)
+nsDOMMozPointerLock::AttributeWillChange(nsIDocument* aDocument,
+                                         mozilla::dom::Element* aElement,
+                                         PRInt32 aNameSpaceID,
+                                         nsIAtom* aAttribute, PRInt32 aModType)
 {
 }
 
 void
-nsDOMMouseLockable::AttributeWillChange(nsIDocument* aDocument,
-                                        mozilla::dom::Element* aElement,
-                                        PRInt32 aNameSpaceID,
-                                        nsIAtom* aAttribute, PRInt32 aModType)
-{
-}
-
-void
-nsDOMMouseLockable::ParentChainChanged(nsIContent* aContent)
+nsDOMMozPointerLock::ParentChainChanged(nsIContent* aContent)
 {
   Unlock();
 }
 
 void
-nsDOMMouseLockable::NodeWillBeDestroyed(const nsINode* aNode)
+nsDOMMozPointerLock::NodeWillBeDestroyed(const nsINode* aNode)
 {
 }
 
-// nsMouseLockableRequest
-NS_IMPL_THREADSAFE_ISUPPORTS0(nsMouseLockableRequest)
+// nsPointerLockRequest
+NS_IMPL_THREADSAFE_ISUPPORTS0(nsPointerLockRequest)
 
-nsMouseLockableRequest::nsMouseLockableRequest(
-  nsIDOMMouseLockableSuccessCallback* aSuccessCallback,
-  nsIDOMMouseLockableFailureCallback* aFailureCallback)
+nsPointerLockRequest::nsPointerLockRequest(
+  nsIDOMMozPointerLockSuccessCallback* aSuccessCallback,
+  nsIDOMMozPointerLockFailureCallback* aFailureCallback)
   : mSuccessCallback(aSuccessCallback),
     mFailureCallback(aFailureCallback)
 {
 }
 
 void
-nsMouseLockableRequest::SendSuccess()
+nsPointerLockRequest::SendSuccess()
 {
   if (mSuccessCallback) {
     mSuccessCallback->HandleEvent();
@@ -370,16 +369,16 @@ nsMouseLockableRequest::SendSuccess()
 }
 
 void
-nsMouseLockableRequest::SendFailure()
+nsPointerLockRequest::SendFailure()
 {
   if (mFailureCallback) {
     mFailureCallback->HandleEvent();
   }
 }
 
-// nsRequestMouseLockEvent
+// nsRequestPointerLockEvent
 NS_IMETHODIMP
-nsRequestMouseLockEvent::Run()
+nsRequestPointerLockEvent::Run()
 {
   if (mAllow) {
     mRequest->SendSuccess();

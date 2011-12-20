@@ -69,8 +69,8 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/Telemetry.h"
 #include "BatteryManager.h"
-#include "nsIDOMMouseLockable.h"
-#include "nsDOMMouseLockable.h"
+#include "nsIDOMMozPointerLock.h"
+#include "nsDOMMozPointerLock.h"
 #include "SmsManager.h"
 #include "nsISmsService.h"
 
@@ -739,12 +739,12 @@ Navigator::GetMozBattery(nsIDOMMozBatteryManager** aBattery)
 }
 
 NS_IMETHODIMP
-Navigator::GetPointer(nsIDOMMouseLockable** aPointer)
+Navigator::GetMozPointer(nsIDOMMozPointerLock** aPointer)
 {
   NS_ENSURE_ARG_POINTER(aPointer);
 
   if (!mPointer) {
-    mPointer = new nsDOMMouseLockable();
+    mPointer = new nsDOMMozPointerLock();
   }
 
   nsCOMPtr<nsIDOMWindow> domWin(do_QueryReferent(mWindow));

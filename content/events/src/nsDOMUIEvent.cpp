@@ -51,7 +51,7 @@
 #include "nsIFrame.h"
 #include "nsLayoutUtils.h"
 #include "nsIScrollableFrame.h"
-#include "nsIDOMMouseLockable.h"
+#include "nsIDOMMozPointerLock.h"
 #include "nsIDOMNavigator.h"
 
 nsIntPoint nsDOMUIEvent::sLastScreenPoint = nsIntPoint(0,0);
@@ -128,7 +128,7 @@ NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION_INHERITED(nsDOMUIEvent)
 NS_INTERFACE_MAP_END_INHERITING(nsDOMEvent)
 
 bool
-nsDOMUIEvent::IsMouseLocked()
+nsDOMUIEvent::IsPointerLocked()
 {
   if (!mView) {
     return false;
@@ -140,14 +140,14 @@ nsDOMUIEvent::IsMouseLocked()
     return false;
   }
 
-  nsCOMPtr<nsIDOMMouseLockable> pointer;
-  navigator->GetPointer(getter_AddRefs(pointer));
+  nsCOMPtr<nsIDOMMozPointerLock> pointer;
+  navigator->GetMozPointer(getter_AddRefs(pointer));
   if (!pointer) {
     return false;
   }
 
   bool isLocked;
-  pointer->Islocked(&isLocked);
+  pointer->IsLocked(&isLocked);
   return isLocked;
 }
 
@@ -208,7 +208,7 @@ nsDOMUIEvent::ScreenPointInternal()
 nsIntPoint
 nsDOMUIEvent::GetScreenPoint()
 {
-  if (IsMouseLocked()) {
+  if (IsPointerLocked()) {
     return sLastScreenPoint;
   }
 
@@ -220,7 +220,7 @@ nsDOMUIEvent::GetScreenPoint()
 nsIntPoint
 nsDOMUIEvent::GetClientPoint()
 {
-  if (IsMouseLocked()) {
+  if (IsPointerLocked()) {
     return sLastClientPoint;
   }
 

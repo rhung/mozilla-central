@@ -480,8 +480,8 @@ private:
                                   bool aAddState);
 
   PRInt32     mLockCursor;
-  // The element that is mouse locked, if any.
-  nsCOMPtr<nsIContent> mMouseLockedElement;
+  // The element to which the pointer is locked, if any.
+  nsCOMPtr<nsIContent> mPointerLockedElement;
   // Point when mouse was locked, used to reposition after unlocking.
   nsIntPoint  mPreLockPoint;
 
@@ -564,7 +564,7 @@ public:
   void KillClickHoldTimer ( ) ;
   void FireContextClick ( ) ;
 
-  void SetMouseLock( nsIWidget* aWidget, nsIContent* aElement ) ;
+  void SetPointerLock( nsIWidget* aWidget, nsIContent* aElement ) ;
   static void sClickHoldCallback ( nsITimer* aTimer, void* aESM ) ;
   static void SetLastScreenOffset(nsIntPoint aScreenOffset) ;
 };

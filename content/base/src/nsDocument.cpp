@@ -207,7 +207,7 @@
 #include "imgILoader.h"
 #include "nsWrapperCacheInlines.h"
 
-#include "nsDOMMouseLockable.h"
+#include "nsDOMMozPointerLock.h"
 #include "Navigator.h"
 
 using namespace mozilla;
@@ -8524,15 +8524,15 @@ nsDocument::MaybeUnlockMouse(nsIDocument* aDocument)
     return;
   }
 
-  // When exiting fullscreen, if the mouse is also locked to the fullscreen element,
+  // When exiting fullscreen, if the pointer is also locked to the fullscreen element,
   // we'll need to unlock it as we the document exits fullscreen.
   nsCOMPtr<nsIDOMWindow> window = aDocument->GetWindow();
   if (window) {
     nsCOMPtr<nsIDOMNavigator> navigator;
     window->GetNavigator(getter_AddRefs(navigator));
     if (navigator) {
-      nsCOMPtr<nsIDOMMouseLockable> pointer;
-      navigator->GetPointer(getter_AddRefs(pointer));
+      nsCOMPtr<nsIDOMMozPointerLock> pointer;
+      navigator->GetMozPointer(getter_AddRefs(pointer));
       if (pointer) {
         // Unlock will bail early if not really locked
         pointer->Unlock();

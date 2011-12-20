@@ -428,7 +428,7 @@ DOMCI_CLASS(GeoPositionAddress)
 DOMCI_CLASS(GeoPositionError)
 
 DOMCI_CLASS(MozBatteryManager)
-DOMCI_CLASS(MouseLockable)
+DOMCI_CLASS(MozPointerLock)
 
 DOMCI_CLASS(MozSmsManager)
 DOMCI_CLASS(MozSmsMessage)

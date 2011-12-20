@@ -511,7 +511,7 @@
 
 #include "nsIDOMBatteryManager.h"
 #include "BatteryManager.h"
-#include "nsIDOMMouseLockable.h"
+#include "nsIDOMMozPointerLock.h"
 #include "nsIDOMSmsManager.h"
 #include "nsIDOMSmsMessage.h"
 #include "nsIDOMSmsEvent.h"
@@ -1394,7 +1394,7 @@ static nsDOMClassInfoData sClassInfoData[] = {
   NS_DEFINE_CLASSINFO_DATA(MozBatteryManager, nsDOMGenericSH,
                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
 
-  NS_DEFINE_CLASSINFO_DATA(MouseLockable, nsDOMGenericSH,
+  NS_DEFINE_CLASSINFO_DATA(MozPointerLock, nsDOMGenericSH,
                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
 
   NS_DEFINE_CLASSINFO_DATA(MozSmsManager, nsDOMGenericSH,
@@ -2312,8 +2312,8 @@ nsDOMClassInfo::Init()
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMMozNavigatorSms)
   DOM_CLASSINFO_MAP_END
 
-  DOM_CLASSINFO_MAP_BEGIN(MouseLockable, nsIDOMMouseLockable)
-    DOM_CLASSINFO_MAP_ENTRY(nsIDOMMouseLockable)
+  DOM_CLASSINFO_MAP_BEGIN(MozPointerLock, nsIDOMMozPointerLock)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMMozPointerLock)
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(Plugin, nsIDOMPlugin)

@@ -54,8 +54,8 @@ interface nsIDOMMouseEvent : nsIDOMUIEvent
   readonly attribute long               screenX;
   readonly attribute long               screenY;
 
-  readonly attribute long               movementX;
-  readonly attribute long               movementY;
+  readonly attribute long               mozMovementX;
+  readonly attribute long               mozMovementY;
 
   readonly attribute long               clientX;
   readonly attribute long               clientY;

@@ -100,7 +100,7 @@
 #include "nsIDOMUIEvent.h"
 #include "nsDOMDragEvent.h"
 #include "nsIDOMNSEditableElement.h"
-#include "nsIDOMMouseLockable.h"
+#include "nsIDOMMozPointerLock.h"
 #include "nsIDOMNavigator.h"
 
 #include "nsCaret.h"
@@ -776,7 +776,7 @@ nsMouseWheelTransaction::LimitToOnePageScroll(PRInt32 aScrollLines,
 
 nsEventStateManager::nsEventStateManager()
   : mLockCursor(0),
-    mMouseLockedElement(nsnull),
+    mPointerLockedElement(nsnull),
     mPreLockPoint(0,0),
     mCurrentTarget(nsnull),
     mLastMouseOverFrame(nsnull),
@@ -3900,7 +3900,7 @@ void
 nsEventStateManager::NotifyMouseOut(nsGUIEvent* aEvent, nsIContent* aMovingInto)
 {
   // If the mouse is locked, don't fire mouseout events
-  if (mMouseLockedElement) {
+  if (mPointerLockedElement) {
     return;
   }
 
@@ -3965,7 +3965,7 @@ void
 nsEventStateManager::NotifyMouseOver(nsGUIEvent* aEvent, nsIContent* aContent)
 {
   // If the mouse is locked, don't fire mouseover events
-  if (mMouseLockedElement) {
+  if (mPointerLockedElement) {
     return;
   }
 
@@ -4035,7 +4035,7 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
   switch(aEvent->message) {
   case NS_MOUSE_MOVE:
     {
-      if (mMouseLockedElement && aEvent->widget) {
+      if (mPointerLockedElement && aEvent->widget) {
         // Perform mouse lock by recentering the mouse directly, then remembering the deltas.
         nsIntRect bounds;
         aEvent->widget->GetScreenBounds(bounds);
@@ -4091,28 +4091,28 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
 }
 
 void
-nsEventStateManager::SetMouseLock(nsIWidget* aWidget,
-                                  nsIContent* aElement)
+nsEventStateManager::SetPointerLock(nsIWidget* aWidget,
+                                    nsIContent* aElement)
 {
   // Remember which element is locked so we don't dispatch events for
   // elements that aren't locked. aElement will be nsnull when unlocking.
-  mMouseLockedElement = aElement;
+  mPointerLockedElement = aElement;
 
   if (!aWidget) {
     return;
   }
 
-  if (mMouseLockedElement) {
-    // Store the last known ref point so we can reposition the mouse after unlock.
+  if (mPointerLockedElement) {
+    // Store the last known ref point so we can reposition the pointer after unlock.
     mPreLockPoint = sLastRefPoint + sLastScreenOffset;
 
-    // Set the initial mouse lock movement (before the first mouse move event), to 0,0
+    // Set the initial pointer lock movement (before the first mousemove event), to 0,0
     nsIntRect bounds;
     aWidget->GetScreenBounds(bounds);
     sLastRefPoint = nsIntPoint(bounds.width/2, bounds.height/2);
     aWidget->SynthesizeNativeMouseMove(sLastRefPoint);
   } else {
-    // Unlocking, so return mouse to the original position
+    // Unlocking, so return pointer to the original position
     aWidget->SynthesizeNativeMouseMove(mPreLockPoint);
   }
 }
