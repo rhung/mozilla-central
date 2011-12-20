@@ -565,6 +565,7 @@ public:
   void FireContextClick ( ) ;
 
   void SetMouseLock( nsIWidget* aWidget, nsIContent* aElement ) ;
+  nsIntPoint GetMouseCoords(nsIntRect);
   static void sClickHoldCallback ( nsITimer* aTimer, void* aESM ) ;
   static void SetLastScreenOffset(nsIntPoint aScreenOffset) ;
 };

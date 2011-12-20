@@ -4039,7 +4039,7 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
         // Perform mouse lock by recentering the mouse directly, then remembering the deltas.
         nsIntRect bounds;
         aEvent->widget->GetScreenBounds(bounds);
-        aEvent->lastRefPoint = nsIntPoint(bounds.width/2, bounds.height/2);
+        aEvent->lastRefPoint = GetMouseCoords(bounds);
 
         // refPoint should not be the centre on mousemove
         if (aEvent->refPoint.x == aEvent->lastRefPoint.x &&
@@ -4105,11 +4105,19 @@ nsEventStateManager::SetMouseLock(nsIWidget* aWidget,
   if (mMouseLockedElement) {
     // Store the last known ref point so we can reposition the mouse after unlock.
     mPreLockPoint = sLastRefPoint + sLastScreenOffset;
+    
+    if (!mPresContext) {
+      return;
+    }
+    EnsureDocument(mPresContext);
+    if (!mDocument) {
+      return;
+    }
 
-    // Set the initial mouse lock movement (before the first mouse move event), to 0,0
     nsIntRect bounds;
     aWidget->GetScreenBounds(bounds);
-    sLastRefPoint = nsIntPoint(bounds.width/2, bounds.height/2);
+
+    sLastRefPoint = GetMouseCoords(bounds);
     aWidget->SynthesizeNativeMouseMove(sLastRefPoint);
   } else {
     // Unlocking, so return mouse to the original position
@@ -4120,6 +4128,44 @@ nsEventStateManager::SetMouseLock(nsIWidget* aWidget,
 void
 nsEventStateManager::SetLastScreenOffset(nsIntPoint aScreenOffset) {
   sLastScreenOffset = aScreenOffset;
+}
+
+nsIntPoint
+nsEventStateManager::GetMouseCoords(nsIntRect aScreenBounds) {
+  nsCOMPtr<nsIDOMDocument> domDoc = do_QueryInterface(mDocument);
+  if (!domDoc) {
+    return nsIntPoint(0,0);
+  }
+  nsCOMPtr<nsIDOMWindow> domWin;
+  domDoc->GetDefaultView(getter_AddRefs(domWin));
+  if (!domWin) {
+    return nsIntPoint(0,0);
+  }
+
+  nsCOMPtr<nsIDOMHTMLElement> lockedElement = do_QueryInterface(mMouseLockedElement);
+  if (!lockedElement) {
+    return nsIntPoint(0,0);
+  }
+
+  int offsetWidth, offsetHeight, offsetTop, offsetLeft, innerHeight;
+  domWin->GetInnerHeight(&innerHeight);
+  lockedElement->GetOffsetWidth(&offsetWidth);
+  lockedElement->GetOffsetHeight(&offsetHeight);
+  lockedElement->GetOffsetTop(&offsetTop);
+  lockedElement->GetOffsetLeft(&offsetLeft);
+  
+  /* X,Y coords of the center of the locked element
+  *
+  *  The x coord is the width of the element divived by 2
+  *  plus the distance between the element and the left border of the window
+  *  plus the distance between the left corner of the monitor and the browser
+  *   
+  *  The y coord is the height of the element divived by 2
+  *  plus the distance between the element and the top border of the inner window
+  *  plus the height of the chrome window minus the height of the inner window
+  *  plus the distance between the top corner of the monitor and the browser */
+  return nsIntPoint((offsetWidth/2) + offsetLeft + aScreenBounds.x,
+                    (offsetHeight/2) + offsetTop + (aScreenBounds.height - innerHeight) + aScreenBounds.y);
 }
 
 void
