@@ -58,8 +58,10 @@ import org.mozilla.gecko.db.BrowserDB;
 public class Tab {
     public static enum AgentMode { MOBILE, DESKTOP };
     private static final String LOGTAG = "GeckoTab";
+    private static final int kThumbnailSize = 96;
 
     static int sMinDim = 0;
+    static float sDensity = 1;
     private int mId;
     private String mUrl;
     private String mTitle;
@@ -69,11 +71,15 @@ public class Tab {
     private Drawable mThumbnail;
     private List<HistoryEntry> mHistory;
     private int mHistoryIndex;
+    private int mParentId;
+    private boolean mExternal;
     private boolean mLoading;
     private boolean mBookmark;
     private HashMap<String, DoorHanger> mDoorHangers;
     private long mFaviconLoadId;
     private AgentMode mAgentMode = AgentMode.MOBILE;
+    private String mDocumentURI;
+    private String mContentType;
 
     static class HistoryEntry {
         public final String mUri;   // must never be null
@@ -86,12 +92,14 @@ public class Tab {
     }
 
     public Tab() {
-        this(-1, "");
+        this(-1, "", false, -1);
     }
 
-    public Tab(int id, String url) {
+    public Tab(int id, String url, boolean external, int parentId) {
         mId = id;
         mUrl = url;
+        mExternal = external;
+        mParentId = parentId;
         mTitle = "";
         mFavicon = null;
         mFaviconUrl = null;
@@ -102,10 +110,16 @@ public class Tab {
         mBookmark = false;
         mDoorHangers = new HashMap<String, DoorHanger>();
         mFaviconLoadId = 0;
+        mDocumentURI = "";
+        mContentType = "";
     }
 
     public int getId() {
         return mId;
+    }
+
+    public int getParentId() {
+        return mParentId;
     }
 
     public String getURL() {
@@ -139,11 +153,22 @@ public class Tab {
                     DisplayMetrics metrics = new DisplayMetrics();
                     GeckoApp.mAppContext.getWindowManager().getDefaultDisplay().getMetrics(metrics);
                     sMinDim = Math.min(metrics.widthPixels, metrics.heightPixels);
+                    sDensity = metrics.density;
                 }
                 if (b != null) {
-                    Bitmap bitmap = Bitmap.createBitmap(b, 0, 0, sMinDim, sMinDim);
-                    mThumbnail = new BitmapDrawable(bitmap);
-                    saveThumbnailToDB((BitmapDrawable) mThumbnail);
+                    try {
+                        Bitmap cropped = Bitmap.createBitmap(b, 0, 0, sMinDim, sMinDim);
+                        Bitmap bitmap = Bitmap.createScaledBitmap(cropped, kThumbnailSize, kThumbnailSize, false);
+                        saveThumbnailToDB(new BitmapDrawable(bitmap));
+                        b.recycle();
+
+                        bitmap = Bitmap.createBitmap(cropped, 0, 0, (int) (138 * sDensity), (int) (78 * sDensity));
+                        mThumbnail = new BitmapDrawable(bitmap);
+                        cropped.recycle();
+                    } catch (OutOfMemoryError oom) {
+                        Log.e(LOGTAG, "Unable to create/scale bitmap", oom);
+                        mThumbnail = null;
+                    }
                 } else {
                     mThumbnail = null;
                 }
@@ -167,12 +192,32 @@ public class Tab {
         return mBookmark;
     }
 
+    public boolean isExternal() {
+        return mExternal;
+    }
+
     public void updateURL(String url) {
         if (url != null && url.length() > 0) {
             mUrl = url;
             Log.i(LOGTAG, "Updated url: " + url + " for tab with id: " + mId);
             updateBookmark();
         }
+    }
+
+    public void setDocumentURI(String documentURI) {
+        mDocumentURI = documentURI;
+    }
+
+    public String getDocumentURI() {
+        return mDocumentURI;
+    }
+
+    public void setContentType(String contentType) {
+        mContentType = contentType;
+    }
+
+    public String getContentType() {
+        return mContentType;
     }
 
     public void updateTitle(String title) {
@@ -407,5 +452,4 @@ public class Tab {
     public AgentMode getAgentMode() {
         return mAgentMode;
     }
-
 }

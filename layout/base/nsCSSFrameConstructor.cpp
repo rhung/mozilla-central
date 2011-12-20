@@ -2417,7 +2417,7 @@ nsCSSFrameConstructor::ConstructDocElementFrame(Element*                 aDocEle
   }
   else
 #endif
-  if (aDocElement->GetNameSpaceID() == kNameSpaceID_SVG) {
+  if (aDocElement->IsSVG()) {
     if (aDocElement->Tag() == nsGkAtoms::svg) {
       contentFrame = NS_NewSVGOuterSVGFrame(mPresShell, styleContext);
       if (NS_UNLIKELY(!contentFrame)) {
@@ -4698,6 +4698,19 @@ nsCSSFrameConstructor::FindMathMLData(Element* aElement,
 #define SIMPLE_SVG_CREATE(_tag, _func)            \
   { &nsGkAtoms::_tag, SIMPLE_SVG_FCDATA(_func) }
 
+static bool
+IsFilterPrimitiveChildTag(const nsIAtom* aTag)
+{
+  return aTag == nsGkAtoms::feDistantLight ||
+         aTag == nsGkAtoms::fePointLight ||
+         aTag == nsGkAtoms::feSpotLight ||
+         aTag == nsGkAtoms::feFuncR ||
+         aTag == nsGkAtoms::feFuncG ||
+         aTag == nsGkAtoms::feFuncB ||
+         aTag == nsGkAtoms::feFuncA ||
+         aTag == nsGkAtoms::feMergeNode;
+}
+
 /* static */
 const nsCSSFrameConstructor::FrameConstructionData*
 nsCSSFrameConstructor::FindSVGData(Element* aElement,
@@ -4775,21 +4788,22 @@ nsCSSFrameConstructor::FindSVGData(Element* aElement,
     return &sContainerData;
   }
 
-  // Special case for filter primitive elements.
-  // These elements must have a filter element as a parent
+  // Prevent bad frame types being children of filters or parents of filter
+  // primitives:
+  bool parentIsFilter = aParentFrame->GetType() == nsGkAtoms::svgFilterFrame;
   nsCOMPtr<nsIDOMSVGFilterPrimitiveStandardAttributes> filterPrimitive =
     do_QueryInterface(aElement);
-  if (filterPrimitive && aParentFrame->GetType() != nsGkAtoms::svgFilterFrame) {
+  if ((parentIsFilter && !filterPrimitive) ||
+      (!parentIsFilter && filterPrimitive)) {
     return &sSuppressData;
   }
 
-  // Some elements must be children of filter primitive elements.
-  if ((aTag == nsGkAtoms::feDistantLight || aTag == nsGkAtoms::fePointLight ||
-       aTag == nsGkAtoms::feSpotLight ||
-       aTag == nsGkAtoms::feFuncR || aTag == nsGkAtoms::feFuncG ||
-       aTag == nsGkAtoms::feFuncB || aTag == nsGkAtoms::feFuncA ||
-       aTag == nsGkAtoms::feMergeNode) &&
-       aParentFrame->GetType() != nsGkAtoms::svgFEContainerFrame) {
+  // Prevent bad frame types being children of filter primitives or parents of
+  // filter primitive children:
+  bool parentIsFEContainerFrame =
+    aParentFrame->GetType() == nsGkAtoms::svgFEContainerFrame;
+  if ((parentIsFEContainerFrame && !IsFilterPrimitiveChildTag(aTag)) ||
+      (!parentIsFEContainerFrame && IsFilterPrimitiveChildTag(aTag))) {
     return &sSuppressData;
   }
 
@@ -9654,13 +9668,11 @@ nsCSSFrameConstructor::ProcessChildren(nsFrameConstructorState& aState,
     const char *message =
       (display->mDisplay == NS_STYLE_DISPLAY_INLINE_BOX)
         ? "NeededToWrapXULInlineBox" : "NeededToWrapXUL";
-    nsContentUtils::ReportToConsole(nsContentUtils::eXUL_PROPERTIES,
+    nsContentUtils::ReportToConsole(nsIScriptError::warningFlag,
+                                    "FrameConstructor", mDocument,
+                                    nsContentUtils::eXUL_PROPERTIES,
                                     message,
-                                    params, ArrayLength(params),
-                                    nsnull,
-                                    EmptyString(), 0, 0, // not useful
-                                    nsIScriptError::warningFlag,
-                                    "FrameConstructor", mDocument);
+                                    params, ArrayLength(params));
 
     nsRefPtr<nsStyleContext> blockSC = mPresShell->StyleSet()->
       ResolveAnonymousBoxStyle(nsCSSAnonBoxes::mozXULAnonymousBlock,
@@ -11703,6 +11715,11 @@ nsCSSFrameConstructor::PostRestyleEventInternal(bool aForLazyConstruction)
     mObservingRefreshDriver = mPresShell->GetPresContext()->RefreshDriver()->
       AddStyleFlushObserver(mPresShell);
   }
+
+  // Unconditionally flag our document as needing a flush.  The other
+  // option here would be a dedicated boolean to track whether we need
+  // to do so (set here and unset in ProcessPendingRestyles).
+  mPresShell->GetDocument()->SetNeedStyleFlush();
 }
 
 void

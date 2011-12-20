@@ -92,6 +92,12 @@ pref("offline-apps.quota.max",        204800);
 // (in kilobytes)
 pref("offline-apps.quota.warn",        51200);
 
+// zlib compression level used for cache compression:
+// 0 => disable compression
+// 1 => best speed
+// 9 => best compression
+pref("browser.cache.compression_level", 5);
+
 // Whether or not indexedDB is enabled.
 pref("dom.indexedDB.enabled", true);
 // Space to allow indexedDB databases before prompting (in MB).
@@ -199,6 +205,10 @@ pref("gfx.color_management.enablev4", false);
 pref("gfx.downloadable_fonts.enabled", true);
 pref("gfx.downloadable_fonts.fallback_delay", 3000);
 pref("gfx.downloadable_fonts.sanitize", true);
+
+#ifdef MOZ_GRAPHITE
+pref("gfx.font_rendering.graphite.enabled", false);
+#endif
 
 // see gfx/thebes/gfxUnicodeProperties.h for definitions of script bits
 #ifdef XP_MACOSX
@@ -806,8 +816,8 @@ pref("network.ftp.control.qos", 0);
 // <ws>: WebSocket
 pref("network.websocket.enabled", true);
 
-// mobile might want to set this much smaller
-pref("network.websocket.max-message-size", 16000000);
+// 2147483647 == PR_INT32_MAX == ~2 GB  
+pref("network.websocket.max-message-size", 2147483647);
 
 // Should we automatically follow http 3xx redirects during handshake
 pref("network.websocket.auto-follow-http-redirects", false);
@@ -1159,6 +1169,7 @@ pref("intl.hyphenation-alias.uk-*", "uk");
 // (these prefs may soon be obsoleted by better BCP47-based tag matching, but for now...)
 pref("intl.hyphenation-alias.de", "de-1996");
 pref("intl.hyphenation-alias.de-*", "de-1996");
+pref("intl.hyphenation-alias.de-AT-1901", "de-1901");
 pref("intl.hyphenation-alias.de-DE-1901", "de-1901");
 pref("intl.hyphenation-alias.de-CH-*", "de-CH");
 
@@ -1436,12 +1447,6 @@ pref("browser.popups.showPopupBlocker", true);
 // See http://bugzilla.mozilla.org/show_bug.cgi?id=169483 for further details...
 pref("viewmanager.do_doublebuffering", true);
 
-// whether use prefs from system
-pref("config.use_system_prefs", false);
-
-// if the system has enabled accessibility
-pref("config.use_system_prefs.accessibility", false);
-
 // enable single finger gesture input (win7+ tablets)
 pref("gestures.enable_single_finger_input", true);
 
@@ -1472,6 +1477,9 @@ pref("dom.max_script_run_time", 10);
 // Disabled on all platforms per bug 705748 until the found issues are
 // resolved.
 pref("hangmonitor.timeout", 0);
+
+// If true, plugins will be click to play
+pref("plugins.click_to_play", false);
 
 #ifndef DEBUG
 // How long a plugin is allowed to process a synchronous IPC message
@@ -3392,6 +3400,10 @@ pref("dom.event.handling-user-input-time-limit", 1000);
 //3D Transforms
 pref("layout.3d-transforms.enabled", true);
 
+pref("dom.vibrator.enabled", true);
+pref("dom.vibrator.max_vibrate_ms", 10000);
+pref("dom.vibrator.max_vibrate_list_len", 128);
+
 // Battery API
 pref("dom.battery.enabled", true);
 
@@ -3407,3 +3419,17 @@ pref("profiler.enabled", false);
 pref("profiler.interval", 10);
 pref("profiler.entries", 100000);
 
+#ifdef XP_WIN
+// On 32-bit Windows, fire a low-memory notification if we have less than this
+// many mb of virtual address space available.
+pref("memory.low_virtual_memory_threshold_mb", 128);
+
+// On Windows 32- or 64-bit, fire a low-memory notification if we have less
+// than this many mb of physical memory available on the whole machine.
+pref("memory.low_physical_mem_threshold_mb", 0);
+
+// On Windows 32- or 64-bit, don't fire a low-memory notification because of
+// low available physical memory more than once every
+// low_physical_memory_notification_interval_ms.
+pref("memory.low_physical_memory_notification_interval_ms", 10000);
+#endif

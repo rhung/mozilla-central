@@ -216,6 +216,12 @@ CPPSRCS	= \
 	gfxSharedImageSurface.cpp \
 	$(NULL)
 
+ifdef MOZ_GRAPHITE
+CPPSRCS	+= \
+	gfxGraphiteShaper.cpp \
+	$(NULL)
+endif
+
 # Are we targeting x86 or x64?  If so, build gfxAlphaRecoverySSE2.cpp.
 ifneq (,$(INTEL_ARCHITECTURE))
 CPPSRCS += gfxAlphaRecoverySSE2.cpp
@@ -372,6 +378,10 @@ endif
 CSRCS += woff.c
 
 DEFINES += -DIMPL_THEBES -DWOFF_MOZILLA_CLIENT
+
+ifeq (WINNT,$(OS_TARGET))
+DEFINES += -DOTS_DLL
+endif
 
 include $(topsrcdir)/config/rules.mk
 include $(topsrcdir)/ipc/chromium/chromium-config.mk

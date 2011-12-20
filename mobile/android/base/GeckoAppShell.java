@@ -109,6 +109,7 @@ public class GeckoAppShell
     static private File sCacheFile = null;
     static private int sFreeSpace = -1;
     static File sHomeDir = null;
+    static private int sDensityDpi = 0;
 
     private static HashMap<String, ArrayList<GeckoEventListener>> mEventListeners;
 
@@ -130,7 +131,6 @@ public class GeckoAppShell
     public static native void onChangeNetworkLinkStatus(String status);
     public static native void reportJavaCrash(String stack);
     public static native void notifyUriVisited(String uri);
-    public static native boolean canCreateFixupURI(String text);
 
     public static native void processNextNativeEvent();
 
@@ -146,6 +146,7 @@ public class GeckoAppShell
             new SynchronousQueue<Handler>();
         
         public void run() {
+            setName("GeckoLooper Thread");
             Looper.prepare();
             try {
                 mHandlerQueue.put(new Handler());
@@ -437,16 +438,11 @@ public class GeckoAppShell
         if (url != null)
             combinedArgs += " -remote " + url;
 
-        /* TODO: Is this complexity necessary? */
-        new Timer("Gecko Setup").schedule(new TimerTask() {
-            public void run() {
-                GeckoApp.mAppContext.runOnUiThread(new Runnable() {
-                    public void run() {
-                        geckoLoaded();
-                    }
-                });
-            }
-        }, 0);
+        GeckoApp.mAppContext.runOnUiThread(new Runnable() {
+                public void run() {
+                    geckoLoaded();
+                }
+            });
 
         // and go
         GeckoAppShell.nativeRun(combinedArgs);
@@ -456,7 +452,7 @@ public class GeckoAppShell
     private static void geckoLoaded() {
         final LayerController layerController = GeckoApp.mAppContext.getLayerController();
         LayerView v = layerController.getView();
-        mInputConnection = new GeckoInputConnection(v);
+        mInputConnection = GeckoInputConnection.create(v);
         v.setInputConnectionHandler(mInputConnection);
 
         layerController.setOnTouchListener(new View.OnTouchListener() {
@@ -496,15 +492,6 @@ public class GeckoAppShell
     /*
      *  The Gecko-side API: API methods that Gecko calls
      */
-    public static void scheduleRedraw() {
-        // Redraw everything
-        Rect rect = new Rect(0, 0, LayerController.TILE_WIDTH, LayerController.TILE_HEIGHT);
-        GeckoEvent event = new GeckoEvent(GeckoEvent.DRAW, rect);
-        event.mNativeWindow = 0;
-        sendEventToGecko(event);
-    }
-
-
     public static void notifyIME(int type, int state) {
         mInputConnection.notifyIME(type, state);
     }
@@ -942,9 +929,13 @@ public class GeckoAppShell
     }
 
     public static int getDpi() {
-        DisplayMetrics metrics = new DisplayMetrics();
-        GeckoApp.mAppContext.getWindowManager().getDefaultDisplay().getMetrics(metrics);
-        return metrics.densityDpi;
+        if (sDensityDpi == 0) {
+            DisplayMetrics metrics = new DisplayMetrics();
+            GeckoApp.mAppContext.getWindowManager().getDefaultDisplay().getMetrics(metrics);
+            sDensityDpi = metrics.densityDpi;
+        }
+
+        return sDensityDpi;
     }
 
     public static void setFullScreen(boolean fullscreen) {
@@ -1553,6 +1544,19 @@ public class GeckoAppShell
 
     public static void sendMessage(String aNumber, String aMessage) {
         GeckoSmsManager.send(aNumber, aMessage);
+    }
+
+    public static boolean isTablet() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.GINGERBREAD) {
+            Configuration config = GeckoApp.mAppContext.getResources().getConfiguration();
+            // xlarge is defined by android as screens larger than 960dp x 720dp
+            // and should include most devices ~7in and up.
+            // http://developer.android.com/guide/practices/screens_support.html
+            if ((config.screenLayout & Configuration.SCREENLAYOUT_SIZE_MASK) >= Configuration.SCREENLAYOUT_SIZE_XLARGE) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static void emitGeckoAccessibilityEvent (int eventType, String role, String text, String description, boolean enabled, boolean checked, boolean password) {
