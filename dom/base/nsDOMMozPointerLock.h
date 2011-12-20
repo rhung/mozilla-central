@@ -52,6 +52,7 @@
 #include "nsAutoPtr.h"
 #include "nsCOMPtr.h"
 #include "nsThreadUtils.h"
+#include "nsIContent.h"
 #include "nsIMutationObserver.h"
 #include "nsCycleCollectionParticipant.h"
 
@@ -60,12 +61,14 @@ class nsPointerLockRequest : public nsISupports
 public:
   NS_DECL_ISUPPORTS
 
-  nsPointerLockRequest(nsIDOMMozPointerLockSuccessCallback* aSuccessCallback,
+  nsPointerLockRequest(nsIContent* aContent,
+                       nsIDOMMozPointerLockSuccessCallback* aSuccessCallback,
                        nsIDOMMozPointerLockFailureCallback* aFailureCallback);
   void SendSuccess();
   void SendFailure();
 
 private:
+  nsCOMPtr<nsIContent>                          mContent;
   nsCOMPtr<nsIDOMMozPointerLockSuccessCallback> mSuccessCallback;
   nsCOMPtr<nsIDOMMozPointerLockFailureCallback> mFailureCallback;
 };

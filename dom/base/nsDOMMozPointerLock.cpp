@@ -53,6 +53,7 @@
 #include "nsIPrefService.h"
 #include "nsIPrefBranch.h"
 #include "nsIServiceManager.h"
+#include "nsContentUtils.h"
 
 DOMCI_DATA(MozPointerLock, nsDOMMozPointerLock)
 
@@ -213,8 +214,16 @@ nsDOMMozPointerLock::Lock(nsIDOMElement* aTarget,
                           nsIDOMMozPointerLockSuccessCallback* aSuccessCallback,
                           nsIDOMMozPointerLockFailureCallback* aFailureCallback)
 {
+  NS_ENSURE_ARG_POINTER(aTarget);
+
+  nsCOMPtr<nsIContent> element = do_QueryInterface(aTarget);
+  if (!element) {
+    NS_ERROR("Lock: Unable to get nsIContent for locked element");
+    return NS_ERROR_FAILURE;
+  }
+
   nsRefPtr<nsPointerLockRequest> request =
-    new nsPointerLockRequest(aSuccessCallback, aFailureCallback);
+    new nsPointerLockRequest(element, aSuccessCallback, aFailureCallback);
   nsCOMPtr<nsIRunnable> ev;
 
   // If we're already locked to this target, re-call success callback
@@ -248,12 +257,6 @@ nsDOMMozPointerLock::Lock(nsIDOMElement* aTarget,
     if (!widget) {
       NS_ERROR("Lock(): Unable to find widget in \
                 shell->GetRootFrame()->GetNearestWidget();");
-      return NS_ERROR_FAILURE;
-    }
-
-    nsCOMPtr<nsIContent> element = do_QueryInterface(aTarget);
-    if (!element) {
-      NS_ERROR("Lock: Unable to get nsIContent for locked element");
       return NS_ERROR_FAILURE;
     }
 
@@ -353,9 +356,11 @@ nsDOMMozPointerLock::NodeWillBeDestroyed(const nsINode* aNode)
 NS_IMPL_THREADSAFE_ISUPPORTS0(nsPointerLockRequest)
 
 nsPointerLockRequest::nsPointerLockRequest(
+  nsIContent* aContent,
   nsIDOMMozPointerLockSuccessCallback* aSuccessCallback,
   nsIDOMMozPointerLockFailureCallback* aFailureCallback)
-  : mSuccessCallback(aSuccessCallback),
+  : mContent(aContent),
+    mSuccessCallback(aSuccessCallback),
     mFailureCallback(aFailureCallback)
 {
 }
@@ -364,7 +369,10 @@ void
 nsPointerLockRequest::SendSuccess()
 {
   if (mSuccessCallback) {
-    mSuccessCallback->HandleEvent();
+    nsCxPusher pusher;
+    if (pusher.Push(mContent)) {
+      mSuccessCallback->HandleEvent();
+    }
   }
 }
 
@@ -372,7 +380,10 @@ void
 nsPointerLockRequest::SendFailure()
 {
   if (mFailureCallback) {
-    mFailureCallback->HandleEvent();
+    nsCxPusher pusher;
+    if (pusher.Push(mContent)) {
+      mFailureCallback->HandleEvent();
+    }
   }
 }
 
