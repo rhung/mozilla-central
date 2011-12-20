@@ -56,15 +56,20 @@
 
 DOMCI_DATA(MouseLockable, nsDOMMouseLockable)
 
-NS_INTERFACE_MAP_BEGIN(nsDOMMouseLockable)
+NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(nsDOMMouseLockable)
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIDOMMouseLockable)
   NS_INTERFACE_MAP_ENTRY(nsIDOMMouseLockable)
   NS_INTERFACE_MAP_ENTRY(nsIMutationObserver)
+  NS_INTERFACE_MAP_ENTRIES_CYCLE_COLLECTION(nsDOMMouseLockable)
   NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(MouseLockable)
 NS_INTERFACE_MAP_END
 
-NS_IMPL_ADDREF(nsDOMMouseLockable)
-NS_IMPL_RELEASE(nsDOMMouseLockable)
+NS_IMPL_CYCLE_COLLECTING_ADDREF(nsDOMMouseLockable)
+NS_IMPL_CYCLE_COLLECTING_RELEASE(nsDOMMouseLockable)
+
+NS_IMPL_CYCLE_COLLECTION_2(nsDOMMouseLockable,
+                           mWindow,
+                           mMouseLockedElement)
 
 static void
 DispatchMouseLockLost(nsINode* aTarget)
@@ -175,21 +180,15 @@ nsDOMMouseLockable::ShouldLock(nsIDOMElement* aTarget)
     return NS_ERROR_UNEXPECTED;
   }
 
-  // Check if element is in the DOM tree
-  nsCOMPtr<nsIDOMNode> targetNode(do_QueryInterface(aTarget));
+  nsCOMPtr<nsINode> targetNode(do_QueryInterface(aTarget));
   if (!targetNode) {
     return false;
   }
-  nsCOMPtr<nsIDOMNode> parentNode;
-  targetNode->GetParentNode(getter_AddRefs(parentNode));
-  if (!parentNode) {
-    return false;
-  }
 
-  // Check if the element belongs to the right DOM
-  nsCOMPtr<nsIDOMDocument> targetDoc;
-  parentNode->GetOwnerDocument(getter_AddRefs(targetDoc));
-  if (targetDoc != domDoc) {
+  // Check if the element is in a DOM tree and also this DOM.
+  nsCOMPtr<nsIDocument> targetDoc = targetNode->GetCurrentDoc();
+  nsCOMPtr<nsIDocument> doc(do_QueryInterface(domDoc));
+  if (!targetDoc || targetDoc != doc) {
     return false;
   }
 

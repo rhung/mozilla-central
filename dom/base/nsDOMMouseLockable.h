@@ -53,6 +53,7 @@
 #include "nsCOMPtr.h"
 #include "nsThreadUtils.h"
 #include "nsIMutationObserver.h"
+#include "nsCycleCollectionParticipant.h"
 
 class nsMouseLockableRequest : public nsISupports
 {
@@ -91,7 +92,9 @@ class nsDOMMouseLockable : public nsIDOMMouseLockable,
                            public nsIMutationObserver
 {
 public:
-  NS_DECL_ISUPPORTS
+  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
+  NS_DECL_CYCLE_COLLECTION_CLASS_AMBIGUOUS(nsDOMMouseLockable,
+                                           nsIDOMMouseLockable)
   NS_DECL_NSIDOMMOUSELOCKABLE
   NS_DECL_NSIMUTATIONOBSERVER
 
