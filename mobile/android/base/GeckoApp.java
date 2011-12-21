@@ -464,6 +464,7 @@ abstract public class GeckoApp
             forward.setEnabled(false);
             share.setEnabled(false);
             saveAsPDF.setEnabled(false);
+            agentMode.setEnabled(false);
             return true;
         }
         
@@ -482,9 +483,12 @@ abstract public class GeckoApp
 
         forward.setEnabled(tab.canDoForward());
 
-        // Don't share about:, chrome: and file: URIs
+        // Disable share and agentMode menuitems for about:, chrome: and file: URIs
         String scheme = Uri.parse(tab.getURL()).getScheme();
-        share.setEnabled(!(scheme.equals("about") || scheme.equals("chrome") || scheme.equals("file")));
+        boolean enabled = !(scheme.equals("about") || scheme.equals("chrome") ||
+                            scheme.equals("file"));
+        share.setEnabled(enabled);
+        agentMode.setEnabled(enabled);
 
         // Disable save as PDF for about:home and xul pages
         saveAsPDF.setEnabled(!(tab.getURL().equals("about:home") ||
@@ -1020,7 +1024,10 @@ abstract public class GeckoApp
                         loadUrl(url, AwesomeBar.Type.EDIT);
                     }
                 });
-                mGeckoLayout.addView(mAboutHomeContent);
+                RelativeLayout.LayoutParams lp = 
+                    new RelativeLayout.LayoutParams(LayoutParams.FILL_PARENT, 
+                                                    LayoutParams.FILL_PARENT);
+                mGeckoLayout.addView(mAboutHomeContent, lp);
             }
             if (mAboutHomeContent != null)
                 mAboutHomeContent.setVisibility(mShow ? View.VISIBLE : View.GONE);
