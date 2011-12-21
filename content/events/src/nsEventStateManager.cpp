@@ -163,6 +163,7 @@ nsIDocument* nsEventStateManager::sMouseOverDocument = nsnull;
 nsWeakFrame nsEventStateManager::sLastDragOverFrame = nsnull;
 nsIntPoint nsEventStateManager::sLastRefPoint = nsIntPoint(0,0);
 nsIntPoint nsEventStateManager::sLastScreenOffset = nsIntPoint(0,0);
+nsCOMPtr<nsIContent> nsEventStateManager::mMouseLockedElement = nsnull;
 nsCOMPtr<nsIContent> nsEventStateManager::sDragOverContent = nsnull;
 
 static PRUint32 gMouseOrKeyboardEventCounter = 0;
@@ -776,7 +777,6 @@ nsMouseWheelTransaction::LimitToOnePageScroll(PRInt32 aScrollLines,
 
 nsEventStateManager::nsEventStateManager()
   : mLockCursor(0),
-    mMouseLockedElement(nsnull),
     mPreLockPoint(0,0),
     mCurrentTarget(nsnull),
     mLastMouseOverFrame(nsnull),
@@ -4106,14 +4106,6 @@ nsEventStateManager::SetMouseLock(nsIWidget* aWidget,
     // Store the last known ref point so we can reposition the mouse after unlock.
     mPreLockPoint = sLastRefPoint + sLastScreenOffset;
     
-    if (!mPresContext) {
-      return;
-    }
-    EnsureDocument(mPresContext);
-    if (!mDocument) {
-      return;
-    }
-
     nsIntRect bounds;
     aWidget->GetScreenBounds(bounds);
 
@@ -4132,18 +4124,20 @@ nsEventStateManager::SetLastScreenOffset(nsIntPoint aScreenOffset) {
 
 nsIntPoint
 nsEventStateManager::GetMouseCoords(nsIntRect aScreenBounds) {
-  nsCOMPtr<nsIDOMDocument> domDoc = do_QueryInterface(mDocument);
-  if (!domDoc) {
-    return nsIntPoint(0,0);
-  }
-  nsCOMPtr<nsIDOMWindow> domWin;
-  domDoc->GetDefaultView(getter_AddRefs(domWin));
-  if (!domWin) {
+  nsCOMPtr<nsIDOMHTMLElement> lockedElement = do_QueryInterface(mMouseLockedElement);
+  if (!lockedElement) {
     return nsIntPoint(0,0);
   }
 
-  nsCOMPtr<nsIDOMHTMLElement> lockedElement = do_QueryInterface(mMouseLockedElement);
-  if (!lockedElement) {
+  nsCOMPtr<nsIDOMDocument> domDoc;
+  lockedElement->GetOwnerDocument(getter_AddRefs(domDoc));
+  if (!domDoc) {
+    return nsIntPoint(0,0);
+  }
+
+  nsCOMPtr<nsIDOMWindow> domWin;
+  domDoc->GetDefaultView(getter_AddRefs(domWin));
+  if (!domWin) {
     return nsIntPoint(0,0);
   }
 
