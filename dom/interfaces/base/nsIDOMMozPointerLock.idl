@@ -18,6 +18,7 @@
  * the Initial Developer. All Rights Reserved.
  *
  * Contributor(s):
+ *   David Humphrey <david.humphrey@senecac.on.ca>
  *   Diogo Golovanevsky <diogo.gmt@gmail.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
@@ -35,9 +36,15 @@
  * ***** END LICENSE BLOCK ***** */
 
 #include "domstubs.idl"
+#include "nsIDOMMozPointerLockSuccessCallback.idl"
+#include "nsIDOMMozPointerLockFailureCallback.idl"
 
-[scriptable, function, uuid(877ee0b4-1661-11e1-a667-206a8a092638)]
-interface nsIDOMMouseLockableSuccessCallback : nsISupports
+[scriptable, uuid(12c0cd86-7cd6-4355-8e0a-6b42486f2b32)]
+interface nsIDOMMozPointerLock : nsISupports
 {
-  void handleEvent();
+   void lock(           in nsIDOMElement target,
+             [optional] in nsIDOMMozPointerLockSuccessCallback successCallback,
+             [optional] in nsIDOMMozPointerLockFailureCallback failureCallback);
+   void unlock();
+   boolean isLocked();
 };

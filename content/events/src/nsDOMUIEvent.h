@@ -92,7 +92,7 @@ protected:
   static nsIntPoint sLastClientPoint;
 
 private:
-  bool IsMouseLocked();
+  bool IsPointerLocked();
   nsIntPoint ScreenPointInternal();
 };
 

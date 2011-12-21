@@ -39,43 +39,46 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-#ifndef nsDOMMouseLockable_h___
-#define nsDOMMouseLockable_h___
+#ifndef nsDOMMozPointerLock_h___
+#define nsDOMMozPointerLock_h___
 
-#define PREF_MOUSE_LOCK_ENABLED "full-screen-api.mouse-lock.enabled"
+#define PREF_POINTER_LOCK_ENABLED "full-screen-api.pointer-lock.enabled"
 
-#include "nsIDOMMouseLockable.h"
-#include "nsIDOMMouseLockableSuccessCallback.h"
-#include "nsIDOMMouseLockableFailureCallback.h"
+#include "nsIDOMMozPointerLock.h"
+#include "nsIDOMMozPointerLockSuccessCallback.h"
+#include "nsIDOMMozPointerLockFailureCallback.h"
 #include "nsWeakPtr.h"
 #include "nsINode.h"
 #include "nsAutoPtr.h"
 #include "nsCOMPtr.h"
 #include "nsThreadUtils.h"
+#include "nsIContent.h"
 #include "nsIMutationObserver.h"
 #include "nsCycleCollectionParticipant.h"
 
-class nsMouseLockableRequest : public nsISupports
+class nsPointerLockRequest : public nsISupports
 {
 public:
   NS_DECL_ISUPPORTS
 
-  nsMouseLockableRequest(nsIDOMMouseLockableSuccessCallback* aSuccessCallback,
-                         nsIDOMMouseLockableFailureCallback* aFailureCallback);
+  nsPointerLockRequest(nsIContent* aContent,
+                       nsIDOMMozPointerLockSuccessCallback* aSuccessCallback,
+                       nsIDOMMozPointerLockFailureCallback* aFailureCallback);
   void SendSuccess();
   void SendFailure();
 
 private:
-  nsCOMPtr<nsIDOMMouseLockableSuccessCallback> mSuccessCallback;
-  nsCOMPtr<nsIDOMMouseLockableFailureCallback> mFailureCallback;
+  nsCOMPtr<nsIContent>                          mContent;
+  nsCOMPtr<nsIDOMMozPointerLockSuccessCallback> mSuccessCallback;
+  nsCOMPtr<nsIDOMMozPointerLockFailureCallback> mFailureCallback;
 };
 
 
-class nsRequestMouseLockEvent : public nsRunnable
+class nsRequestPointerLockEvent : public nsRunnable
 {
 public:
-  nsRequestMouseLockEvent(bool aAllow,
-                          nsMouseLockableRequest* aRequest)
+  nsRequestPointerLockEvent(bool aAllow,
+                            nsPointerLockRequest* aRequest)
     : mRequest(aRequest),
       mAllow(aAllow)
   {}
@@ -83,30 +86,30 @@ public:
   NS_IMETHOD Run();
 
 private:
-  nsRefPtr<nsMouseLockableRequest> mRequest;
+  nsRefPtr<nsPointerLockRequest> mRequest;
   bool mAllow;
 };
 
 
-class nsDOMMouseLockable : public nsIDOMMouseLockable,
-                           public nsIMutationObserver
+class nsDOMMozPointerLock : public nsIDOMMozPointerLock,
+                            public nsIMutationObserver
 {
 public:
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
-  NS_DECL_CYCLE_COLLECTION_CLASS_AMBIGUOUS(nsDOMMouseLockable,
-                                           nsIDOMMouseLockable)
-  NS_DECL_NSIDOMMOUSELOCKABLE
+  NS_DECL_CYCLE_COLLECTION_CLASS_AMBIGUOUS(nsDOMMozPointerLock,
+                                           nsIDOMMozPointerLock)
+  NS_DECL_NSIDOMMOZPOINTERLOCK
   NS_DECL_NSIMUTATIONOBSERVER
 
-  nsDOMMouseLockable();
+  nsDOMMozPointerLock();
   nsresult Init(nsIDOMWindow*);
 
 private:
-  ~nsDOMMouseLockable();
+  ~nsDOMMozPointerLock();
   bool ShouldLock(nsIDOMElement*);
 
   nsCOMPtr<nsIDOMWindow>  mWindow;
-  nsCOMPtr<nsIDOMElement> mMouseLockedElement;
+  nsCOMPtr<nsIDOMElement> mPointerLockedElement;
 };
 
-#endif /* nsDOMMouseLockable_h___ */
+#endif /* nsDOMMozPointerLock_h___ */

@@ -218,7 +218,7 @@ nsDOMMouseEvent::GetRelatedTarget(nsIDOMEventTarget** aRelatedTarget)
   return NS_OK;
 }
 
-NS_METHOD nsDOMMouseEvent::GetMovementX(PRInt32* aMovementX)
+NS_METHOD nsDOMMouseEvent::GetMozMovementX(PRInt32* aMovementX)
 {
   NS_ENSURE_ARG_POINTER(aMovementX);
   *aMovementX = GetMovementPoint().x;
@@ -227,7 +227,7 @@ NS_METHOD nsDOMMouseEvent::GetMovementX(PRInt32* aMovementX)
 }
 
 NS_IMETHODIMP
-nsDOMMouseEvent::GetMovementY(PRInt32* aMovementY)
+nsDOMMouseEvent::GetMozMovementY(PRInt32* aMovementY)
 {
   NS_ENSURE_ARG_POINTER(aMovementY);
   *aMovementY = GetMovementPoint().y;

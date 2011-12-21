@@ -48,7 +48,7 @@
 #include "nsIDOMNavigatorDesktopNotification.h"
 #include "nsIDOMClientInformation.h"
 #include "nsIDOMNavigatorBattery.h"
-#include "nsDOMMouseLockable.h"
+#include "nsDOMMozPointerLock.h"
 #include "nsIDOMNavigatorSms.h"
 #include "nsAutoPtr.h"
 #include "nsWeakReference.h"
@@ -117,7 +117,7 @@ private:
   nsRefPtr<battery::BatteryManager> mBatteryManager;
   nsRefPtr<sms::SmsManager> mSmsManager;
   nsWeakPtr mWindow;
-  nsRefPtr<nsDOMMouseLockable> mPointer;
+  nsRefPtr<nsDOMMozPointerLock> mPointer;
 };
 
 } // namespace dom
