@@ -46,7 +46,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
       }, false);
 
       document.addEventListener("mozfullscreenchange", function() {
-        if (document.mozFullScreenElement === div) {
+        if (document.mozFullScreen && document.mozFullScreenElement === div) {
           // Mouse should be locked if the element is in fullscreen mode
           pointer.lock(div, function () {
             // Test if mouse is locked when success callback is dispatched
@@ -56,7 +56,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
             // Open a new window to switch focus and blur the current window
             var w =window.open();
             w.close();
-          });            
+          });
         }
       }, false);
 
