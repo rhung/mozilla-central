@@ -463,6 +463,7 @@ nsStyleAnimation::ComputeDistance(nsCSSProperty aProperty,
             break;
           }
           case eCSSUnit_Null:
+            diffsquared = 0;
             break;
           default:
             NS_ABORT_IF_FALSE(false, "unexpected unit");
@@ -2528,14 +2529,8 @@ nsStyleAnimation::ExtractComputedValue(nsCSSProperty aProperty,
           const nsStyleOutline *styleOutline =
             static_cast<const nsStyleOutline*>(styleStruct);
           nscolor color;
-        #ifdef GFX_HAS_INVERT
-          // This isn't right.  And note that outline drawing itself
-          // goes through this codepath via GetVisitedDependentColor.
-          styleOutline->GetOutlineColor(color);
-        #else
           if (!styleOutline->GetOutlineColor(color))
             color = aStyleContext->GetStyleColor()->mColor;
-        #endif
           aComputedValue.SetColorValue(color);
           break;
         }

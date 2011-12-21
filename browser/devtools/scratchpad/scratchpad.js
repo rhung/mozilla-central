@@ -24,6 +24,7 @@
  *   Erik Vold <erikvvold@gmail.com>
  *   David Dahl <ddahl@mozilla.com>
  *   Mihai Sucan <mihai.sucan@gmail.com>
+ *   Kenny Heaton <kennyheaton@gmail.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -85,6 +86,13 @@ var Scratchpad = {
    *   currently active chrome window object.
    */
   executionContext: SCRATCHPAD_CONTEXT_CONTENT,
+
+  /**
+   * Tells if this Scratchpad is initialized and ready for use.
+   * @boolean
+   * @see addObserver
+   */
+  initialized: false,
 
   /**
    * Retrieve the xul:notificationbox DOM element. It notifies the user when
@@ -576,6 +584,7 @@ var Scratchpad = {
         content = NetUtil.readInputStreamToString(aInputStream,
                                                   aInputStream.available());
         self.setText(content);
+        self.editor.resetUndo();
       }
       else if (!aSilentError) {
         window.alert(self.strings.GetStringFromName("openFile.failed"));
@@ -733,7 +742,7 @@ var Scratchpad = {
   },
 
   /**
-   * The Scratchpad window DOMContentLoaded event handler. This method
+   * The Scratchpad window load event handler. This method
    * initializes the Scratchpad window and source editor.
    *
    * @param nsIDOMEvent aEvent
@@ -784,7 +793,9 @@ var Scratchpad = {
                                  this.onContextMenu);
     this.editor.focus();
     this.editor.setCaretOffset(this.editor.getCharCount());
-    
+
+    this.initialized = true;
+
     if (this.filename && !this.saved) {
       this.onTextChanged();
     }
@@ -866,7 +877,7 @@ var Scratchpad = {
     if (aStatus && !Components.isSuccessCode(aStatus)) {
       return;
     }
-    if (!document) {
+    if (!document || !this.initialized) {
       return;  // file saved to disk after window has closed
     }
     document.title = document.title.replace(/^\*/, "");
@@ -904,6 +915,7 @@ var Scratchpad = {
                                     this.onContextMenu);
     this.editor.destroy();
     this.editor = null;
+    this.initialized = false;
   },
 
   /**
@@ -1033,6 +1045,6 @@ XPCOMUtils.defineLazyGetter(Scratchpad, "strings", function () {
   return Services.strings.createBundle(SCRATCHPAD_L10N);
 });
 
-addEventListener("DOMContentLoaded", Scratchpad.onLoad.bind(Scratchpad), false);
+addEventListener("load", Scratchpad.onLoad.bind(Scratchpad), false);
 addEventListener("unload", Scratchpad.onUnload.bind(Scratchpad), false);
 addEventListener("close", Scratchpad.onClose.bind(Scratchpad), false);

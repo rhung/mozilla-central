@@ -12,6 +12,8 @@
     <uses-sdk android:minSdkVersion="5"
               android:targetSdkVersion="11"/>
 
+#include ../sync/manifests/SyncAndroidManifest_permissions.xml.in
+
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.INTERNET"/>
@@ -104,6 +106,8 @@
           </intent-filter>
         </activity>
 
+#include ../sync/manifests/SyncAndroidManifest_activities.xml.in
+
 #if MOZ_CRASHREPORTER
   <activity android:name="CrashReporter"
             android:label="@string/crash_reporter_title"
@@ -127,21 +131,27 @@
         </activity>
 
         <activity android:name="org.mozilla.gecko.AwesomeBar"
-                  android:theme="@style/Gecko.Light.NoActionBar"
+                  android:theme="@style/Gecko.Light"
                   android:configChanges="orientation"
                   android:windowSoftInputMode="stateAlwaysVisible|adjustResize"/>
 
         <activity android:name="org.mozilla.gecko.TabsTray"
-                  android:theme="@style/Gecko.Translucent"/>
+                  android:theme="@style/Gecko.Translucent"
+                  android:launchMode="singleTask"/>
 
         <activity android:name="org.mozilla.gecko.GeckoPreferences"
                   android:theme="@style/Gecko.TitleBar"
-                  android:label="@string/preferences_title"
+                  android:label="@string/settings_title"
                   android:excludeFromRecents="true"/>
 
-        <provider android:name="org.mozilla.gecko.db.BrowserProvider"
-                  android:authorities="org.mozilla.gecko.providers.browser"
-                  android:exported="false"/>
+        <provider android:name="@ANDROID_PACKAGE_NAME@.db.BrowserProvider"
+                  android:authorities="@ANDROID_PACKAGE_NAME@.db.browser"
+                  android:permission="@ANDROID_PACKAGE_NAME@.permissions.BROWSER_PROVIDER"/>
 
+#include ../sync/manifests/SyncAndroidManifest_services.xml.in
     </application>
+
+    <permission android:name="@ANDROID_PACKAGE_NAME@.permissions.BROWSER_PROVIDER"
+                android:protectionLevel="signature"/>
+
 </manifest> 

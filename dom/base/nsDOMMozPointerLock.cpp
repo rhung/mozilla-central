@@ -48,7 +48,7 @@
 #include "nsAutoPtr.h"
 #include "nsIDOMHTMLElement.h"
 #include "nsINode.h"
-#include "nsPLDOMEvent.h"
+#include "nsAsyncDOMEvent.h"
 #include "nsIInterfaceRequestorUtils.h"
 #include "nsIPrefService.h"
 #include "nsIPrefBranch.h"
@@ -77,11 +77,11 @@ nsCOMPtr<nsIDOMElement> nsDOMMozPointerLock::mPointerLockedElement =  nsnull;
 static void
 DispatchPointerLockLost(nsINode* aTarget)
 {
-  nsRefPtr<nsPLDOMEvent> e =
-    new nsPLDOMEvent(aTarget,
-                     NS_LITERAL_STRING("mozpointerlocklost"),
-                     true,
-                     false);
+  nsRefPtr<nsAsyncDOMEvent> e =
+    new nsAsyncDOMEvent(aTarget,
+                        NS_LITERAL_STRING("mozpointerlocklost"),
+                        true,
+                        false);
   e->PostDOMEvent();
 }
 

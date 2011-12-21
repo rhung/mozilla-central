@@ -219,8 +219,6 @@ public:
     eIntID_SubmenuDelay,
     // can popups overlap menu/task bar?
     eIntID_MenusCanOverlapOSBar,
-    // can scrollbars float above content?
-    eIntID_ScrollbarsCanOverlapContent,
     // skip navigating to disabled menu item?
     eIntID_SkipNavigatingDisabledMenuItem,
     // begin a drag if the mouse is moved further than the threshold while the
@@ -375,7 +373,11 @@ public:
      * 0: scrollbar button repeats to scroll only when cursor is on the button.
      * 1: scrollbar button repeats to scroll even if cursor is outside of it.
      */
-    eIntID_ScrollbarButtonAutoRepeatBehavior
+    eIntID_ScrollbarButtonAutoRepeatBehavior,
+    /**
+     * Dealy before showing a tooltip.
+     */
+    eIntID_TooltipDelay
   };
 
   /**
