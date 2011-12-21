@@ -7,7 +7,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
   <title>Test for Bug 633602</title>
   <script type="application/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
   <script type="text/javascript" src="/tests/SimpleTest/EventUtils.js"></script>
-  <script type="application/javascript" src="mouselock_util.js"></script>
+  <!--<script type="application/javascript" src="mouselock_util.js"></script>-->
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
 </head>
 <body onload="start();">
@@ -20,7 +20,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
   <div id="div"></div>
   <pre id="test">
     <script type="application/javascript">
-   
+     SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only",
+                                  false);
       /** Test for Bug 633602 **/
       SimpleTest.waitForExplicitFinish();
       
@@ -34,12 +35,12 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
         event, and tests if the mouse was unlocked when the window lost focus
       */
 
-      var pointer = navigator.pointer;
+      var pointer = navigator.mozPointer;
       var div = document.getElementById("div");
 
 
-      div.addEventListener("mouselocklost", function() {
-        is(pointer.islocked(), false, "Mouselocklost event should trigger " +
+      div.addEventListener("mozpointerlocklost", function() {
+        is(pointer.isLocked(), false, "Mouselocklost event should trigger " +
           " when window loses focus and mouse should be unlocked");
         SimpleTest.finish();
       }, false);
@@ -49,7 +50,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
           // Mouse should be locked if the element is in fullscreen mode
           pointer.lock(div, function () {
             // Test if mouse is locked when success callback is dispatched
-            ok(pointer.islocked(), "When success callback is dispatched, " +
+            ok(pointer.isLocked(), "When success callback is dispatched, " +
               "mouse should be locked");
 
             // Open a new window to switch focus and blur the current window
