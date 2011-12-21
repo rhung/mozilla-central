@@ -140,8 +140,13 @@ nsDOMUIEvent::IsPointerLocked()
     return false;
   }
 
+  Navigator* navigatorPointerLock = static_cast<Navigator*>(navigator.get());
+  if (!navigatorPointerLock) {
+    return false;
+  }
+
   nsCOMPtr<nsIDOMMozPointerLock> pointer;
-  navigator->GetMozPointer(getter_AddRefs(pointer));
+  navigatorPointerLock->GetMozPointer(getter_AddRefs(pointer));
   if (!pointer) {
     return false;
   }

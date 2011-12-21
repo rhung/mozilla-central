@@ -49,6 +49,7 @@
 #include "nsIDOMClientInformation.h"
 #include "nsIDOMNavigatorBattery.h"
 #include "nsDOMMozPointerLock.h"
+#include "nsIDOMMozNavigatorPointerLock.h"
 #include "nsIDOMNavigatorSms.h"
 #include "nsAutoPtr.h"
 #include "nsWeakReference.h"
@@ -79,7 +80,8 @@ class Navigator : public nsIDOMNavigator,
                   public nsIDOMNavigatorGeolocation,
                   public nsIDOMNavigatorDesktopNotification,
                   public nsIDOMMozNavigatorBattery,
-                  public nsIDOMMozNavigatorSms
+                  public nsIDOMMozNavigatorSms,
+                  public nsIDOMMozNavigatorPointerLock
 {
 public:
   Navigator(nsPIDOMWindow *aInnerWindow);
@@ -92,6 +94,7 @@ public:
   NS_DECL_NSIDOMNAVIGATORDESKTOPNOTIFICATION
   NS_DECL_NSIDOMMOZNAVIGATORBATTERY
   NS_DECL_NSIDOMMOZNAVIGATORSMS
+  NS_DECL_NSIDOMMOZNAVIGATORPOINTERLOCK
 
   static void Init();
 

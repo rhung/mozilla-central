@@ -125,6 +125,7 @@ NS_INTERFACE_MAP_BEGIN(Navigator)
   NS_INTERFACE_MAP_ENTRY(nsIDOMMozNavigatorBattery)
   NS_INTERFACE_MAP_ENTRY(nsIDOMNavigatorDesktopNotification)
   NS_INTERFACE_MAP_ENTRY(nsIDOMMozNavigatorSms)
+  NS_INTERFACE_MAP_ENTRY(nsIDOMMozNavigatorPointerLock)
   NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(Navigator)
 NS_INTERFACE_MAP_END
 
@@ -920,6 +921,10 @@ Navigator::GetMozBattery(nsIDOMMozBatteryManager** aBattery)
 
   return NS_OK;
 }
+
+//*****************************************************************************
+//    Navigator::nsIDOMMozNavigatorPointerLock
+//*****************************************************************************
 
 NS_IMETHODIMP
 Navigator::GetMozPointer(nsIDOMMozPointerLock** aPointer)

@@ -468,6 +468,7 @@
 #include "nsIDOMDesktopNotification.h"
 #include "nsIDOMNavigatorDesktopNotification.h"
 #include "nsIDOMNavigatorGeolocation.h"
+#include "nsIDOMMozNavigatorPointerLock.h"
 #include "Navigator.h"
 
 #include "nsPluginArray.h"
@@ -2343,6 +2344,7 @@ nsDOMClassInfo::Init()
     DOM_CLASSINFO_MAP_CONDITIONAL_ENTRY(nsIDOMMozNavigatorBattery,
                                         battery::BatteryManager::HasSupport())
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMMozNavigatorSms)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMMozNavigatorPointerLock)
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(MozPointerLock, nsIDOMMozPointerLock)

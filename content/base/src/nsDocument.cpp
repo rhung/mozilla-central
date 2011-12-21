@@ -208,6 +208,7 @@
 #include "nsWrapperCacheInlines.h"
 
 #include "nsDOMMozPointerLock.h"
+#include "nsIDOMMozNavigatorPointerLock.h"
 #include "Navigator.h"
 
 using namespace mozilla;
@@ -8546,11 +8547,14 @@ nsDocument::MaybeUnlockMouse(nsIDocument* aDocument)
     nsCOMPtr<nsIDOMNavigator> navigator;
     window->GetNavigator(getter_AddRefs(navigator));
     if (navigator) {
-      nsCOMPtr<nsIDOMMozPointerLock> pointer;
-      navigator->GetMozPointer(getter_AddRefs(pointer));
-      if (pointer) {
-        // Unlock will bail early if not really locked
-        pointer->Unlock();
+      Navigator* navigatorPointerLock = static_cast<Navigator*>(navigator.get());
+      if (navigatorPointerLock) {
+        nsCOMPtr<nsIDOMMozPointerLock> pointer;
+        navigatorPointerLock->GetMozPointer(getter_AddRefs(pointer));
+        if (pointer) {
+          // Unlock will bail early if not really locked
+          pointer->Unlock();
+        }
       }
     }
   }
