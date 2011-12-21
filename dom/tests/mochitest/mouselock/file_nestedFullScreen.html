@@ -7,7 +7,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
   <title>Test for Bug 633602</title>
   <script type="application/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
   <script type="text/javascript" src="/tests/SimpleTest/EventUtils.js"></script>
-  <!--<script type="text/javascript" src="mouselock_util.js"></script>-->
+  <script type="text/javascript" src="mouselock_util.js"></script>
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
 </head>
 <body onload="start();">
@@ -23,8 +23,6 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
 
   <pre id="test">
     <script type="application/javascript">
-      SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only",
-                                  false);
       /** Test for Bug 633602 **/
       SimpleTest.waitForExplicitFinish();
 
