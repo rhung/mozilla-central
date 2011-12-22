@@ -255,7 +255,7 @@ nsDOMUIEvent::GetClientPoint()
 
   sLastClientPoint = nsIntPoint(nsPresContext::AppUnitsToIntCSSPixels(pt.x),
                                 nsPresContext::AppUnitsToIntCSSPixels(pt.y));
-	
+
   return sLastClientPoint;
 }
 

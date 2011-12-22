@@ -4146,17 +4146,19 @@ nsEventStateManager::GetMouseCoords(nsIntRect aScreenBounds) {
   lockedElement->GetOffsetHeight(&offsetHeight);
   lockedElement->GetOffsetTop(&offsetTop);
   lockedElement->GetOffsetLeft(&offsetLeft);
-  
-  /* X,Y coords of the center of the locked element
-  *
-  *  The x coord is the width of the element divived by 2
-  *  plus the distance between the element and the left border of the window
-  *  plus the distance between the left corner of the monitor and the browser
-  *   
-  *  The y coord is the height of the element divived by 2
-  *  plus the distance between the element and the top border of the inner window
-  *  plus the height of the chrome window minus the height of the inner window
-  *  plus the distance between the top corner of the monitor and the browser */
+
+  /**
+   * X,Y coords of the center of the locked element
+   *
+   *  The x coord is the width of the element divived by 2
+   *  plus the distance between the element and the left border of the window
+   *  plus the distance between the left corner of the monitor and the browser
+   *
+   *  The y coord is the height of the element divived by 2
+   *  plus the distance between the element and the top border of the inner window
+   *  plus the height of the chrome window minus the height of the inner window
+   *  plus the distance between the top corner of the monitor and the browser
+   **/
   return nsIntPoint((offsetWidth/2) + offsetLeft + aScreenBounds.x,
                     (offsetHeight/2) + offsetTop + (aScreenBounds.height - innerHeight) + aScreenBounds.y);
 }
