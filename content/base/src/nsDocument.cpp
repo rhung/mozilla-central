@@ -8547,7 +8547,8 @@ nsDocument::MaybeUnlockMouse(nsIDocument* aDocument)
     nsCOMPtr<nsIDOMNavigator> navigator;
     window->GetNavigator(getter_AddRefs(navigator));
     if (navigator) {
-      Navigator* navigatorPointerLock = static_cast<Navigator*>(navigator.get());
+      nsCOMPtr<nsIDOMMozNavigatorPointerLock> navigatorPointerLock =
+        do_QueryInterface(navigator);
       if (navigatorPointerLock) {
         nsCOMPtr<nsIDOMMozPointerLock> pointer;
         navigatorPointerLock->GetMozPointer(getter_AddRefs(pointer));
@@ -8905,25 +8906,16 @@ nsDocument::RequestFullScreen(Element* aElement, bool aWasCallerChrome)
   // as specified.
   nsAutoTArray<nsIDocument*, 8> changed;
 
-  // If another top-level window is full-screen. Exit it from full-screen.
-  nsCOMPtr<nsIDocument> fullScreenDoc(do_QueryReferent(sFullScreenDoc));
-  nsINode* commonAncestor = nsContentUtils::GetCommonAncestor(fullScreenDoc, this);
-  if (fullScreenDoc && !commonAncestor) {
-    // A document which doesn't have a common ancestor is full-screen, this
-    // must be in a separate browser window. Fully exit full-screen, to move
-    // the other browser window/doctree out of full-screen.
-    nsIDocument::ExitFullScreen(false);
-  }
-
-  // If a document is already in fullscreen, then unlocks the mouse 
-  // before setting a new document to fullscreen
-  if (fullScreenDoc) {
-    MaybeUnlockMouse(fullScreenDoc);
-  }
-
   // Remember the root document, so that if a full-screen document is hidden
   // we can reset full-screen state in the remaining visible full-screen documents.
   sFullScreenRootDoc = do_GetWeakReference(nsContentUtils::GetRootDocument(this));
+
+  // If a document is already in fullscreen, then unlock the mouse pointer
+  // before setting a new document to fullscreen
+  nsCOMPtr<nsIDocument> fullScreenDoc(do_QueryReferent(sFullScreenDoc));
+  if (fullScreenDoc) {
+    MaybeUnlockMouse(fullScreenDoc);
+  }
 
   // Set the full-screen element. This sets the full-screen style on the
   // element, and the full-screen-ancestor styles on ancestors of the element

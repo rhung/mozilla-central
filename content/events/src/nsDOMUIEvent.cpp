@@ -52,6 +52,7 @@
 #include "nsLayoutUtils.h"
 #include "nsIScrollableFrame.h"
 #include "nsIDOMMozPointerLock.h"
+#include "nsIDOMMozNavigatorPointerLock.h"
 #include "nsIDOMNavigator.h"
 
 nsIntPoint nsDOMUIEvent::sLastScreenPoint = nsIntPoint(0,0);
@@ -140,7 +141,9 @@ nsDOMUIEvent::IsPointerLocked()
     return false;
   }
 
-  Navigator* navigatorPointerLock = static_cast<Navigator*>(navigator.get());
+  nsCOMPtr<nsIDOMMozNavigatorPointerLock> navigatorPointerLock =
+    do_QueryInterface(navigator);
+
   if (!navigatorPointerLock) {
     return false;
   }
