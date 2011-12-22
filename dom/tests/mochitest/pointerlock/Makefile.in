@@ -46,7 +46,7 @@ DEPTH		= ../../../..
 topsrcdir	= @top_srcdir@
 srcdir		= @srcdir@
 VPATH		= @srcdir@
-relativesrcdir	= dom/tests/mochitest/mouselock
+relativesrcdir	= dom/tests/mochitest/pointerlock
 
 include $(DEPTH)/config/autoconf.mk
 
