@@ -38,7 +38,6 @@
  * ***** END LICENSE BLOCK ***** */
 
 #include "domstubs.idl"
-#include "nsIDOMMozPointerLock.idl"
 
 [scriptable, uuid(C2163BDA-359F-4883-95DE-916562F489E4)]
 interface nsIDOMNavigator : nsISupports
