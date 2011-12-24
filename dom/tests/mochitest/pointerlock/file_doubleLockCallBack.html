@@ -31,8 +31,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
         SimpleTest.waitForExplicitFinish();
 
         SimpleTest.waitForFocus(function() {
-          var pointer = navigator.pointer,
-            testElement = document.getElementById("test-element");
+          var pointer = navigator.mozPointer,
+              testElement = document.getElementById("test-element");
 
           document.addEventListener("mozfullscreenchange", function (e) {
             if (document.mozFullScreen && 
@@ -42,7 +42,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
                 function () {
                   pointer.lock(testElement,
                     function() {
-                      ok(pointer.islocked(),
+                      ok(pointer.isLocked(),
                          "Mouse was not locked when success callback fired");
                       document.mozCancelFullScreen();
                       SimpleTest.finish();
