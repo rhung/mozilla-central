@@ -64,6 +64,9 @@ public:
 
   NS_FORWARD_NSIDOMNSEVENT(nsDOMEvent::)
 
+  virtual const nsIID& EventInitIID() { return NS_GET_IID(nsIUIEventInit); }
+  virtual nsresult InitFromCtor(const nsAString& aType, nsISupports* aDict,
+                                JSContext* aCx, JSObject* aObj);
 protected:
   // Internal helper functions
   nsIntPoint GetClientPoint();
@@ -88,9 +91,11 @@ protected:
   nsIntPoint mLayerPoint;
   nsIntPoint mPagePoint;
   nsIntPoint mMovement;
+  static nsIntPoint sLastScreenPoint;
+  static nsIntPoint sLastClientPoint;
 
 private:
-  bool IsMouseLocked();
+  bool IsPointerLocked();
   nsIntPoint ScreenPointInternal();
 };
 

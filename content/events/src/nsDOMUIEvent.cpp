@@ -51,8 +51,12 @@
 #include "nsIFrame.h"
 #include "nsLayoutUtils.h"
 #include "nsIScrollableFrame.h"
-#include "nsIDOMMouseLockable.h"
+#include "nsIDOMMozPointerLock.h"
+#include "nsIDOMMozNavigatorPointerLock.h"
 #include "nsIDOMNavigator.h"
+
+nsIntPoint nsDOMUIEvent::sLastScreenPoint = nsIntPoint(0,0);
+nsIntPoint nsDOMUIEvent::sLastClientPoint = nsIntPoint(0,0);
 
 nsDOMUIEvent::nsDOMUIEvent(nsPresContext* aPresContext, nsGUIEvent* aEvent)
   : nsDOMEvent(aPresContext, aEvent ?
@@ -125,7 +129,7 @@ NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION_INHERITED(nsDOMUIEvent)
 NS_INTERFACE_MAP_END_INHERITING(nsDOMEvent)
 
 bool
-nsDOMUIEvent::IsMouseLocked()
+nsDOMUIEvent::IsPointerLocked()
 {
   if (!mView) {
     return false;
@@ -137,14 +141,21 @@ nsDOMUIEvent::IsMouseLocked()
     return false;
   }
 
-  nsCOMPtr<nsIDOMMouseLockable> pointer;
-  navigator->GetPointer(getter_AddRefs(pointer));
+  nsCOMPtr<nsIDOMMozNavigatorPointerLock> navigatorPointerLock =
+    do_QueryInterface(navigator);
+
+  if (!navigatorPointerLock) {
+    return false;
+  }
+
+  nsCOMPtr<nsIDOMMozPointerLock> pointer;
+  navigatorPointerLock->GetMozPointer(getter_AddRefs(pointer));
   if (!pointer) {
     return false;
   }
 
   bool isLocked;
-  pointer->Islocked(&isLocked);
+  pointer->IsLocked(&isLocked);
   return isLocked;
 }
 
@@ -161,7 +172,7 @@ nsDOMUIEvent::GetMovementPoint()
     return nsIntPoint(0, 0);
   }
 
-  if (!((nsGUIEvent*)mEvent)->widget ) {
+  if (!((nsGUIEvent*)mEvent)->widget) {
     return mEvent->lastRefPoint;
   }
 
@@ -205,18 +216,20 @@ nsDOMUIEvent::ScreenPointInternal()
 nsIntPoint
 nsDOMUIEvent::GetScreenPoint()
 {
-  if (IsMouseLocked()) {
-    return nsIntPoint(0, 0);
+  if (IsPointerLocked()) {
+    return sLastScreenPoint;
   }
 
-  return ScreenPointInternal();
+  sLastScreenPoint = ScreenPointInternal();
+
+  return sLastScreenPoint;
 }
 
 nsIntPoint
 nsDOMUIEvent::GetClientPoint()
 {
-  if (IsMouseLocked()) {
-    return nsIntPoint(0, 0);
+  if (IsPointerLocked()) {
+    return sLastClientPoint;
   }
 
   if (!mEvent ||
@@ -240,8 +253,10 @@ nsDOMUIEvent::GetClientPoint()
   if (rootFrame)
     pt = nsLayoutUtils::GetEventCoordinatesRelativeTo(mEvent, rootFrame);
 
-  return nsIntPoint(nsPresContext::AppUnitsToIntCSSPixels(pt.x),
-                    nsPresContext::AppUnitsToIntCSSPixels(pt.y));
+  sLastClientPoint = nsIntPoint(nsPresContext::AppUnitsToIntCSSPixels(pt.x),
+                                nsPresContext::AppUnitsToIntCSSPixels(pt.y));
+
+  return sLastClientPoint;
 }
 
 NS_IMETHODIMP
@@ -273,6 +288,28 @@ nsDOMUIEvent::InitUIEvent(const nsAString& typeArg,
   mView = viewArg;
 
   return NS_OK;
+}
+
+nsresult
+nsDOMUIEvent::InitFromCtor(const nsAString& aType, nsISupports* aDict,
+                           JSContext* aCx, JSObject* aObj)
+{
+  nsCOMPtr<nsIUIEventInit> eventInit = do_QueryInterface(aDict);
+  bool bubbles = false;
+  bool cancelable = false;
+  nsCOMPtr<nsIDOMWindow> view;
+  PRInt32 detail = 0;
+  if (eventInit) {
+    nsresult rv = eventInit->GetBubbles(&bubbles);
+    NS_ENSURE_SUCCESS(rv, rv);
+    rv = eventInit->GetCancelable(&cancelable);
+    NS_ENSURE_SUCCESS(rv, rv);
+    rv = eventInit->GetView(getter_AddRefs(view));
+    NS_ENSURE_SUCCESS(rv, rv);
+    rv = eventInit->GetDetail(&detail);
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
+  return InitUIEvent(aType, bubbles, cancelable, view, detail);
 }
 
 // ---- nsDOMNSUIEvent implementation -------------------
