@@ -61,6 +61,8 @@
 #include "nsIScriptError.h"
 #include "nsDOMPopStateEvent.h"
 #include "mozilla/Preferences.h"
+#include "nsJSUtils.h"
+#include "DictionaryHelpers.h"
 
 using namespace mozilla;
 
@@ -93,7 +95,6 @@ static const char* const sEventNames[] = {
   "durationchange", "volumechange", "MozAudioAvailable",
 #endif // MOZ_MEDIA
   "MozAfterPaint",
-  "MozBeforePaint",
   "MozBeforeResize",
   "mozfullscreenchange",
   "mozfullscreenerror",
@@ -123,7 +124,6 @@ static char *sPopupAllowedEvents;
 
 nsDOMEvent::nsDOMEvent(nsPresContext* aPresContext, nsEvent* aEvent)
 {
-  mPresContext = aPresContext;
   mPrivateDataDuplicated = false;
 
   if (aEvent) {
@@ -160,6 +160,15 @@ nsDOMEvent::nsDOMEvent(nsPresContext* aPresContext, nsEvent* aEvent)
     mEvent->time = PR_Now();
   }
 
+  InitPresContextData(aPresContext);
+
+  NS_ASSERTION(mEvent->message != NS_PAINT, "Trying to create a DOM paint event!");
+}
+
+void
+nsDOMEvent::InitPresContextData(nsPresContext* aPresContext)
+{
+  mPresContext = aPresContext;
   // Get the explicit original target (if it's anonymous make it null)
   {
     nsCOMPtr<nsIContent> content = GetTargetFromFrame();
@@ -169,8 +178,6 @@ nsDOMEvent::nsDOMEvent(nsPresContext* aPresContext, nsEvent* aEvent)
       mExplicitOriginalTarget = nsnull;
     }
   }
-
-  NS_ASSERTION(mEvent->message != NS_PAINT, "Trying to create a DOM paint event!");
 }
 
 nsDOMEvent::~nsDOMEvent() 
@@ -191,6 +198,7 @@ NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(nsDOMEvent)
   NS_INTERFACE_MAP_ENTRY(nsIDOMEvent)
   NS_INTERFACE_MAP_ENTRY(nsIDOMNSEvent)
   NS_INTERFACE_MAP_ENTRY(nsIPrivateDOMEvent)
+  NS_INTERFACE_MAP_ENTRY(nsIJSNativeInitializer)
   NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(Event)
 NS_INTERFACE_MAP_END
 
@@ -374,6 +382,53 @@ nsDOMEvent::SetTrusted(bool aTrusted)
 }
 
 NS_IMETHODIMP
+nsDOMEvent::Initialize(nsISupports* aOwner, JSContext* aCx, JSObject* aObj,
+                       PRUint32 aArgc, jsval* aArgv)
+{
+  NS_ENSURE_TRUE(aArgc >= 1, NS_ERROR_XPC_NOT_ENOUGH_ARGS);
+
+  bool trusted = false;
+  nsCOMPtr<nsPIDOMWindow> w = do_QueryInterface(aOwner);
+  if (w) {
+    nsCOMPtr<nsIDocument> d = do_QueryInterface(w->GetExtantDocument());
+    if (d) {
+      trusted = nsContentUtils::IsChromeDoc(d);
+      nsIPresShell* s = d->GetShell();
+      if (s) {
+        InitPresContextData(s->GetPresContext());
+      }
+    }
+  }
+
+  JSAutoRequest ar(aCx);
+  JSString* jsstr = JS_ValueToString(aCx, aArgv[0]);
+  if (!jsstr) {
+    return NS_ERROR_DOM_SYNTAX_ERR;
+  }
+
+  JS::Anchor<JSString*> deleteProtector(jsstr);
+
+  nsDependentJSString type;
+  NS_ENSURE_STATE(type.init(aCx, jsstr));
+
+  nsresult rv = InitFromCtor(type, aCx, aArgc >= 2 ? &(aArgv[1]) : nsnull);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  SetTrusted(trusted);
+  return NS_OK;
+}
+
+nsresult
+nsDOMEvent::InitFromCtor(const nsAString& aType,
+                         JSContext* aCx, jsval* aVal)
+{
+  mozilla::dom::EventInit d;
+  nsresult rv = d.Init(aCx, aVal);
+  NS_ENSURE_SUCCESS(rv, rv);
+  return InitEvent(aType, d.bubbles, d.cancelable);
+}
+
+NS_IMETHODIMP
 nsDOMEvent::GetEventPhase(PRUint16* aEventPhase)
 {
   // Note, remember to check that this works also
@@ -451,13 +506,11 @@ ReportUseOfDeprecatedMethod(nsEvent* aEvent, nsIDOMEvent* aDOMEvent,
   nsAutoString type;
   aDOMEvent->GetType(type);
   const PRUnichar *strings[] = { type.get() };
-  nsContentUtils::ReportToConsole(nsContentUtils::eDOM_PROPERTIES,
+  nsContentUtils::ReportToConsole(nsIScriptError::warningFlag,
+                                  "DOM Events", doc,
+                                  nsContentUtils::eDOM_PROPERTIES,
                                   aWarning,
-                                  strings, ArrayLength(strings),
-                                  nsnull,
-                                  EmptyString(), 0, 0,
-                                  nsIScriptError::warningFlag,
-                                  "DOM Events", doc);
+                                  strings, ArrayLength(strings));
 }
 
 NS_IMETHODIMP
@@ -527,7 +580,7 @@ nsDOMEvent::InitEvent(const nsAString& aEventTypeArg, bool aCanBubbleArg, bool a
 
     bool enabled = false;
     nsContentUtils::GetSecurityManager()->
-      IsCapabilityEnabled("UniversalBrowserWrite", &enabled);
+      IsCapabilityEnabled("UniversalXPConnect", &enabled);
 
     if (!enabled) {
       SetTrusted(false);
@@ -999,6 +1052,9 @@ nsDOMEvent::GetEventPopupControlState(nsEvent *aEvent)
         if (::PopupAllowedForEvent("change"))
           abuse = openControlled;
         break;
+      case NS_XUL_COMMAND:
+        abuse = openControlled;
+        break;
       }
     }
     break;
@@ -1343,8 +1399,6 @@ const char* nsDOMEvent::GetEventName(PRUint32 aEventType)
 #endif
   case NS_AFTERPAINT:
     return sEventNames[eDOMEvents_afterpaint];
-  case NS_BEFOREPAINT:
-    return sEventNames[eDOMEvents_beforepaint];
   case NS_BEFORERESIZE_EVENT:
     return sEventNames[eDOMEvents_beforeresize];
   case NS_SIMPLE_GESTURE_SWIPE:

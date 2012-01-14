@@ -55,8 +55,8 @@
 #include "nsIAtom.h"
 
 #define NS_IPARSER_IID \
-{ 0xcbc0cbd8, 0xbbb7, 0x46d6, \
-  { 0xa5, 0x51, 0x37, 0x8a, 0x69, 0x53, 0xa7, 0x14 } }
+{ 0x0c8c3998, 0x9959, 0x496e, \
+  { 0xbd, 0xd9, 0x0b, 0x6f, 0xc4, 0x1c, 0x3b, 0x87 } }
 
 // {41421C60-310A-11d4-816F-000064657374}
 #define NS_IDEBUG_DUMP_CONTENT_IID \
@@ -65,7 +65,6 @@
 
 class nsIContentSink;
 class nsIRequestObserver;
-class nsIParserFilter;
 class nsString;
 class nsIURI;
 class nsIChannel;
@@ -91,7 +90,7 @@ enum eParserDocType {
 #define kCharsetUninitialized           0
 #define kCharsetFromWeakDocTypeDefault  1
 #define kCharsetFromUserDefault         2
-#define kCharsetFromDocTypeDefault      3
+#define kCharsetFromDocTypeDefault      3 // This and up confident for XHR
 #define kCharsetFromCache               4
 #define kCharsetFromParentFrame         5
 #define kCharsetFromAutoDetection       6
@@ -176,8 +175,6 @@ class nsIParser : public nsISupports {
     NS_IMETHOD_(void) SetDocumentCharset(const nsACString& aCharset, PRInt32 aSource)=0;
     NS_IMETHOD_(void) GetDocumentCharset(nsACString& oCharset, PRInt32& oSource)=0;
 
-    NS_IMETHOD_(void) SetParserFilter(nsIParserFilter* aFilter) = 0;
-
     /** 
      * Get the channel associated with this parser
      * @update harishd,gagan 07/17/01
@@ -196,10 +193,8 @@ class nsIParser : public nsISupports {
     
     /**
      * Get the nsIStreamListener for this parser
-     * @param aDTD out param that will contain the result
-     * @return NS_OK if successful
      */
-    NS_IMETHOD GetStreamListener(nsIStreamListener** aListener) = 0;
+    virtual nsIStreamListener* GetStreamListener() = 0;
 
     /**************************************************************************
      *  Parse methods always begin with an input source, and perform

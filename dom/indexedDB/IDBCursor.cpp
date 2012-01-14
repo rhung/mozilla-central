@@ -39,7 +39,6 @@
 
 #include "IDBCursor.h"
 
-#include "jscntxt.h"
 #include "mozilla/storage.h"
 #include "nsComponentManagerUtils.h"
 #include "nsContentUtils.h"
@@ -49,7 +48,6 @@
 #include "nsThreadUtils.h"
 
 #include "AsyncConnectionHelper.h"
-#include "DatabaseInfo.h"
 #include "IDBEvents.h"
 #include "IDBIndex.h"
 #include "IDBObjectStore.h"
@@ -77,14 +75,17 @@ BEGIN_INDEXEDDB_NAMESPACE
 class ContinueHelper : public AsyncConnectionHelper
 {
 public:
-  ContinueHelper(IDBCursor* aCursor)
+  ContinueHelper(IDBCursor* aCursor,
+                 PRInt32 aCount)
   : AsyncConnectionHelper(aCursor->mTransaction, aCursor->mRequest),
-    mCursor(aCursor)
-  { }
+    mCursor(aCursor), mCount(aCount)
+  {
+    NS_ASSERTION(aCount > 0, "Must have a count!");
+  }
 
   ~ContinueHelper()
   {
-    IDBObjectStore::ClearStructuredCloneBuffer(mCloneBuffer);
+    IDBObjectStore::ClearStructuredCloneBuffer(mCloneReadInfo.mCloneBuffer);
   }
 
   nsresult DoDatabaseWork(mozIStorageConnection* aConnection);
@@ -106,16 +107,18 @@ protected:
 
 protected:
   nsRefPtr<IDBCursor> mCursor;
+  PRInt32 mCount;
   Key mKey;
   Key mObjectKey;
-  JSAutoStructuredCloneBuffer mCloneBuffer;
+  StructuredCloneReadInfo mCloneReadInfo;
 };
 
 class ContinueObjectStoreHelper : public ContinueHelper
 {
 public:
-  ContinueObjectStoreHelper(IDBCursor* aCursor)
-  : ContinueHelper(aCursor)
+  ContinueObjectStoreHelper(IDBCursor* aCursor,
+                            PRUint32 aCount)
+  : ContinueHelper(aCursor, aCount)
   { }
 
 private:
@@ -126,8 +129,9 @@ private:
 class ContinueIndexHelper : public ContinueHelper
 {
 public:
-  ContinueIndexHelper(IDBCursor* aCursor)
-  : ContinueHelper(aCursor)
+  ContinueIndexHelper(IDBCursor* aCursor,
+                      PRUint32 aCount)
+  : ContinueHelper(aCursor, aCount)
   { }
 
 private:
@@ -138,8 +142,9 @@ private:
 class ContinueIndexObjectHelper : public ContinueIndexHelper
 {
 public:
-  ContinueIndexObjectHelper(IDBCursor* aCursor)
-  : ContinueIndexHelper(aCursor)
+  ContinueIndexObjectHelper(IDBCursor* aCursor,
+                            PRUint32 aCount)
+  : ContinueIndexHelper(aCursor, aCount)
   { }
 
 private:
@@ -158,7 +163,7 @@ IDBCursor::Create(IDBRequest* aRequest,
                   const nsACString& aContinueQuery,
                   const nsACString& aContinueToQuery,
                   const Key& aKey,
-                  JSAutoStructuredCloneBuffer& aCloneBuffer)
+                  StructuredCloneReadInfo& aCloneReadInfo)
 {
   NS_ASSERTION(aObjectStore, "Null pointer!");
   NS_ASSERTION(!aKey.IsUnset(), "Bad key!");
@@ -171,7 +176,7 @@ IDBCursor::Create(IDBRequest* aRequest,
   cursor->mObjectStore = aObjectStore;
   cursor->mType = OBJECTSTORE;
   cursor->mKey = aKey;
-  cursor->mCloneBuffer.swap(aCloneBuffer);
+  cursor->mCloneReadInfo.Swap(aCloneReadInfo);
 
   return cursor.forget();
 }
@@ -217,7 +222,7 @@ IDBCursor::Create(IDBRequest* aRequest,
                   const nsACString& aContinueToQuery,
                   const Key& aKey,
                   const Key& aObjectKey,
-                  JSAutoStructuredCloneBuffer& aCloneBuffer)
+                  StructuredCloneReadInfo& aCloneReadInfo)
 {
   NS_ASSERTION(aIndex, "Null pointer!");
   NS_ASSERTION(!aKey.IsUnset(), "Bad key!");
@@ -233,7 +238,7 @@ IDBCursor::Create(IDBRequest* aRequest,
   cursor->mType = INDEXOBJECT;
   cursor->mKey = aKey;
   cursor->mObjectKey = aObjectKey;
-  cursor->mCloneBuffer.swap(aCloneBuffer);
+  cursor->mCloneReadInfo.Swap(aCloneReadInfo);
 
   return cursor.forget();
 }
@@ -293,7 +298,61 @@ IDBCursor::~IDBCursor()
   if (mRooted) {
     NS_DROP_JS_OBJECTS(this, IDBCursor);
   }
-  IDBObjectStore::ClearStructuredCloneBuffer(mCloneBuffer);
+  IDBObjectStore::ClearStructuredCloneBuffer(mCloneReadInfo.mCloneBuffer);
+}
+
+nsresult
+IDBCursor::ContinueInternal(const Key& aKey,
+                            PRInt32 aCount)
+{
+  NS_ASSERTION(NS_IsMainThread(), "Wrong thread!");
+  NS_ASSERTION(aCount > 0, "Must have a count!");
+
+  if (!mTransaction->IsOpen()) {
+    return NS_ERROR_DOM_INDEXEDDB_TRANSACTION_INACTIVE_ERR;
+  }
+
+  if (!mHaveValue || mContinueCalled) {
+    return NS_ERROR_DOM_INDEXEDDB_NOT_ALLOWED_ERR;
+  }
+
+  mContinueToKey = aKey;
+
+#ifdef DEBUG
+  {
+    PRUint16 readyState;
+    if (NS_FAILED(mRequest->GetReadyState(&readyState))) {
+      NS_ERROR("This should never fail!");
+    }
+    NS_ASSERTION(readyState == nsIIDBRequest::DONE, "Should be DONE!");
+  }
+#endif
+
+  mRequest->Reset();
+
+  nsRefPtr<ContinueHelper> helper;
+  switch (mType) {
+    case OBJECTSTORE:
+      helper = new ContinueObjectStoreHelper(this, aCount);
+      break;
+
+    case INDEXKEY:
+      helper = new ContinueIndexHelper(this, aCount);
+      break;
+
+    case INDEXOBJECT:
+      helper = new ContinueIndexObjectHelper(this, aCount);
+      break;
+
+    default:
+      NS_NOTREACHED("Unknown cursor type!");
+  }
+
+  nsresult rv = helper->DispatchToTransactionPool();
+  NS_ENSURE_SUCCESS(rv, NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR);
+
+  mContinueCalled = true;
+  return NS_OK;
 }
 
 NS_IMPL_CYCLE_COLLECTION_CLASS(IDBCursor)
@@ -468,12 +527,12 @@ IDBCursor::GetValue(JSContext* aCx,
       mRooted = true;
     }
 
-    if (!IDBObjectStore::DeserializeValue(aCx, mCloneBuffer, &mCachedValue)) {
+    if (!IDBObjectStore::DeserializeValue(aCx, mCloneReadInfo, &mCachedValue)) {
       mCachedValue = JSVAL_VOID;
       return NS_ERROR_DOM_DATA_CLONE_ERR;
     }
 
-    mCloneBuffer.clear();
+    mCloneReadInfo.mCloneBuffer.clear();
     mHaveCachedValue = true;
   }
 
@@ -486,14 +545,6 @@ IDBCursor::Continue(const jsval &aKey,
                     JSContext* aCx)
 {
   NS_ASSERTION(NS_IsMainThread(), "Wrong thread!");
-
-  if (!mTransaction->IsOpen()) {
-    return NS_ERROR_DOM_INDEXEDDB_TRANSACTION_INACTIVE_ERR;
-  }
-
-  if (!mHaveValue || mContinueCalled) {
-    return NS_ERROR_DOM_INDEXEDDB_NOT_ALLOWED_ERR;
-  }
 
   Key key;
   nsresult rv = key.SetFromJSVal(aCx, aKey);
@@ -520,43 +571,7 @@ IDBCursor::Continue(const jsval &aKey,
     }
   }
 
-  mContinueToKey = key;
-
-#ifdef DEBUG
-  {
-    PRUint16 readyState;
-    if (NS_FAILED(mRequest->GetReadyState(&readyState))) {
-      NS_ERROR("This should never fail!");
-    }
-    NS_ASSERTION(readyState == nsIIDBRequest::DONE, "Should be DONE!");
-  }
-#endif
-
-  mRequest->Reset();
-
-  nsRefPtr<ContinueHelper> helper;
-  switch (mType) {
-    case OBJECTSTORE:
-      helper = new ContinueObjectStoreHelper(this);
-      break;
-
-    case INDEXKEY:
-      helper = new ContinueIndexHelper(this);
-      break;
-
-    case INDEXOBJECT:
-      helper = new ContinueIndexObjectHelper(this);
-      break;
-
-    default:
-      NS_NOTREACHED("Unknown cursor type!");
-  }
-
-  rv = helper->DispatchToTransactionPool();
-  NS_ENSURE_SUCCESS(rv, NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR);
-
-  mContinueCalled = true;
-  return NS_OK;
+  return ContinueInternal(key, 1);
 }
 
 NS_IMETHODIMP
@@ -653,6 +668,19 @@ IDBCursor::Delete(JSContext* aCx,
   return mObjectStore->Delete(key, aCx, _retval);
 }
 
+NS_IMETHODIMP
+IDBCursor::Advance(PRInt32 aCount)
+{
+  NS_ASSERTION(NS_IsMainThread(), "Wrong thread!");
+
+  if (aCount < 1) {
+    return NS_ERROR_DOM_TYPE_ERR;
+  }
+
+  Key key;
+  return ContinueInternal(key, aCount);
+}
+
 nsresult
 ContinueHelper::DoDatabaseWork(mozIStorageConnection* aConnection)
 {
@@ -664,10 +692,16 @@ ContinueHelper::DoDatabaseWork(mozIStorageConnection* aConnection)
   // (less than, if we're running a PREV cursor) or equal to the key that was
   // specified.
 
-  const nsCString& query = mCursor->mContinueToKey.IsUnset() ?
-                           mCursor->mContinueQuery :
-                           mCursor->mContinueToQuery;
+  nsCAutoString query;
+  if (mCursor->mContinueToKey.IsUnset()) {
+    query.Assign(mCursor->mContinueQuery);
+  }
+  else {
+    query.Assign(mCursor->mContinueToQuery);
+  }
   NS_ASSERTION(!query.IsEmpty(), "Bad query!");
+
+  query.AppendInt(mCount);
 
   nsCOMPtr<mozIStorageStatement> stmt = mTransaction->GetCachedStatement(query);
   NS_ENSURE_TRUE(stmt, NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR);
@@ -677,9 +711,17 @@ ContinueHelper::DoDatabaseWork(mozIStorageConnection* aConnection)
   nsresult rv = BindArgumentsToStatement(stmt);
   NS_ENSURE_SUCCESS(rv, NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR);
 
+  NS_ASSERTION(mCount > 0, "Not ok!");
+
   bool hasResult;
-  rv = stmt->ExecuteStep(&hasResult);
-  NS_ENSURE_SUCCESS(rv, NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR);
+  for (PRInt32 index = 0; index < mCount; index++) {
+    rv = stmt->ExecuteStep(&hasResult);
+    NS_ENSURE_SUCCESS(rv, NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR);
+
+    if (!hasResult) {
+      break;
+    }
+  }
 
   if (hasResult) {
     rv = GatherResultsFromStatement(stmt);
@@ -718,8 +760,8 @@ ContinueHelper::GetSuccessResult(JSContext* aCx,
     mCursor->mObjectKey = mObjectKey;
     mCursor->mContinueToKey.Unset();
 
-    mCursor->mCloneBuffer.swap(mCloneBuffer);
-    mCloneBuffer.clear();
+    mCursor->mCloneReadInfo.Swap(mCloneReadInfo);
+    mCloneReadInfo.mCloneBuffer.clear();
 
     nsresult rv = WrapNative(aCx, mCursor, aVal);
     NS_ENSURE_SUCCESS(rv, rv);
@@ -767,8 +809,8 @@ ContinueObjectStoreHelper::GatherResultsFromStatement(
   nsresult rv = mKey.SetFromStatement(aStatement, 0);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  rv = IDBObjectStore::GetStructuredCloneDataFromStatement(aStatement, 1,
-                                                           mCloneBuffer);
+  rv = IDBObjectStore::GetStructuredCloneReadInfoFromStatement(aStatement, 1, 2,
+    mDatabase->Manager(), mCloneReadInfo);
   NS_ENSURE_SUCCESS(rv, rv);
 
   return NS_OK;
@@ -837,8 +879,8 @@ ContinueIndexObjectHelper::GatherResultsFromStatement(
   rv = mObjectKey.SetFromStatement(aStatement, 1);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  rv = IDBObjectStore::GetStructuredCloneDataFromStatement(aStatement, 2,
-                                                           mCloneBuffer);
+  rv = IDBObjectStore::GetStructuredCloneReadInfoFromStatement(aStatement, 2, 3,
+    mDatabase->Manager(), mCloneReadInfo);
   NS_ENSURE_SUCCESS(rv, rv);
 
   return NS_OK;

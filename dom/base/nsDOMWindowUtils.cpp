@@ -60,6 +60,7 @@
 #include "nsGUIEvent.h"
 #include "nsIParser.h"
 #include "nsJSEnvironment.h"
+#include "nsJSUtils.h"
 
 #include "nsIViewManager.h"
 
@@ -68,7 +69,6 @@
 #include "gfxImageSurface.h"
 #include "nsLayoutUtils.h"
 #include "nsComputedDOMStyle.h"
-#include "nsIViewObserver.h"
 #include "nsIPresShell.h"
 #include "nsStyleAnimation.h"
 #include "nsCSSProps.h"
@@ -84,9 +84,13 @@
 #include "nsIIOService.h"
 
 #include "mozilla/dom/Element.h"
+#include "mozilla/dom/indexedDB/FileInfo.h"
+#include "mozilla/dom/indexedDB/IndexedDatabaseManager.h"
+#include "sampler.h"
 
 using namespace mozilla::dom;
 using namespace mozilla::layers;
+using namespace mozilla::widget;
 
 static bool IsUniversalXPConnectCapable()
 {
@@ -99,15 +103,24 @@ static bool IsUniversalXPConnectCapable()
 
 DOMCI_DATA(WindowUtils, nsDOMWindowUtils)
 
-NS_INTERFACE_MAP_BEGIN(nsDOMWindowUtils)
+NS_IMPL_CYCLE_COLLECTION_CLASS(nsDOMWindowUtils)
+NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsDOMWindowUtils)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(mWindow)
+NS_IMPL_CYCLE_COLLECTION_UNLINK_END
+NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(nsDOMWindowUtils)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR_AMBIGUOUS(mWindow,
+                                                       nsIScriptGlobalObject)
+NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
+
+NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(nsDOMWindowUtils)
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIDOMWindowUtils)
   NS_INTERFACE_MAP_ENTRY(nsIDOMWindowUtils)
   NS_INTERFACE_MAP_ENTRY(nsISupportsWeakReference)
   NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(WindowUtils)
 NS_INTERFACE_MAP_END
 
-NS_IMPL_ADDREF(nsDOMWindowUtils)
-NS_IMPL_RELEASE(nsDOMWindowUtils)
+NS_IMPL_CYCLE_COLLECTING_ADDREF(nsDOMWindowUtils)
+NS_IMPL_CYCLE_COLLECTING_RELEASE(nsDOMWindowUtils)
 
 nsDOMWindowUtils::nsDOMWindowUtils(nsGlobalWindow *aWindow)
   : mWindow(aWindow)
@@ -466,11 +479,8 @@ nsDOMWindowUtils::SendMouseEventCommon(const nsAString& aType,
 
   nsEventStatus status;
   if (aToWindow) {
-    nsIPresShell* presShell = presContext->PresShell();
+    nsCOMPtr<nsIPresShell> presShell = presContext->PresShell();
     if (!presShell)
-      return NS_ERROR_FAILURE;
-    nsCOMPtr<nsIViewObserver> vo = do_QueryInterface(presShell);
-    if (!vo)
       return NS_ERROR_FAILURE;
     nsIViewManager* viewManager = presShell->GetViewManager();
     if (!viewManager)
@@ -480,7 +490,7 @@ nsDOMWindowUtils::SendMouseEventCommon(const nsAString& aType,
       return NS_ERROR_FAILURE;
 
     status = nsEventStatus_eIgnore;
-    return vo->HandleEvent(view, &event, false, &status);
+    return presShell->HandleEvent(view->GetFrame(), &event, false, &status);
   }
   return widget->DispatchEvent(&event, status);
 }
@@ -723,6 +733,7 @@ nsDOMWindowUtils::Focus(nsIDOMElement* aElement)
 NS_IMETHODIMP
 nsDOMWindowUtils::GarbageCollect(nsICycleCollectorListener *aListener)
 {
+  SAMPLE_LABEL("GC", "GarbageCollect");
   // Always permit this in debug builds.
 #ifndef DEBUG
   if (!IsUniversalXPConnectCapable()) {
@@ -863,10 +874,18 @@ nsDOMWindowUtils::NodesFromRect(float aX, float aY,
 }
 
 static already_AddRefed<gfxImageSurface>
-CanvasToImageSurface(nsIDOMHTMLCanvasElement *canvas)
+CanvasToImageSurface(nsIDOMHTMLCanvasElement* aCanvas)
 {
+  nsCOMPtr<nsINode> node = do_QueryInterface(aCanvas);
+  if (!node) {
+    return nsnull;
+  }
+
+  NS_ABORT_IF_FALSE(node->IsElement(),
+                    "An nsINode that implements nsIDOMHTMLCanvasElement should "
+                    "be an element.");
   nsLayoutUtils::SurfaceFromElementResult result =
-    nsLayoutUtils::SurfaceFromElement(canvas,
+    nsLayoutUtils::SurfaceFromElement(node->AsElement(),
                                       nsLayoutUtils::SFE_WANT_IMAGE_SURFACE);
   return static_cast<gfxImageSurface*>(result.mSurface.forget().get());
 }
@@ -1034,13 +1053,16 @@ nsDOMWindowUtils::GetIMEIsOpen(bool *aState)
     return NS_ERROR_FAILURE;
 
   // Open state should not be available when IME is not enabled.
-  IMEContext context;
-  nsresult rv = widget->GetInputMode(context);
-  NS_ENSURE_SUCCESS(rv, rv);
-  if (context.mStatus != nsIWidget::IME_STATUS_ENABLED)
+  InputContext context = widget->GetInputContext();
+  if (context.mIMEState.mEnabled != IMEState::ENABLED) {
     return NS_ERROR_NOT_AVAILABLE;
+  }
 
-  return widget->GetIMEOpenState(aState);
+  if (context.mIMEState.mOpen == IMEState::OPEN_STATE_NOT_SUPPORTED) {
+    return NS_ERROR_NOT_IMPLEMENTED;
+  }
+  *aState = (context.mIMEState.mOpen == IMEState::OPEN);
+  return NS_OK;
 }
 
 NS_IMETHODIMP
@@ -1052,11 +1074,8 @@ nsDOMWindowUtils::GetIMEStatus(PRUint32 *aState)
   if (!widget)
     return NS_ERROR_FAILURE;
 
-  IMEContext context;
-  nsresult rv = widget->GetInputMode(context);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  *aState = context.mStatus;
+  InputContext context = widget->GetInputContext();
+  *aState = static_cast<PRUint32>(context.mIMEState.mEnabled);
   return NS_OK;
 }
 
@@ -1070,10 +1089,7 @@ nsDOMWindowUtils::GetFocusedInputType(char** aType)
     return NS_ERROR_FAILURE;
   }
 
-  IMEContext context;
-  nsresult rv = widget->GetInputMode(context);
-  NS_ENSURE_SUCCESS(rv, rv);
-
+  InputContext context = widget->GetInputContext();
   *aType = ToNewCString(context.mHTMLInputType);
   return NS_OK;
 }
@@ -1324,6 +1340,7 @@ nsDOMWindowUtils::SendQueryContentEvent(PRUint32 aType,
     nsIntRect widgetBounds;
     nsresult rv = widget->GetClientBounds(widgetBounds);
     NS_ENSURE_SUCCESS(rv, rv);
+    widgetBounds.MoveTo(0, 0);
 
     // There is no popup frame at the point and the point isn't in our widget,
     // we cannot process this request.
@@ -1438,44 +1455,20 @@ nsDOMWindowUtils::SendContentCommandEvent(const nsAString& aType,
 }
 
 NS_IMETHODIMP
-nsDOMWindowUtils::GetClassName(char **aName)
+nsDOMWindowUtils::GetClassName(const JS::Value& aObject, JSContext* aCx, char** aName)
 {
   if (!nsContentUtils::IsCallerTrustedForRead()) {
     return NS_ERROR_DOM_SECURITY_ERR;
   }
 
-  // get the xpconnect native call context
-  nsAXPCNativeCallContext *cc = nsnull;
-  nsContentUtils::XPConnect()->GetCurrentNativeCallContext(&cc);
-  if(!cc)
-    return NS_ERROR_FAILURE;
-
-  // Get JSContext of current call
-  JSContext* cx;
-  nsresult rv = cc->GetJSContext(&cx);
-  if(NS_FAILED(rv) || !cx)
-    return NS_ERROR_FAILURE;
-
-  // get argc and argv and verify arg count
-  PRUint32 argc;
-  rv = cc->GetArgc(&argc);
-  if(NS_FAILED(rv))
-    return NS_ERROR_FAILURE;
-
-  if(argc < 1)
-    return NS_ERROR_XPC_NOT_ENOUGH_ARGS;
-
-  jsval* argv;
-  rv = cc->GetArgvPtr(&argv);
-  if(NS_FAILED(rv) || !argv)
-    return NS_ERROR_FAILURE;
-
   // Our argument must be a non-null object.
-  if(JSVAL_IS_PRIMITIVE(argv[0]))
+  if (JSVAL_IS_PRIMITIVE(aObject)) {
     return NS_ERROR_XPC_BAD_CONVERT_JS;
+  }
 
-  *aName = NS_strdup(JS_GET_CLASS(cx, JSVAL_TO_OBJECT(argv[0]))->name);
-  return *aName ? NS_OK : NS_ERROR_OUT_OF_MEMORY;
+  *aName = NS_strdup(JS_GET_CLASS(aCx, JSVAL_TO_OBJECT(aObject))->name);
+  NS_ABORT_IF_FALSE(*aName, "NS_strdup should be infallible.");
+  return NS_OK;
 }
 
 NS_IMETHODIMP
@@ -1539,61 +1532,30 @@ nsDOMWindowUtils::IsInModalState(bool *retval)
 }
 
 NS_IMETHODIMP
-nsDOMWindowUtils::GetParent()
+nsDOMWindowUtils::GetParent(const JS::Value& aObject,
+                            JSContext* aCx,
+                            JS::Value* aParent)
 {
   // This wasn't privileged in the past, but better to expose less than more.
   if (!IsUniversalXPConnectCapable()) {
     return NS_ERROR_DOM_SECURITY_ERR;
   }
 
-  nsCOMPtr<nsIXPConnect> xpc = nsContentUtils::XPConnect();
-
-  // get the xpconnect native call context
-  nsAXPCNativeCallContext *cc = nsnull;
-  xpc->GetCurrentNativeCallContext(&cc);
-  if(!cc)
-    return NS_ERROR_FAILURE;
-
-  // Get JSContext of current call
-  JSContext* cx;
-  nsresult rv = cc->GetJSContext(&cx);
-  if(NS_FAILED(rv) || !cx)
-    return NS_ERROR_FAILURE;
-
-  // get place for return value
-  jsval *rval = nsnull;
-  rv = cc->GetRetValPtr(&rval);
-  if(NS_FAILED(rv) || !rval)
-    return NS_ERROR_FAILURE;
-
-  // get argc and argv and verify arg count
-  PRUint32 argc;
-  rv = cc->GetArgc(&argc);
-  if(NS_FAILED(rv))
-    return NS_ERROR_FAILURE;
-
-  if(argc != 1)
-    return NS_ERROR_XPC_NOT_ENOUGH_ARGS;
-
-  jsval* argv;
-  rv = cc->GetArgvPtr(&argv);
-  if(NS_FAILED(rv) || !argv)
-    return NS_ERROR_FAILURE;
-
-  // first argument must be an object
-  if(JSVAL_IS_PRIMITIVE(argv[0]))
+  // First argument must be an object.
+  if (JSVAL_IS_PRIMITIVE(aObject)) {
     return NS_ERROR_XPC_BAD_CONVERT_JS;
+  }
 
-  JSObject *parent = JS_GetParent(cx, JSVAL_TO_OBJECT(argv[0]));
-  *rval = OBJECT_TO_JSVAL(parent);
+  JSObject* parent = JS_GetParent(aCx, JSVAL_TO_OBJECT(aObject));
+  *aParent = OBJECT_TO_JSVAL(parent);
 
   // Outerize if necessary.
   if (parent) {
-    if (JSObjectOp outerize = js::GetObjectClass(parent)->ext.outerObject)
-      *rval = OBJECT_TO_JSVAL(outerize(cx, parent));
+    if (JSObjectOp outerize = js::GetObjectClass(parent)->ext.outerObject) {
+      *aParent = OBJECT_TO_JSVAL(outerize(aCx, parent));
+    }
   }
 
-  cc->SetReturnValueWasSet(true);
   return NS_OK;
 }
 
@@ -1653,6 +1615,55 @@ nsDOMWindowUtils::GetLayerManagerType(nsAString& aType)
     return NS_ERROR_FAILURE;
 
   mgr->GetBackendName(aType);
+
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsDOMWindowUtils::StartFrameTimeRecording()
+{
+  nsCOMPtr<nsIWidget> widget = GetWidget();
+  if (!widget)
+    return NS_ERROR_FAILURE;
+
+  LayerManager *mgr = widget->GetLayerManager();
+  if (!mgr)
+    return NS_ERROR_FAILURE;
+
+  mgr->StartFrameTimeRecording();
+
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsDOMWindowUtils::StopFrameTimeRecording(PRUint32 *frameCount NS_OUTPARAM, float **frames NS_OUTPARAM)
+{
+  NS_ENSURE_ARG_POINTER(frameCount);
+  NS_ENSURE_ARG_POINTER(frames);
+
+  nsCOMPtr<nsIWidget> widget = GetWidget();
+  if (!widget)
+    return NS_ERROR_FAILURE;
+
+  LayerManager *mgr = widget->GetLayerManager();
+  if (!mgr)
+    return NS_ERROR_FAILURE;
+
+  nsTArray<float> frameTimes = mgr->StopFrameTimeRecording();
+
+  *frames = nsnull;
+  *frameCount = frameTimes.Length();
+
+  if (*frameCount != 0) {
+    *frames = (float*)nsMemory::Alloc(*frameCount * sizeof(float*));
+    if (!*frames)
+      return NS_ERROR_OUT_OF_MEMORY;
+
+    /* copy over the frame times into the array we just allocated */
+    for (PRUint32 i = 0; i < *frameCount; i++) {
+      (*frames)[i] = frameTimes[i];
+    }
+  }
 
   return NS_OK;
 }
@@ -1960,6 +1971,136 @@ nsDOMWindowUtils::CheckAndClearPaintedState(nsIDOMElement* aElement, bool* aResu
   }
 
   *aResult = frame->CheckAndClearPaintedState();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsDOMWindowUtils::GetFileId(nsIDOMBlob* aBlob, PRInt64* aResult)
+{
+  if (!IsUniversalXPConnectCapable()) {
+    return NS_ERROR_DOM_SECURITY_ERR;
+  }
+
+  *aResult = aBlob->GetFileId();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsDOMWindowUtils::GetFileReferences(const nsAString& aDatabaseName,
+                                    PRInt64 aId, PRInt32* aRefCnt,
+                                    PRInt32* aDBRefCnt, PRInt32* aSliceRefCnt,
+                                    bool* aResult)
+{
+  if (!IsUniversalXPConnectCapable()) {
+    return NS_ERROR_DOM_SECURITY_ERR;
+  }
+
+  NS_ENSURE_TRUE(mWindow, NS_ERROR_FAILURE);
+
+  nsCString origin;
+  nsresult rv = indexedDB::IndexedDatabaseManager::GetASCIIOriginFromWindow(
+    mWindow, origin);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  nsRefPtr<indexedDB::IndexedDatabaseManager> mgr =
+    indexedDB::IndexedDatabaseManager::Get();
+
+  if (mgr) {
+    nsRefPtr<indexedDB::FileManager> fileManager =
+      mgr->GetFileManager(origin, aDatabaseName);
+
+    if (fileManager) {
+      nsRefPtr<indexedDB::FileInfo> fileInfo = fileManager->GetFileInfo(aId);
+
+      if (fileInfo) {
+        fileInfo->GetReferences(aRefCnt, aDBRefCnt, aSliceRefCnt);
+
+        if (*aRefCnt != -1) {
+          // We added an extra temp ref, so account for that accordingly.
+          (*aRefCnt)--;
+        }
+
+        *aResult = true;
+        return NS_OK;
+      }
+    }
+  }
+
+  *aRefCnt = *aDBRefCnt = *aSliceRefCnt = -1;
+  *aResult = false;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsDOMWindowUtils::StartPCCountProfiling(JSContext* cx)
+{
+  js::StartPCCountProfiling(cx);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsDOMWindowUtils::StopPCCountProfiling(JSContext* cx)
+{
+  js::StopPCCountProfiling(cx);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsDOMWindowUtils::PurgePCCounts(JSContext* cx)
+{
+  js::PurgePCCounts(cx);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsDOMWindowUtils::GetPCCountScriptCount(JSContext* cx, PRInt32 *result)
+{
+  *result = js::GetPCCountScriptCount(cx);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsDOMWindowUtils::GetPCCountScriptSummary(PRInt32 script, JSContext* cx, nsAString& result)
+{
+  JSString *text = js::GetPCCountScriptSummary(cx, script);
+  if (!text)
+    return NS_ERROR_FAILURE;
+
+  nsDependentJSString str;
+  if (!str.init(cx, text))
+    return NS_ERROR_FAILURE;
+
+  result = str;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsDOMWindowUtils::GetPCCountScriptContents(PRInt32 script, JSContext* cx, nsAString& result)
+{
+  JSString *text = js::GetPCCountScriptContents(cx, script);
+  if (!text)
+    return NS_ERROR_FAILURE;
+
+  nsDependentJSString str;
+  if (!str.init(cx, text))
+    return NS_ERROR_FAILURE;
+
+  result = str;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsDOMWindowUtils::GetPaintingSuppressed(bool *aPaintingSuppressed)
+{
+  NS_ENSURE_TRUE(mWindow, NS_ERROR_FAILURE);
+  nsIDocShell *docShell = mWindow->GetDocShell();
+  NS_ENSURE_TRUE(docShell, NS_ERROR_FAILURE);
+
+  nsCOMPtr<nsIPresShell> presShell;
+  docShell->GetPresShell(getter_AddRefs(presShell));
+  NS_ENSURE_TRUE(presShell, NS_ERROR_FAILURE);
+
+  *aPaintingSuppressed = presShell->IsPaintingSuppressed();
   return NS_OK;
 }
 

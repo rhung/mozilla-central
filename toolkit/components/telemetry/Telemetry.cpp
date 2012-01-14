@@ -21,6 +21,7 @@
  *
  * Contributor(s):
  *   Taras Glek <tglek@mozilla.com>
+ *   Vladan Djeric <vdjeric@mozilla.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -51,6 +52,8 @@
 #include "nsHashKeys.h"
 #include "nsBaseHashtable.h"
 #include "nsXULAppAPI.h"
+#include "nsThreadUtils.h"
+#include "mozilla/Mutex.h"
 
 namespace {
 
@@ -69,14 +72,30 @@ public:
   static bool CanRecord();
   static already_AddRefed<nsITelemetry> CreateTelemetryInstance();
   static void ShutdownTelemetry();
+  static void RecordSlowStatement(const nsACString &statement,
+                                  const nsACString &dbName,
+                                  PRUint32 delay);
+  struct StmtStats {
+    PRUint32 hitCount;
+    PRUint32 totalTime;
+  };
+  typedef nsBaseHashtableET<nsCStringHashKey, StmtStats> SlowSQLEntryType;
 
 private:
+  bool AddSQLInfo(JSContext *cx, JSObject *rootObj, bool mainThread);
+
+  // Like GetHistogramById, but returns the underlying C++ object, not the JS one.
+  nsresult GetHistogramByName(const nsACString &name, Histogram **ret);
   // This is used for speedy JS string->Telemetry::ID conversions
   typedef nsBaseHashtableET<nsCharPtrHashKey, Telemetry::ID> CharPtrEntryType;
   typedef nsTHashtable<CharPtrEntryType> HistogramMapType;
   HistogramMapType mHistogramMap;
   bool mCanRecord;
   static TelemetryImpl *sTelemetry;
+  nsTHashtable<SlowSQLEntryType> mSlowSQLOnMainThread;
+  nsTHashtable<SlowSQLEntryType> mSlowSQLOnOtherThread;
+  nsTHashtable<nsCStringHashKey> mTrackedDBs;
+  Mutex mHashMutex;
 };
 
 TelemetryImpl*  TelemetryImpl::sTelemetry = NULL;
@@ -86,22 +105,53 @@ StatisticsRecorder gStatisticsRecorder;
 
 // Hardcoded probes
 struct TelemetryHistogram {
-  Histogram *histogram;
   const char *id;
   PRUint32 min;
   PRUint32 max;
   PRUint32 bucketCount;
   PRUint32 histogramType;
+  const char *comment;
 };
 
-const TelemetryHistogram gHistograms[] = {
+// Perform the checks at the beginning of HistogramGet at compile time, so
+// that if people add incorrect histogram definitions, they get compiler
+// errors.
 #define HISTOGRAM(id, min, max, bucket_count, histogram_type, b) \
-  { NULL, NS_STRINGIFY(id), min, max, bucket_count, nsITelemetry::HISTOGRAM_ ## histogram_type },
+  PR_STATIC_ASSERT(nsITelemetry::HISTOGRAM_ ## histogram_type == nsITelemetry::HISTOGRAM_BOOLEAN || \
+                   (min < max && bucket_count > 2 && min >= 1));
+
+#include "TelemetryHistograms.h"
+
+#undef HISTOGRAM
+
+const TelemetryHistogram gHistograms[] = {
+#define HISTOGRAM(id, min, max, bucket_count, histogram_type, comment) \
+  { NS_STRINGIFY(id), min, max, bucket_count, \
+    nsITelemetry::HISTOGRAM_ ## histogram_type, comment },
 
 #include "TelemetryHistograms.h"
 
 #undef HISTOGRAM
 };
+
+bool
+TelemetryHistogramType(Histogram *h, PRUint32 *result)
+{
+  switch (h->histogram_type()) {
+  case Histogram::HISTOGRAM:
+    *result = nsITelemetry::HISTOGRAM_EXPONENTIAL;
+    break;
+  case Histogram::LINEAR_HISTOGRAM:
+    *result = nsITelemetry::HISTOGRAM_LINEAR;
+    break;
+  case Histogram::BOOLEAN_HISTOGRAM:
+    *result = nsITelemetry::HISTOGRAM_BOOLEAN;
+    break;
+  default:
+    return false;
+  }
+  return true;
+}
 
 nsresult
 HistogramGet(const char *name, PRUint32 min, PRUint32 max, PRUint32 bucketCount,
@@ -172,7 +222,6 @@ ReflectHistogramSnapshot(JSContext *cx, JSObject *obj, Histogram *h)
   h->SnapshotSample(&ss);
   JSObject *counts_array;
   JSObject *rarray;
-  jsval static_histogram = h->flags() && Histogram::kUmaTargetedHistogramFlag ? JSVAL_TRUE : JSVAL_FALSE;
   const size_t count = h->bucket_count();
   if (!(JS_DefineProperty(cx, obj, "min", INT_TO_JSVAL(h->declared_min()), NULL, NULL, JSPROP_ENUMERATE)
         && JS_DefineProperty(cx, obj, "max", INT_TO_JSVAL(h->declared_max()), NULL, NULL, JSPROP_ENUMERATE)
@@ -183,7 +232,6 @@ ReflectHistogramSnapshot(JSContext *cx, JSObject *obj, Histogram *h)
         && FillRanges(cx, rarray, h)
         && (counts_array = JS_NewArrayObject(cx, count, NULL))
         && JS_DefineProperty(cx, obj, "counts", OBJECT_TO_JSVAL(counts_array), NULL, NULL, JSPROP_ENUMERATE)
-        && JS_DefineProperty(cx, obj, "static", static_histogram, NULL, NULL, JSPROP_ENUMERATE)
         )) {
     return JS_FALSE;
   }
@@ -217,6 +265,10 @@ JSHistogram_Add(JSContext *cx, uintN argc, jsval *vp)
 
   if (TelemetryImpl::CanRecord()) {
     JSObject *obj = JS_THIS_OBJECT(cx, vp);
+    if (!obj) {
+      return JS_FALSE;
+    }
+
     Histogram *h = static_cast<Histogram*>(JS_GetPrivate(cx, obj));
     if (h->histogram_type() == Histogram::BOOLEAN_HISTOGRAM)
       h->Add(!!value);
@@ -230,6 +282,10 @@ JSBool
 JSHistogram_Snapshot(JSContext *cx, uintN argc, jsval *vp)
 {
   JSObject *obj = JS_THIS_OBJECT(cx, vp);
+  if (!obj) {
+    return JS_FALSE;
+  }
+
   Histogram *h = static_cast<Histogram*>(JS_GetPrivate(cx, obj));
   JSObject *snapshot = JS_NewObject(cx, NULL, NULL, NULL);
   if (!snapshot)
@@ -259,12 +315,35 @@ WrapAndReturnHistogram(Histogram *h, JSContext *cx, jsval *ret)
 }
 
 TelemetryImpl::TelemetryImpl():
-mCanRecord(XRE_GetProcessType() == GeckoProcessType_Default)
+mCanRecord(XRE_GetProcessType() == GeckoProcessType_Default),
+mHashMutex("Telemetry::mHashMutex")
 {
+  // A whitelist to prevent Telemetry reporting on Addon & Thunderbird DBs
+  const char *trackedDBs[] = {
+    "addons.sqlite", "chromeappsstore.sqlite", "content-prefs.sqlite",
+    "cookies.sqlite", "downloads.sqlite", "extensions.sqlite",
+    "formhistory.sqlite", "index.sqlite", "permissions.sqlite", "places.sqlite",
+    "search.sqlite", "signons.sqlite", "urlclassifier3.sqlite",
+    "webappsstore.sqlite"
+  };
+
+  mTrackedDBs.Init();
+  for (size_t i = 0; i < ArrayLength(trackedDBs); i++)
+    mTrackedDBs.PutEntry(nsDependentCString(trackedDBs[i]));
+
+#ifdef DEBUG
+  // Mark immutable to prevent asserts on simultaneous access from multiple threads
+  mTrackedDBs.MarkImmutable();
+#endif
+
+  mSlowSQLOnMainThread.Init();
+  mSlowSQLOnOtherThread.Init();
   mHistogramMap.Init(Telemetry::HistogramCount);
 }
 
 TelemetryImpl::~TelemetryImpl() {
+  mSlowSQLOnMainThread.Clear();
+  mSlowSQLOnOtherThread.Clear();
   mHistogramMap.Clear();
 }
 
@@ -277,6 +356,115 @@ TelemetryImpl::NewHistogram(const nsACString &name, PRUint32 min, PRUint32 max, 
     return rv;
   h->ClearFlags(Histogram::kUmaTargetedHistogramFlag);
   return WrapAndReturnHistogram(h, cx, ret);
+}
+
+struct EnumeratorArgs {
+  JSContext *cx;
+  JSObject *statsObj;
+};
+
+PLDHashOperator
+StatementEnumerator(TelemetryImpl::SlowSQLEntryType *entry, void *arg)
+{
+  EnumeratorArgs *args = static_cast<EnumeratorArgs *>(arg);
+  const nsACString &sql = entry->GetKey();
+  jsval hitCount = UINT_TO_JSVAL(entry->mData.hitCount);
+  jsval totalTime = UINT_TO_JSVAL(entry->mData.totalTime);
+
+  JSObject *arrayObj = JS_NewArrayObject(args->cx, 2, nsnull);
+  if (!arrayObj ||
+      !JS_SetElement(args->cx, arrayObj, 0, &hitCount) ||
+      !JS_SetElement(args->cx, arrayObj, 1, &totalTime))
+    return PL_DHASH_STOP;
+
+  JSBool success = JS_DefineProperty(args->cx, args->statsObj,
+                                     sql.BeginReading(),
+                                     OBJECT_TO_JSVAL(arrayObj),
+                                     NULL, NULL, JSPROP_ENUMERATE);
+  if (!success)
+    return PL_DHASH_STOP;
+
+  return PL_DHASH_NEXT;
+}
+
+bool
+TelemetryImpl::AddSQLInfo(JSContext *cx, JSObject *rootObj, bool mainThread)
+{
+  JSObject *statsObj = JS_NewObject(cx, NULL, NULL, NULL);
+  if (!statsObj)
+    return false;
+
+  JSBool ok = JS_DefineProperty(cx, rootObj,
+                                mainThread ? "mainThread" : "otherThreads",
+                                OBJECT_TO_JSVAL(statsObj),
+                                NULL, NULL, JSPROP_ENUMERATE);
+  if (!ok)
+    return false;
+
+  EnumeratorArgs args = { cx, statsObj };
+  nsTHashtable<SlowSQLEntryType> *sqlMap;
+  sqlMap = (mainThread ? &mSlowSQLOnMainThread : &mSlowSQLOnOtherThread);
+  PRUint32 num = sqlMap->EnumerateEntries(StatementEnumerator,
+                                          static_cast<void*>(&args));
+  if (num != sqlMap->Count())
+    return false;
+
+  return true;
+}
+
+
+nsresult
+TelemetryImpl::GetHistogramByName(const nsACString &name, Histogram **ret)
+{
+  // Cache names
+  // Note the histogram names are statically allocated
+  if (!mHistogramMap.Count()) {
+    for (PRUint32 i = 0; i < Telemetry::HistogramCount; i++) {
+      CharPtrEntryType *entry = mHistogramMap.PutEntry(gHistograms[i].id);
+      if (NS_UNLIKELY(!entry)) {
+        mHistogramMap.Clear();
+        return NS_ERROR_OUT_OF_MEMORY;
+      }
+      entry->mData = (Telemetry::ID) i;
+    }
+  }
+
+  CharPtrEntryType *entry = mHistogramMap.GetEntry(PromiseFlatCString(name).get());
+  if (!entry)
+    return NS_ERROR_FAILURE;
+
+  nsresult rv = GetHistogramByEnumId(entry->mData, ret);
+  if (NS_FAILED(rv))
+    return rv;
+
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+TelemetryImpl::HistogramFrom(const nsACString &name, const nsACString &existing_name,
+                             JSContext *cx, jsval *ret)
+{
+  Histogram *existing;
+  nsresult rv = GetHistogramByName(existing_name, &existing);
+  if (NS_FAILED(rv))
+    return rv;
+
+  PRUint32 histogramType;
+  bool success = TelemetryHistogramType(existing, &histogramType);
+  if (!success)
+    return NS_ERROR_INVALID_ARG;
+
+  Histogram *clone;
+  rv = HistogramGet(PromiseFlatCString(name).get(), existing->declared_min(),
+                    existing->declared_max(), existing->bucket_count(),
+                    histogramType, &clone);
+  if (NS_FAILED(rv))
+    return rv;
+
+  Histogram::SampleSet ss;
+  existing->SnapshotSample(&ss);
+  clone->AddSampleSet(ss);
+  return WrapAndReturnHistogram(clone, cx, ret);
 }
 
 NS_IMETHODIMP
@@ -302,30 +490,53 @@ TelemetryImpl::GetHistogramSnapshots(JSContext *cx, jsval *ret)
   return NS_OK;
 }
 
+NS_IMETHODIMP
+TelemetryImpl::GetSlowSQL(JSContext *cx, jsval *ret)
+{
+  JSObject *root_obj = JS_NewObject(cx, NULL, NULL, NULL);
+  if (!root_obj)
+    return NS_ERROR_FAILURE;
+  *ret = OBJECT_TO_JSVAL(root_obj);
+
+  MutexAutoLock hashMutex(mHashMutex);
+  // Add info about slow SQL queries on the main thread
+  if (!AddSQLInfo(cx, root_obj, true))
+    return NS_ERROR_FAILURE;
+  // Add info about slow SQL queries on other threads
+  if (!AddSQLInfo(cx, root_obj, false))
+    return NS_ERROR_FAILURE;
+
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+TelemetryImpl::GetRegisteredHistograms(JSContext *cx, jsval *ret)
+{
+  size_t count = ArrayLength(gHistograms);
+  JSObject *info = JS_NewObject(cx, NULL, NULL, NULL);
+  if (!info)
+    return NS_ERROR_FAILURE;
+
+  for (size_t i = 0; i < count; ++i) {
+    JSString *comment = JS_InternString(cx, gHistograms[i].comment);
+    
+    if (!(comment
+          && JS_DefineProperty(cx, info, gHistograms[i].id,
+                               STRING_TO_JSVAL(comment), NULL, NULL,
+                               JSPROP_ENUMERATE))) {
+      return NS_ERROR_FAILURE;
+    }
+  }
+
+  *ret = OBJECT_TO_JSVAL(info);
+  return NS_OK;
+}
 
 NS_IMETHODIMP
 TelemetryImpl::GetHistogramById(const nsACString &name, JSContext *cx, jsval *ret)
 {
-  // Cache names
-  // Note the histogram names are statically allocated
-  if (!mHistogramMap.Count()) {
-    for (PRUint32 i = 0; i < Telemetry::HistogramCount; i++) {
-      CharPtrEntryType *entry = mHistogramMap.PutEntry(gHistograms[i].id);
-      if (NS_UNLIKELY(!entry)) {
-        mHistogramMap.Clear();
-        return NS_ERROR_OUT_OF_MEMORY;
-      }
-      entry->mData = (Telemetry::ID) i;
-    }
-  }
-
-  CharPtrEntryType *entry = mHistogramMap.GetEntry(PromiseFlatCString(name).get());
-  if (!entry)
-    return NS_ERROR_FAILURE;
-  
   Histogram *h;
-
-  nsresult rv = GetHistogramByEnumId(entry->mData, &h);
+  nsresult rv = GetHistogramByName(name, &h);
   if (NS_FAILED(rv))
     return rv;
 
@@ -365,6 +576,34 @@ void
 TelemetryImpl::ShutdownTelemetry()
 {
   NS_IF_RELEASE(sTelemetry);
+}
+
+void
+TelemetryImpl::RecordSlowStatement(const nsACString &statement,
+                                   const nsACString &dbName,
+                                   PRUint32 delay)
+{
+  MOZ_ASSERT(sTelemetry);
+  if (!sTelemetry->mCanRecord || !sTelemetry->mTrackedDBs.GetEntry(dbName))
+    return;
+
+  nsTHashtable<SlowSQLEntryType> *slowSQLMap = NULL;
+  if (NS_IsMainThread())
+    slowSQLMap = &(sTelemetry->mSlowSQLOnMainThread);
+  else
+    slowSQLMap = &(sTelemetry->mSlowSQLOnOtherThread);
+
+  MutexAutoLock hashMutex(sTelemetry->mHashMutex);
+  SlowSQLEntryType *entry = slowSQLMap->GetEntry(statement);
+  if (!entry) {
+    entry = slowSQLMap->PutEntry(statement);
+    if (NS_UNLIKELY(!entry))
+      return;
+    entry->mData.hitCount = 0;
+    entry->mData.totalTime = 0;
+  }
+  entry->mData.hitCount++;
+  entry->mData.totalTime += delay;
 }
 
 NS_IMPL_THREADSAFE_ISUPPORTS1(TelemetryImpl, nsITelemetry)
@@ -424,6 +663,22 @@ GetHistogramById(ID id)
   Histogram *h = NULL;
   GetHistogramByEnumId(id, &h);
   return h;
+}
+
+void
+RecordSlowSQLStatement(const nsACString &statement,
+                       const nsACString &dbName,
+                       PRUint32 delay)
+{
+  TelemetryImpl::RecordSlowStatement(statement, dbName, delay);
+}
+
+void Init()
+{
+  // Make the service manager hold a long-lived reference to the service
+  nsCOMPtr<nsITelemetry> telemetryService =
+    do_GetService("@mozilla.org/base/telemetry;1");
+  MOZ_ASSERT(telemetryService);
 }
 
 } // namespace Telemetry

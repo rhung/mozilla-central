@@ -83,7 +83,7 @@
 #include <CoreFoundation/CoreFoundation.h>
 #endif
 
-#ifdef ANDROID
+#ifdef MOZ_WIDGET_ANDROID
 #include "AndroidBridge.h"
 #endif
 
@@ -895,6 +895,7 @@ nsDownloadManager::Init()
   (void)mObserverService->AddObserver(this, "offline-requested", false);
   (void)mObserverService->AddObserver(this, "sleep_notification", false);
   (void)mObserverService->AddObserver(this, "wake_notification", false);
+  (void)mObserverService->AddObserver(this, "profile-before-change", false);
   (void)mObserverService->AddObserver(this, NS_IOSERVICE_GOING_OFFLINE_TOPIC, false);
   (void)mObserverService->AddObserver(this, NS_IOSERVICE_OFFLINE_STATUS_TOPIC, false);
   (void)mObserverService->AddObserver(this, NS_PRIVATE_BROWSING_REQUEST_TOPIC, false);
@@ -1178,7 +1179,7 @@ nsDownloadManager::GetDefaultDownloadsDirectory(nsILocalFile **aResult)
     rv = dirService->Get(NS_UNIX_XDG_DOCUMENTS_DIR,
                          NS_GET_IID(nsILocalFile),
                          getter_AddRefs(downloadDir));
-#elif defined(ANDROID)
+#elif defined(MOZ_WIDGET_ANDROID)
     // Android doesn't have a $HOME directory, and by default we only have
     // write access to /data/data/org.mozilla.{$APP} and /sdcard
     char* downloadDirPath = getenv("DOWNLOADS_DIRECTORY");
@@ -1686,6 +1687,9 @@ nsDownloadManager::CleanUp()
 NS_IMETHODIMP
 nsDownloadManager::GetCanCleanUp(bool *aResult)
 {
+  // This method should never return anything but NS_OK for the benefit of
+  // unwitting consumers.
+  
   *aResult = false;
 
   DownloadState states[] = { nsIDownloadManager::DOWNLOAD_FINISHED,
@@ -1705,23 +1709,24 @@ nsDownloadManager::GetCanCleanUp(bool *aResult)
       "OR state = ? "
       "OR state = ? "
       "OR state = ?"), getter_AddRefs(stmt));
-  NS_ENSURE_SUCCESS(rv, rv);
+  NS_ENSURE_SUCCESS(rv, NS_OK);
   for (PRUint32 i = 0; i < ArrayLength(states); ++i) {
     rv = stmt->BindInt32ByIndex(i, states[i]);
-    NS_ENSURE_SUCCESS(rv, rv);
+    NS_ENSURE_SUCCESS(rv, NS_OK);
   }
 
   bool moreResults; // We don't really care...
   rv = stmt->ExecuteStep(&moreResults);
-  NS_ENSURE_SUCCESS(rv, rv);
+  NS_ENSURE_SUCCESS(rv, NS_OK);
 
   PRInt32 count;
   rv = stmt->GetInt32(0, &count);
+  NS_ENSURE_SUCCESS(rv, NS_OK);
 
   if (count > 0)
     *aResult = true;
 
-  return rv;
+  return NS_OK;
 }
 
 NS_IMETHODIMP
@@ -1937,6 +1942,11 @@ nsDownloadManager::Observe(nsISupports *aSubject,
     nsDownload *dl2 = FindDownload(id);
     if (dl2)
       return CancelDownload(id);
+  } else if (strcmp(aTopic, "profile-before-change") == 0) {
+    mGetIdsForURIStatement->Finalize();
+    mUpdateDownloadStatement->Finalize();
+    mozilla::DebugOnly<nsresult> rv = mDBConn->Close();
+    MOZ_ASSERT(NS_SUCCEEDED(rv));
   } else if (strcmp(aTopic, "quit-application") == 0) {
     // Try to pause all downloads and, if appropriate, mark them as auto-resume
     // unless user has specified that downloads should be canceled
@@ -2254,7 +2264,7 @@ nsDownload::SetState(DownloadState aState)
         }
       }
 
-#if defined(XP_WIN) || defined(XP_MACOSX) || defined(ANDROID)
+#if defined(XP_WIN) || defined(XP_MACOSX) || defined(MOZ_WIDGET_ANDROID)
       nsCOMPtr<nsIFileURL> fileURL = do_QueryInterface(mTarget);
       nsCOMPtr<nsIFile> file;
       nsAutoString path;
@@ -2288,7 +2298,7 @@ nsDownload::SetState(DownloadState aState)
                                                observedObject, NULL, TRUE);
         ::CFRelease(observedObject);
 #endif
-#ifdef ANDROID
+#ifdef MOZ_WIDGET_ANDROID
         nsCOMPtr<nsIMIMEInfo> mimeInfo;
         nsCAutoString contentType;
         GetMIMEInfo(getter_AddRefs(mimeInfo));
@@ -2482,7 +2492,8 @@ nsDownload::OnProgressChange(nsIWebProgress *aWebProgress,
 
 NS_IMETHODIMP
 nsDownload::OnLocationChange(nsIWebProgress *aWebProgress,
-                             nsIRequest *aRequest, nsIURI *aLocation)
+                             nsIRequest *aRequest, nsIURI *aLocation,
+                             PRUint32 aFlags)
 {
   return NS_OK;
 }

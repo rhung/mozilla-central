@@ -41,6 +41,8 @@
 #ifndef LifoAlloc_h__
 #define LifoAlloc_h__
 
+#include "mozilla/Attributes.h"
+
 /*
  * This data structure supports stacky LIFO allocation (mark/release and
  * LifoAllocScope). It does not maintain one contiguous segment; instead, it
@@ -111,9 +113,8 @@ class BumpChunk
     void setNext(BumpChunk *succ) { next_ = succ; }
 
     size_t used() const { return bump - bumpBase(); }
-    size_t sizeOf(JSUsableSizeFun usf) {
-        size_t usable = usf((void*)this);
-        return usable ? usable : limit - headerBase();
+    size_t sizeOfIncludingThis(JSMallocSizeOfFun mallocSizeOf) {
+        return mallocSizeOf(this, limit - headerBase());
     }
 
     void resetBump() {
@@ -182,8 +183,8 @@ class LifoAlloc
     size_t      markCount;
     size_t      defaultChunkSize_;
 
-    void operator=(const LifoAlloc &);
-    LifoAlloc(const LifoAlloc &);
+    void operator=(const LifoAlloc &) MOZ_DELETE;
+    LifoAlloc(const LifoAlloc &) MOZ_DELETE;
 
     /* 
      * Return a BumpChunk that can perform an allocation of at least size |n|
@@ -294,20 +295,21 @@ class LifoAlloc
         return accum;
     }
 
-    /* Get the total size of the arena chunks (including unused space), plus,
-     * if |countMe| is true, the size of the LifoAlloc itself. */
-    size_t sizeOf(JSUsableSizeFun usf, bool countMe) const {
+    /* Get the total size of the arena chunks (including unused space). */
+    size_t sizeOfExcludingThis(JSMallocSizeOfFun mallocSizeOf) const {
         size_t accum = 0;
-        if (countMe) {
-            size_t usable = usf((void*)this);
-            accum += usable ? usable : sizeof(LifoAlloc);
-        }
         BumpChunk *it = first;
         while (it) {
-            accum += it->sizeOf(usf);
+            accum += it->sizeOfIncludingThis(mallocSizeOf);
             it = it->next();
         }
         return accum;
+    }
+
+    /* Like sizeOfExcludingThis(), but includes the size of the LifoAlloc itself. */
+    size_t sizeOfIncludingThis(JSMallocSizeOfFun mallocSizeOf) const {
+        return mallocSizeOf(this, sizeof(LifoAlloc)) +
+               sizeOfExcludingThis(mallocSizeOf);
     }
 
     /* Doesn't perform construction; useful for lazily-initialized POD types. */
@@ -325,7 +327,8 @@ class LifoAlloc
     void *reallocUnaligned(void *origPtr, size_t origSize, size_t incr);
 };
 
-class LifoAllocScope {
+class LifoAllocScope
+{
     LifoAlloc   *lifoAlloc;
     void        *mark;
     bool        shouldRelease;

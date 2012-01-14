@@ -84,7 +84,7 @@
 #include "nsIScrollableFrame.h"
 #include "nsWidgetsCID.h"
 #include "nsCSSAnonBoxes.h"
-#include "nsHTMLContainerFrame.h"
+#include "nsContainerFrame.h"
 #include "nsIDOMDocument.h"
 #include "nsIDOMElement.h"
 #include "nsITheme.h"
@@ -676,7 +676,7 @@ nsBoxFrame::Reflow(nsPresContext*          aPresContext,
 
   // create the layout state
   nsBoxLayoutState state(aPresContext, aReflowState.rendContext,
-                         aReflowState.mReflowDepth);
+                         &aReflowState, aReflowState.mReflowDepth);
 
   nsSize computedSize(aReflowState.ComputedWidth(),aReflowState.ComputedHeight());
 

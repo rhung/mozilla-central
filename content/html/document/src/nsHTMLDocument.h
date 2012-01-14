@@ -135,7 +135,8 @@ public:
                                     nsWrapperCache **aCache,
                                     nsresult *aResult);
 
-  nsIContent *GetBody(nsresult *aResult);
+  nsIContent *GetBody();
+  Element *GetHead() { return GetHeadElement(); }
   already_AddRefed<nsContentList> GetElementsByName(const nsAString & aName)
   {
     return NS_GetFuncStringContentList(this, MatchNameAttribute, nsnull,
@@ -270,9 +271,6 @@ protected:
   static bool TryDefaultCharset(nsIMarkupDocumentViewer* aMarkupDV,
                                   PRInt32& aCharsetSource,
                                   nsACString& aCharset);
-
-  void StartAutodetection(nsIDocShell *aDocShell, nsACString& aCharset,
-                          const char* aCommand);
 
   // Override so we can munge the charset on our wyciwyg channel as needed.
   virtual void SetDocumentCharacterSet(const nsACString& aCharSetID);

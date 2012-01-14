@@ -45,6 +45,8 @@ include $(DEPTH)/config/autoconf.mk
 include $(topsrcdir)/config/rules.mk
 
 _TEST_FILES = \
+		test_outerHTML.html \
+		test_outerHTML.xhtml \
 		497633.html \
 		489127.html \
 		historyframes.html \
@@ -56,6 +58,7 @@ _TEST_FILES = \
 		test_bug631440.html \
 		test_bug653364.html \
 		test_bug629535.html \
+		test_clientRects.html \
 		test_consoleAPI.html \
 		test_domWindowUtils.html \
 		test_domWindowUtils_scrollXY.html \
@@ -70,6 +73,8 @@ _TEST_FILES = \
 		test_windowedhistoryframes.html \
 		test_focusrings.xul \
 		file_moving_xhr.html \
+		test_vibrator.html \
+		test_getContentState.html \
 		$(NULL)
 
 _CHROME_FILES = \

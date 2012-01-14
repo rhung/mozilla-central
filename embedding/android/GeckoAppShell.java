@@ -62,6 +62,8 @@ import android.webkit.MimeTypeMap;
 import android.media.MediaScannerConnection;
 import android.media.MediaScannerConnection.MediaScannerConnectionClient;
 import android.provider.Settings;
+import android.view.accessibility.AccessibilityManager;
+import android.view.accessibility.AccessibilityEvent;
 
 import android.util.*;
 import android.net.Uri;
@@ -70,6 +72,9 @@ import android.net.NetworkInfo;
 
 import android.graphics.drawable.*;
 import android.graphics.Bitmap;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 public class GeckoAppShell
 {
@@ -114,7 +119,9 @@ public class GeckoAppShell
 
     public static native void processNextNativeEvent();
 
-    public static native void notifyBatteryChange(float aLevel, boolean aCharging);
+    public static native void notifyBatteryChange(double aLevel, boolean aCharging, double aRemainingTime);
+
+    public static native void notifySmsReceived(String aSender, String aBody, long aTimestamp);
 
     // A looper thread, accessed by GeckoAppShell.getHandler
     private static class LooperThread extends Thread {
@@ -271,7 +278,7 @@ public class GeckoAppShell
         // The package data lib directory isn't placed in ld.so's
         // search path, so we have to manually load libraries that
         // libxul will depend on.  Not ideal.
-        System.loadLibrary("mozutils");
+        System.loadLibrary("mozglue");
         GeckoApp geckoApp = GeckoApp.mAppContext;
         String homeDir;
         if (Build.VERSION.SDK_INT < 8 ||
@@ -410,8 +417,6 @@ public class GeckoAppShell
         // and go
         GeckoAppShell.nativeRun(combinedArgs);
     }
-
-    private static GeckoEvent mLastDrawEvent;
 
     private static void sendPendingEventsToGecko() {
         try {
@@ -806,6 +811,18 @@ public class GeckoAppShell
             intent.setDataAndType(Uri.parse(aUriSpec), aMimeType);
         } else {
             Uri uri = Uri.parse(aUriSpec);
+            if ("vnd.youtube".equals(uri.getScheme())) {
+                // Special case youtube to fallback to our own player
+                String[] handlers = getHandlersForURL(aUriSpec, aAction);
+                if (handlers.length == 0) {
+                    intent = new Intent(VideoPlayer.VIDEO_ACTION);
+                    intent.setClassName(GeckoApp.mAppContext.getPackageName(),
+                                        "org.mozilla.gecko.VideoPlayer");
+                    intent.setData(uri);
+                    GeckoApp.mAppContext.startActivity(intent);
+                    return true;
+                }
+            }
             if ("sms".equals(uri.getScheme())) {
                 // Have a apecial handling for the SMS, as the message body
                 // is not extracted from the URI automatically
@@ -1041,6 +1058,22 @@ public class GeckoAppShell
             performHapticFeedback(aIsLongPress ?
                                   HapticFeedbackConstants.LONG_PRESS :
                                   HapticFeedbackConstants.VIRTUAL_KEY);
+    }
+
+    private static Vibrator vibrator() {
+        return (Vibrator) GeckoApp.surfaceView.getContext().getSystemService(Context.VIBRATOR_SERVICE);
+    }
+
+    public static void vibrate(long milliseconds) {
+        vibrator().vibrate(milliseconds);
+    }
+
+    public static void vibrate(long[] pattern, int repeat) {
+        vibrator().vibrate(pattern, repeat);
+    }
+
+    public static void cancelVibrate() {
+        vibrator().cancel();
     }
 
     public static void showInputMethodPicker() {
@@ -1343,6 +1376,13 @@ public class GeckoAppShell
             return true;
         }
     }
+
+    public static boolean getAccessibilityEnabled() {
+        AccessibilityManager accessibilityManager =
+            (AccessibilityManager) GeckoApp.mAppContext.getSystemService(Context.ACCESSIBILITY_SERVICE);
+        return accessibilityManager.isEnabled();
+    }
+
     public static void addPluginView(final View view,
                                      final double x, final double y,
                                      final double w, final double h) {
@@ -1604,15 +1644,68 @@ public class GeckoAppShell
         }
     }
 
+    // unused
+    static void checkUriVisited(String uri) {}
+    // unused
+    static void markUriVisited(final String uri) {}
+
+    /*
+     * Battery API related methods.
+     */
     public static void enableBatteryNotifications() {
         GeckoBatteryManager.enableNotifications();
+    }
+
+    public static String handleGeckoMessage(String message) {
+        //        
+        //        {"gecko": {
+        //                "type": "value",
+        //                "event_specific": "value",
+        //                ....
+        try {
+            JSONObject json = new JSONObject(message);
+            final JSONObject geckoObject = json.getJSONObject("gecko");
+            String type = geckoObject.getString("type");
+            
+            if (type.equals("Gecko:Ready")) {
+                onAppShellReady();
+            }
+        } catch (Exception e) {
+            Log.i(LOG_FILE_NAME, "handleGeckoMessage throws " + e);
+        }
+
+        return "";
     }
 
     public static void disableBatteryNotifications() {
         GeckoBatteryManager.disableNotifications();
     }
 
-    public static float[] getCurrentBatteryInformation() {
+    public static double[] getCurrentBatteryInformation() {
         return GeckoBatteryManager.getCurrentInformation();
+    }
+
+    /*
+     * WebSMS related methods.
+     */
+    public static int getNumberOfMessagesForText(String aText) {
+        return GeckoSmsManager.getNumberOfMessagesForText(aText);
+    }
+
+    public static void sendMessage(String aNumber, String aMessage) {
+        GeckoSmsManager.send(aNumber, aMessage);
+    }
+
+    public static boolean isTablet() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.GINGERBREAD) {
+            Configuration config = GeckoApp.mAppContext.getResources().getConfiguration();
+            // xlarge is defined by android as screens larger than 960dp x 720dp
+            // and should include most devices ~7in and up.
+            // http://developer.android.com/guide/practices/screens_support.html
+            if ((config.screenLayout & Configuration.SCREENLAYOUT_SIZE_MASK) >= Configuration.SCREENLAYOUT_SIZE_XLARGE) {
+                return true;
+            }
+        }
+        return false;
     }
 }

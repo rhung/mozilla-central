@@ -52,7 +52,13 @@ EXTRA_PP_COMPONENTS = \
 		ConsoleAPI.manifest \
 		$(NULL)
 
+EXTRA_COMPONENTS = \
+	        Webapps.js \
+	        Webapps.manifest \
+		$(NULL)
+
 EXTRA_JS_MODULES = ConsoleAPIStorage.jsm \
+                Webapps.jsm \
 		$(NULL)
 
 XPIDLSRCS = \
@@ -129,6 +135,10 @@ include $(topsrcdir)/dom/dom-config.mk
 
 ifdef MOZ_JSDEBUGGER
 DEFINES += -DMOZ_JSDEBUGGER
+endif
+
+ifdef MOZ_B2G_RIL
+DEFINES += -DMOZ_B2G_RIL
 endif
 
 include $(topsrcdir)/config/config.mk

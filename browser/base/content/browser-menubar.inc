@@ -533,10 +533,11 @@
                     accesskey="&webDeveloperMenu.accesskey;">
                 <menupopup id="menuWebDeveloperPopup">
                   <menuitem id="webConsole"
+                            type="checkbox"
                             label="&webConsoleCmd.label;"
                             accesskey="&webConsoleCmd.accesskey;"
                             key="key_webConsole"
-                            oncommand="HUDConsoleUI.toggleHUD();"/>
+                            command="Tools:WebConsole"/>
                   <menuitem id="menu_pageinspect"
                             type="checkbox"
                             hidden="true"
@@ -550,6 +551,12 @@
                             accesskey="&scratchpad.accesskey;"
                             key="key_scratchpad"
                             command="Tools:Scratchpad"/>
+                  <menuitem id="menu_styleeditor"
+                            hidden="true"
+                            label="&styleeditor.label;"
+                            accesskey="&styleeditor.accesskey;"
+                            key="key_styleeditor"
+                            command="Tools:StyleEditor"/>
                   <menuitem id="menu_pageSource"
                             accesskey="&pageSourceCmd.accesskey;"
                             label="&pageSourceCmd.label;"

@@ -55,6 +55,7 @@ FormHistory.prototype = {
     QueryInterface   : XPCOMUtils.generateQI([Ci.nsIFormHistory2,
                                               Ci.nsIObserver,
                                               Ci.nsIFrameMessageListener,
+                                              Ci.nsISupportsWeakReference,
                                               ]),
 
     debug          : true,
@@ -124,9 +125,7 @@ FormHistory.prototype = {
 
 
     init : function() {
-        let self = this;
-
-        Services.prefs.addObserver("browser.formfill.", this, false);
+        Services.prefs.addObserver("browser.formfill.", this, true);
 
         this.updatePrefs();
 
@@ -138,8 +137,9 @@ FormHistory.prototype = {
         this.messageManager.addMessageListener("FormHistory:FormSubmitEntries", this);
 
         // Add observers
-        Services.obs.addObserver(function() { self.expireOldEntries() }, "idle-daily", false);
-        Services.obs.addObserver(function() { self.expireOldEntries() }, "formhistory-expire-now", false);
+        Services.obs.addObserver(this, "profile-before-change", true);
+        Services.obs.addObserver(this, "idle-daily", true);
+        Services.obs.addObserver(this, "formhistory-expire-now", true);
     },
 
     /* ---- message listener ---- */
@@ -359,8 +359,6 @@ FormHistory.prototype = {
     },
 
     get dbConnection() {
-        let connection;
-
         // Make sure dbConnection can't be called from now to prevent infinite loops.
         delete FormHistory.prototype.dbConnection;
 
@@ -375,7 +373,7 @@ FormHistory.prototype = {
             this.log("Initialization failed: " + e);
             // If dbInit fails...
             if (e.result == Cr.NS_ERROR_FILE_CORRUPTED) {
-                this.dbCleanup(true);
+                this.dbCleanup();
                 FormHistory.prototype.dbConnection = this.dbOpen();
                 this.dbInit();
             } else {
@@ -395,10 +393,21 @@ FormHistory.prototype = {
 
 
     observe : function (subject, topic, data) {
-        if (topic == "nsPref:changed")
+        switch(topic) {
+        case "nsPref:changed":
             this.updatePrefs();
-        else
+            break;
+        case "idle-daily":
+        case "formhistory-expire-now":
+            this.expireOldEntries();
+            break;
+        case "profile-before-change":
+            this._dbClose();
+            break;
+        default:
             this.log("Oops! Unexpected notification: " + topic);
+            break;
+        }
     },
 
 
@@ -855,6 +864,24 @@ FormHistory.prototype = {
         }
     },
 
+    /**
+     * _dbClose
+     *
+     * Finalize all statements and close the connection.
+     */
+    _dbClose : function FH__dbClose() {
+        for each (let stmt in this.dbStmts) {
+            stmt.finalize();
+        }
+        this.dbStmts = {};
+        if (this.dbConnection !== undefined) {
+            try {
+                this.dbConnection.close();
+            } catch (e) {
+                Components.utils.reportError(e);
+            }
+        }
+    },
 
     /*
      * dbCleanup
@@ -862,25 +889,16 @@ FormHistory.prototype = {
      * Called when database creation fails. Finalizes database statements,
      * closes the database connection, deletes the database file.
      */
-    dbCleanup : function (backup) {
-        this.log("Cleaning up DB file - close & remove & backup=" + backup)
+    dbCleanup : function () {
+        this.log("Cleaning up DB file - close & remove & backup")
 
         // Create backup file
-        if (backup) {
-            let storage = Cc["@mozilla.org/storage/service;1"].
-                          getService(Ci.mozIStorageService);
+        let storage = Cc["@mozilla.org/storage/service;1"].
+                      getService(Ci.mozIStorageService);
+        let backupFile = this.dbFile.leafName + ".corrupt";
+        storage.backupDatabaseFile(this.dbFile, backupFile);
 
-            let backupFile = this.dbFile.leafName + ".corrupt";
-            storage.backupDatabaseFile(this.dbFile, backupFile);
-        }
-
-        // Finalize all statements to free memory, avoid errors later
-        for each (let stmt in this.dbStmts)
-            stmt.finalize();
-        this.dbStmts = [];
-
-        // Close the connection, ignore 'already closed' error
-        try { this.dbConnection.close() } catch(e) {}
+        this._dbClose();
         this.dbFile.remove(false);
     }
 };

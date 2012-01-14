@@ -44,7 +44,6 @@
 
 #include "gfxImageSurface.h"
 #include "gfxWindowsSurface.h"
-#include "gfxTextRunWordCache.h"
 
 #include "nsUnicharUtils.h"
 
@@ -140,9 +139,9 @@ NS_MEMORY_REPORTER_IMPLEMENT(
 // DirectWrite is not available on all platforms, we need to use the function
 // pointer.
 typedef HRESULT (WINAPI*DWriteCreateFactoryFunc)(
-  __in   DWRITE_FACTORY_TYPE factoryType,
-  __in   REFIID iid,
-  __out  IUnknown **factory
+  DWRITE_FACTORY_TYPE factoryType,
+  REFIID iid,
+  IUnknown **factory
 );
 #endif
 
@@ -296,6 +295,11 @@ gfxWindowsPlatform::UpdateRenderMode()
                 reinterpret_cast<IUnknown**>(&factory));
             mDWriteFactory = factory;
             factory->Release();
+
+            if (SUCCEEDED(hr)) {
+                hr = mDWriteFactory->CreateTextAnalyzer(
+                    getter_AddRefs(mDWriteAnalyzer));
+            }
 
             SetupClearTypeParams();
 
@@ -474,17 +478,6 @@ gfxWindowsPlatform::CreateOffscreenSurface(const gfxIntSize& size,
     return surf;
 }
 
-RefPtr<DrawTarget>
-gfxWindowsPlatform::CreateOffscreenDrawTarget(const IntSize& aSize, SurfaceFormat aFormat)
-{
-#ifdef CAIRO_HAS_D2D_SURFACE
-  if (mRenderMode == RENDER_DIRECT2D) {
-      return Factory::CreateDrawTarget(BACKEND_DIRECT2D, aSize, aFormat); 
-  }
-#endif
-  return NULL;
-}
-
 RefPtr<ScaledFont>
 gfxWindowsPlatform::GetScaledFontForFont(gfxFont *aFont)
 {
@@ -500,7 +493,13 @@ gfxWindowsPlatform::GetScaledFontForFont(gfxFont *aFont)
     return scaledFont;
   }
 
-  return NULL;
+  NativeFont nativeFont;
+  nativeFont.mType = NATIVE_FONT_GDI_FONT_FACE;
+  nativeFont.mFont = aFont;
+  RefPtr<ScaledFont> scaledFont =
+    Factory::CreateScaledFontForNativeFont(nativeFont, aFont->GetAdjustedSize());
+
+  return scaledFont;
 }
 
 already_AddRefed<gfxASurface>
@@ -527,6 +526,23 @@ gfxWindowsPlatform::GetThebesSurfaceForDrawTarget(DrawTarget *aTarget)
 #endif
 
   return gfxPlatform::GetThebesSurfaceForDrawTarget(aTarget);
+}
+
+bool
+gfxWindowsPlatform::SupportsAzure(BackendType& aBackend)
+{
+#ifdef CAIRO_HAS_D2D_SURFACE
+  if (mRenderMode == RENDER_DIRECT2D) {
+      aBackend = BACKEND_DIRECT2D;
+      return true;
+  }
+#endif
+  
+  if (Preferences::GetBool("gfx.canvas.azure.prefer-skia", false)) {
+    aBackend = BACKEND_SKIA;
+    return true;
+  }
+  return false;
 }
 
 nsresult
@@ -909,7 +925,6 @@ gfxWindowsPlatform::FontsPrefsChanged(const char *aPref)
         if (fc) {
             fc->Flush();
         }
-        gfxTextRunWordCache::Flush();
     }
 }
 

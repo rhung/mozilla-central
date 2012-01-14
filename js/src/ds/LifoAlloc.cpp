@@ -97,7 +97,10 @@ BumpChunk::tryAllocUnaligned(size_t n)
     if (newBump > limit)
         return NULL;
 
-    JS_ASSERT(canAllocUnaligned(n));
+    if (JS_UNLIKELY(newBump < oldBump))
+        return NULL;
+
+    JS_ASSERT(canAllocUnaligned(n)); /* Ensure consistency between "can" and "try". */
     setBump(newBump);
     return oldBump;
 }
@@ -140,11 +143,10 @@ LifoAlloc::freeUnused()
     }
 
     /* Free all chunks after |latest|. */
-    size_t freed = 0;
-    for (BumpChunk *victim = latest->next(); victim; victim = victim->next()) {
+    for (BumpChunk *victim = latest->next(); victim; victim = victim->next())
         BumpChunk::delete_(victim);
-        freed++;
-    }
+
+    latest->setNext(NULL);
 }
 
 LifoAlloc::BumpChunk *

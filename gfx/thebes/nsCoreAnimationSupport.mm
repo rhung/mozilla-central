@@ -491,26 +491,8 @@ nsresult nsCARenderer::SetupRenderer(void *aCALayer, int aWidth, int aHeight,
     return NS_ERROR_FAILURE;
   }
 
-  // Create a transaction and disable animations
-  // to make the position update instant.
-  [CATransaction begin];
-  NSMutableDictionary *newActions = [[NSMutableDictionary alloc] initWithObjectsAndKeys:[NSNull null], @"onOrderIn",
-                                   [NSNull null], @"onOrderOut",
-                                   [NSNull null], @"sublayers",
-                                   [NSNull null], @"contents",
-                                   [NSNull null], @"position",
-                                   [NSNull null], @"bounds",
-                                   nil];
-  layer.actions = newActions;
-  [newActions release];
-
-  [CATransaction setValue: [NSNumber numberWithFloat:0.0f] forKey: kCATransactionAnimationDuration];
-  [CATransaction setValue: (id) kCFBooleanTrue forKey: kCATransactionDisableActions];
-  [layer setBounds:CGRectMake(0, 0, aWidth, aHeight)];
-  [layer setPosition:CGPointMake(aWidth/2.0, aHeight/2.0)];
   caRenderer.layer = layer;
-  caRenderer.bounds = CGRectMake(0, 0, aWidth, aHeight);
-  [CATransaction commit];
+  SetBounds(aWidth, aHeight);
 
   // We target rendering to a CGImage if no shared IOSurface are given.
   if (!mIOSurface) {
@@ -599,14 +581,7 @@ nsresult nsCARenderer::SetupRenderer(void *aCALayer, int aWidth, int aHeight,
     return NS_ERROR_FAILURE;
   }
 
-  ::glViewport(0.0, 0.0, aWidth, aHeight);
-  ::glMatrixMode(GL_PROJECTION);
-  ::glLoadIdentity();
-  ::glOrtho (0.0, aWidth, 0.0, aHeight, -1, 1);
-
-  // Render upside down to speed up CGContextDrawImage
-  ::glTranslatef(0.0f, aHeight, 0.0);
-  ::glScalef(1.0, -1.0, 1.0);
+  SetViewport(aWidth, aHeight);
 
   GLenum result = ::glGetError();
   if (result != GL_NO_ERROR) {
@@ -625,21 +600,83 @@ nsresult nsCARenderer::SetupRenderer(void *aCALayer, int aWidth, int aHeight,
   return NS_OK;
 }
 
+void nsCARenderer::SetBounds(int aWidth, int aHeight) {
+  CARenderer* caRenderer = (CARenderer*)mCARenderer;
+  CALayer* layer = [mCARenderer layer];
+
+  // Create a transaction and disable animations
+  // to make the position update instant.
+  [CATransaction begin];
+  NSMutableDictionary *newActions = [[NSMutableDictionary alloc] initWithObjectsAndKeys:[NSNull null], @"onOrderIn",
+                                   [NSNull null], @"onOrderOut",
+                                   [NSNull null], @"sublayers",
+                                   [NSNull null], @"contents",
+                                   [NSNull null], @"position",
+                                   [NSNull null], @"bounds",
+                                   nil];
+  layer.actions = newActions;
+  [newActions release];
+
+  [CATransaction setValue: [NSNumber numberWithFloat:0.0f] forKey: kCATransactionAnimationDuration];
+  [CATransaction setValue: (id) kCFBooleanTrue forKey: kCATransactionDisableActions];
+  [layer setBounds:CGRectMake(0, 0, aWidth, aHeight)];
+  [layer setPosition:CGPointMake(aWidth/2.0, aHeight/2.0)];
+  caRenderer.bounds = CGRectMake(0, 0, aWidth, aHeight);
+  [CATransaction commit];
+
+}
+
+void nsCARenderer::SetViewport(int aWidth, int aHeight) {
+  ::glViewport(0.0, 0.0, aWidth, aHeight);
+  ::glMatrixMode(GL_PROJECTION);
+  ::glLoadIdentity();
+  ::glOrtho (0.0, aWidth, 0.0, aHeight, -1, 1);
+
+  // Render upside down to speed up CGContextDrawImage
+  ::glTranslatef(0.0f, aHeight, 0.0);
+  ::glScalef(1.0, -1.0, 1.0);
+}
+
 void nsCARenderer::AttachIOSurface(nsRefPtr<nsIOSurface> aSurface) {
-  if (mIOSurface && 
+  if (mIOSurface &&
       aSurface->GetIOSurfaceID() == mIOSurface->GetIOSurfaceID()) {
     // This object isn't needed since we already have a
     // handle to the same io surface.
     aSurface = nsnull;
     return;
   }
-  if (mCARenderer) {
-    // We are attaching a larger IOSurface, we need to
-    // resize our elements.
-    Destroy(); 
-  }
 
   mIOSurface = aSurface;
+
+  // Update the framebuffer and viewport
+  if (mCARenderer) {
+    CARenderer* caRenderer = (CARenderer*)mCARenderer;
+    int width = caRenderer.bounds.size.width;
+    int height = caRenderer.bounds.size.height;
+
+    CGLContextObj oldContext = ::CGLGetCurrentContext();
+    ::CGLSetCurrentContext(mOpenGLContext);
+    ::glBindTexture(GL_TEXTURE_RECTANGLE_ARB, mIOTexture);
+    nsIOSurfaceLib::CGLTexImageIOSurface2D(mOpenGLContext, GL_TEXTURE_RECTANGLE_ARB,
+                                           GL_RGBA, mIOSurface->GetWidth(), mIOSurface->GetHeight(),
+                                           GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV,
+                                           mIOSurface->mIOSurfacePtr, 0);
+    ::glBindTexture(GL_TEXTURE_RECTANGLE_ARB, 0);
+
+    // Rebind the FBO to make it live
+    ::glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, mFBO);
+
+    if (mIOSurface->GetWidth() != width || mIOSurface->GetHeight() != height) {
+      width = mIOSurface->GetWidth();
+      height = mIOSurface->GetHeight();
+      SetBounds(width, height);
+      SetViewport(width, height);
+    }
+
+    if (oldContext) {
+      ::CGLSetCurrentContext(oldContext);
+    }
+  }
 }
 
 IOSurfaceID nsCARenderer::GetIOSurfaceID() {
@@ -743,14 +780,6 @@ nsresult nsCARenderer::DrawSurfaceToCGContext(CGContextRef aContext,
   size_t bytesPerRow = surf->GetBytesPerRow();
   size_t ioWidth = surf->GetWidth();
   size_t ioHeight = surf->GetHeight();
-  void* ioData = surf->GetBaseAddress();
-  CGDataProviderRef dataProvider = ::CGDataProviderCreateWithData(ioData,
-                                      ioData, ioHeight*(bytesPerRow)*4, 
-                                      NULL); //No release callback 
-  if (!dataProvider) {
-    surf->Unlock();
-    return NS_ERROR_FAILURE;
-  }
 
   // We get rendering glitches if we use a width/height that falls
   // outside of the IOSurface.
@@ -761,6 +790,16 @@ nsresult nsCARenderer::DrawSurfaceToCGContext(CGContextRef aContext,
 
   if (aX < 0 || aX >= ioWidth ||
       aY < 0 || aY >= ioHeight) {
+    surf->Unlock();
+    return NS_ERROR_FAILURE;
+  }
+
+  void* ioData = surf->GetBaseAddress();
+  CGDataProviderRef dataProvider = ::CGDataProviderCreateWithData(ioData,
+                                      ioData, ioHeight*(bytesPerRow)*4, 
+                                      NULL); //No release callback 
+  if (!dataProvider) {
+    surf->Unlock();
     return NS_ERROR_FAILURE;
   }
 
@@ -822,10 +861,12 @@ void nsCARenderer::SaveToDisk(nsIOSurface *surf) {
     return;
   }
 
+  CGColorSpaceRef colorSpace = CreateSystemColorSpace();
   CGImageRef cgImage = ::CGImageCreate(ioWidth, ioHeight, 8, 32, bytesPerRow,
-              CreateSystemColorSpace(), kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host,
+              colorSpace, kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host,
               dataProvider, NULL, true, kCGRenderingIntentDefault);
   ::CGDataProviderRelease(dataProvider);
+  ::CGColorSpaceRelease(colorSpace);
   if (!cgImage) {
     surf->Unlock();
     return;
@@ -839,16 +880,19 @@ void nsCARenderer::SaveToDisk(nsIOSurface *surf) {
 
   printf("Exporting: %s\n", cstr);
   CFURLRef url = ::CFURLCreateWithString( NULL, cfStr, NULL);
+  ::CFRelease(cfStr);
 
   CFStringRef type = kUTTypePNG;
-  size_t count = 1; 
+  size_t count = 1;
   CFDictionaryRef options = NULL;
   CGImageDestinationRef dest = ::CGImageDestinationCreateWithURL(url, type, count, options);
+  ::CFRelease(url);
 
   ::CGImageDestinationAddImage(dest, cgImage, NULL);
 
   ::CGImageDestinationFinalize(dest);
   ::CFRelease(dest);
+  ::CGImageRelease(cgImage);
 
   surf->Unlock();
 

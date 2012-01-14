@@ -392,7 +392,7 @@ interface nsIXPCFunctionThisTranslator : nsISupports
     { 0xbd, 0xd6, 0x0, 0x0, 0x64, 0x65, 0x73, 0x74 } }
 %}
 
-[uuid(a995b541-d514-43f1-ac0e-f49746c0b063)]
+[uuid(241e6db3-e018-4d99-b976-c782a05f9c77)]
 interface nsIXPConnect : nsISupports
 {
 %{ C++
@@ -659,17 +659,6 @@ interface nsIXPConnect : nsISupports
     nsIVariant JSToVariant(in JSContextPtr ctx, in jsval value);
 
     /**
-     * Restore an old prototype for wrapped natives of type
-     * aClassInfo. This should be used only when restoring an old
-     * scope into a state close to where it was prior to
-     * being reinitialized.
-     */
-    void restoreWrappedNativePrototype(in JSContextPtr aJSContext,
-                                       in JSObjectPtr  aScope,
-                                       in nsIClassInfo aClassInfo,
-                                       in nsIXPConnectJSObjectHolder aPrototype);
-
-    /**
      * Create a sandbox for evaluating code in isolation using
      * evalInSandboxObject().
      *
@@ -735,7 +724,7 @@ interface nsIXPConnect : nsISupports
     /**
      * Trigger a JS garbage collection.
      */
-    void GarbageCollect();
+    void GarbageCollect(in boolean shrinkingGC);
 
     /**
      * Define quick stubs on the given object, @a proto.
@@ -795,5 +784,6 @@ interface nsIXPConnect : nsISupports
      * This method will turn debug mode on or off when the context 
      * stack reaches zero length.
      */
-    [noscript] void setDebugModeWhenPossible(in boolean mode);
+    [noscript] void setDebugModeWhenPossible(in boolean mode,
+                                             in boolean allowSyncDisable);
 };

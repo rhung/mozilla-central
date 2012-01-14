@@ -50,6 +50,9 @@ var Cu = Components.utils;
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 
+XPCOMUtils.defineLazyModuleGetter(this, "PluralForm",
+                                  "resource://gre/modules/PluralForm.jsm");
+
 XPCOMUtils.defineLazyGetter(this, "PlacesUtils", function() {
   Cu.import("resource://gre/modules/PlacesUtils.jsm");
   return PlacesUtils;
@@ -77,6 +80,31 @@ var PlacesUIUtils = {
 
   getFormattedString: function PUIU_getFormattedString(key, params) {
     return bundle.formatStringFromName(key, params, params.length);
+  },
+
+  /**
+   * Get a localized plural string for the specified key name and numeric value
+   * substituting parameters.
+   *
+   * @param   aKey
+   *          String, key for looking up the localized string in the bundle
+   * @param   aNumber
+   *          Number based on which the final localized form is looked up
+   * @param   aParams
+   *          Array whose items will substitute #1, #2,... #n parameters
+   *          in the string.
+   *
+   * @see https://developer.mozilla.org/en/Localization_and_Plurals
+   * @return The localized plural string.
+   */
+  getPluralString: function PUIU_getPluralString(aKey, aNumber, aParams) {
+    let str = PluralForm.get(aNumber, bundle.GetStringFromName(aKey));
+
+    // Replace #1 with aParams[0], #2 with aParams[1], and so on.
+    return str.replace(/\#(\d+)/g, function (matchedId, matchedNumber) {
+      let param = aParams[parseInt(matchedNumber, 10) - 1];
+      return param !== undefined ? param : matchedId;
+    });
   },
 
   getString: function PUIU_getString(key) {
@@ -340,29 +368,36 @@ var PlacesUIUtils = {
    *        See documentation at the top of bookmarkProperties.js
    * @param aWindow
    *        Owner window for the new dialog.
-   * @param aMinimalUI [optional]
-   *        Whether to open the dialog in "minimal ui" mode. Do not pass this
-   *        for new callers.  It'll be removed in a future release.
+   * @param aResizable [optional]
+   *        Whether the dialog is allowed to resize.  Do not pass this for new
+   *        callers since it's deprecated.  It'll be removed in future releases.
    *
    * @see documentation at the top of bookmarkProperties.js
    * @return true if any transaction has been performed, false otherwise.
    */
   showBookmarkDialog:
-  function PUIU_showBookmarkDialog(aInfo, aParentWindow, aMinimalUI) {
+  function PUIU_showBookmarkDialog(aInfo, aParentWindow, aResizable) {
+    // This is a compatibility shim for add-ons.  It will warn in the Error
+    // Console when used.
     if (!aParentWindow) {
       aParentWindow = this._getWindow(null);
     }
 
     // Preserve size attributes differently based on the fact the dialog has
-    // a folder picker or not.
-    let minimalUI = "hiddenRows" in aInfo &&
-                    aInfo.hiddenRows.indexOf("folderPicker") != -1;
-    let dialogURL = aMinimalUI ?
+    // a folder picker or not.  If the picker is visible, the dialog should
+    // be resizable since it may not show enough content for the folders
+    // hierarchy.
+    let hasFolderPicker = !("hiddenRows" in aInfo) ||
+                          aInfo.hiddenRows.indexOf("folderPicker") == -1;
+    let resizable = aResizable !== undefined ? aResizable : hasFolderPicker;
+    // Use a different chrome url, since this allows to persist different sizes,
+    // based on resizability of the dialog.
+    let dialogURL = resizable ?
                     "chrome://browser/content/places/bookmarkProperties2.xul" :
                     "chrome://browser/content/places/bookmarkProperties.xul";
 
     let features =
-      "centerscreen,chrome,modal,resizable=" + (aMinimalUI ? "yes" : "no");
+      "centerscreen,chrome,modal,resizable=" + (resizable ? "yes" : "no");
 
     aParentWindow.openDialog(dialogURL, "",  features, aInfo);
     return ("performed" in aInfo && aInfo.performed);
@@ -694,7 +729,9 @@ var PlacesUIUtils = {
           }
         }
       }
-      aWindow.openUILinkIn(aNode.uri, aWhere);
+      aWindow.openUILinkIn(aNode.uri, aWhere, {
+        inBackground: Services.prefs.getBoolPref("browser.tabs.loadBookmarksInBackground")
+      });
     }
   },
 
@@ -712,7 +749,7 @@ var PlacesUIUtils = {
     return aUrlString.substr(0, aUrlString.indexOf(":"));
   },
 
-  getBestTitle: function PUIU_getBestTitle(aNode) {
+  getBestTitle: function PUIU_getBestTitle(aNode, aDoNotCutTitle) {
     var title;
     if (!aNode.title && PlacesUtils.uriTypes.indexOf(aNode.type) != -1) {
       // if node title is empty, try to set the label using host and filename
@@ -722,9 +759,13 @@ var PlacesUIUtils = {
         var host = uri.host;
         var fileName = uri.QueryInterface(Ci.nsIURL).fileName;
         // if fileName is empty, use path to distinguish labels
-        title = host + (fileName ?
-                        (host ? "/" + this.ellipsis + "/" : "") + fileName :
-                        uri.path);
+        if (aDoNotCutTitle) {
+          title = host + uri.path;
+        } else {
+          title = host + (fileName ?
+                           (host ? "/" + this.ellipsis + "/" : "") + fileName :
+                           uri.path);
+        }
       }
       catch (e) {
         // Use (no title) for non-standard URIs (data:, javascript:, ...)

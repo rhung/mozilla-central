@@ -27,6 +27,7 @@
 #  Alexander J. Vincent <ajvincent@gmail.com>
 #  Dão Gottwald <dao@mozilla.com>
 #  Robert Strong <robert.bugzilla@gmail.com>
+#  Brian R. Bondy <netzen@gmail.com>
 #
 # Alternatively, the contents of this file may be used under the terms of
 # either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -46,6 +47,7 @@ Components.utils.import("resource://gre/modules/XPCOMUtils.jsm");
 Components.utils.import("resource://gre/modules/FileUtils.jsm");
 Components.utils.import("resource://gre/modules/AddonManager.jsm");
 Components.utils.import("resource://gre/modules/Services.jsm");
+Components.utils.import("resource://gre/modules/ctypes.jsm")
 
 const Cc = Components.classes;
 const Ci = Components.interfaces;
@@ -80,10 +82,15 @@ const PREF_APP_UPDATE_SILENT              = "app.update.silent";
 const PREF_APP_UPDATE_URL                 = "app.update.url";
 const PREF_APP_UPDATE_URL_DETAILS         = "app.update.url.details";
 const PREF_APP_UPDATE_URL_OVERRIDE        = "app.update.url.override";
+const PREF_APP_UPDATE_SERVICE_ENABLED     = "app.update.service.enabled";
+const PREF_APP_UPDATE_SERVICE_ERRORS      = "app.update.service.errors";
+const PREF_APP_UPDATE_SERVICE_MAX_ERRORS  = "app.update.service.maxErrors";
 
 const PREF_PARTNER_BRANCH                 = "app.partner.";
 const PREF_APP_DISTRIBUTION               = "distribution.id";
 const PREF_APP_DISTRIBUTION_VERSION       = "distribution.version";
+
+const PREF_EM_HOTFIX_ID                   = "extensions.hotfix.id";
 
 const URI_UPDATE_PROMPT_DIALOG  = "chrome://mozapps/content/update/updates.xul";
 const URI_UPDATE_HISTORY_DIALOG = "chrome://mozapps/content/update/history.xul";
@@ -126,6 +133,7 @@ const FILE_UPDATE_LOCALE  = "update.locale";
 const STATE_NONE            = "null";
 const STATE_DOWNLOADING     = "downloading";
 const STATE_PENDING         = "pending";
+const STATE_PENDING_SVC     = "pending-service";
 const STATE_APPLYING        = "applying";
 const STATE_SUCCEEDED       = "succeeded";
 const STATE_DOWNLOAD_FAILED = "download-failed";
@@ -133,7 +141,15 @@ const STATE_FAILED          = "failed";
 
 // From updater/errors.h:
 const WRITE_ERROR        = 7;
+const UNEXPECTED_ERROR   = 8;
 const ELEVATION_CANCELED = 9;
+const SERVICE_UPDATER_COULD_NOT_BE_STARTED = 16000;
+const SERVICE_NOT_ENOUGH_COMMAND_LINE_ARGS = 16001;
+const SERVICE_UPDATER_SIGN_ERROR           = 16002;
+const SERVICE_UPDATER_COMPARE_ERROR        = 16003;
+const SERVICE_UPDATER_IDENTITY_ERROR       = 16004;
+const SERVICE_STILL_APPLYING_ON_SUCCESS    = 16005;
+const SERVICE_STILL_APPLYING_ON_FAILURE    = 16006;
 
 const CERT_ATTR_CHECK_FAILED_NO_UPDATE  = 100;
 const CERT_ATTR_CHECK_FAILED_HAS_UPDATE = 101;
@@ -144,6 +160,10 @@ const DOWNLOAD_BACKGROUND_INTERVAL  = 600;    // seconds
 const DOWNLOAD_FOREGROUND_INTERVAL  = 0;
 
 const UPDATE_WINDOW_NAME      = "Update:Wizard";
+
+// The number of consecutive failures when updating using the service before
+// setting the app.update.service.enabled preference to false.
+const DEFAULT_SERVICE_MAX_ERRORS = 10;
 
 var gLocale     = null;
 
@@ -198,6 +218,113 @@ XPCOMUtils.defineLazyGetter(this, "gOSVersion", function aus_gOSVersion() {
   }
 
   if (osVersion) {
+#ifdef XP_WIN
+    const BYTE = ctypes.uint8_t;
+    const WORD = ctypes.uint16_t;
+    const DWORD = ctypes.uint32_t;
+    const WCHAR = ctypes.jschar;
+    const BOOL = ctypes.int;
+
+    // This structure is described at:
+    // http://msdn.microsoft.com/en-us/library/ms724833%28v=vs.85%29.aspx
+    const SZCSDVERSIONLENGTH = 128;
+    const OSVERSIONINFOEXW = new ctypes.StructType('OSVERSIONINFOEXW',
+        [
+        {dwOSVersionInfoSize: DWORD},
+        {dwMajorVersion: DWORD},
+        {dwMinorVersion: DWORD},
+        {dwBuildNumber: DWORD},
+        {dwPlatformId: DWORD},
+        {szCSDVersion: ctypes.ArrayType(WCHAR, SZCSDVERSIONLENGTH)},
+        {wServicePackMajor: WORD},
+        {wServicePackMinor: WORD},
+        {wSuiteMask: WORD},
+        {wProductType: BYTE},
+        {wReserved: BYTE}
+        ]);
+
+    // This structure is described at:
+    // http://msdn.microsoft.com/en-us/library/ms724958%28v=vs.85%29.aspx
+    const SYSTEM_INFO = new ctypes.StructType('SYSTEM_INFO',
+        [
+        {wProcessorArchitecture: WORD},
+        {wReserved: WORD},
+        {dwPageSize: DWORD},
+        {lpMinimumApplicationAddress: ctypes.voidptr_t},
+        {lpMaximumApplicationAddress: ctypes.voidptr_t},
+        {dwActiveProcessorMask: DWORD.ptr},
+        {dwNumberOfProcessors: DWORD},
+        {dwProcessorType: DWORD},
+        {dwAllocationGranularity: DWORD},
+        {wProcessorLevel: WORD},
+        {wProcessorRevision: WORD}
+        ]);
+
+    let kernel32 = false;
+    try {
+      kernel32 = ctypes.open("Kernel32");
+    } catch (e) {
+      LOG("gOSVersion - Unable to open kernel32! " + e);
+      osVersion += ".unknown (unknown)";
+    }
+
+    if(kernel32) {
+      try {
+        // Get Service pack info
+        try {
+          let GetVersionEx = kernel32.declare("GetVersionExW",
+                                              ctypes.default_abi,
+                                              BOOL,
+                                              OSVERSIONINFOEXW.ptr);
+          let winVer = OSVERSIONINFOEXW();
+          winVer.dwOSVersionInfoSize = OSVERSIONINFOEXW.size;
+
+          if(0 !== GetVersionEx(winVer.address())) {
+            osVersion += "." + winVer.wServicePackMajor
+                      +  "." + winVer.wServicePackMinor;
+          } else {
+            LOG("gOSVersion - Unknown failure in GetVersionEX (returned 0)");
+            osVersion += ".unknown";
+          }
+        } catch (e) {
+          LOG("gOSVersion - error getting service pack information. Exception: " + e);
+          osVersion += ".unknown";
+        }
+
+        // Get processor architecture
+        let arch = "unknown";
+        try {
+          let GetNativeSystemInfo = kernel32.declare("GetNativeSystemInfo",
+                                                     ctypes.default_abi,
+                                                     ctypes.void_t,
+                                                     SYSTEM_INFO.ptr);
+          let sysInfo = SYSTEM_INFO();
+          // Default to unknown
+          sysInfo.wProcessorArchitecture = 0xffff;
+
+          GetNativeSystemInfo(sysInfo.address());
+          switch(sysInfo.wProcessorArchitecture) {
+            case 9:
+              arch = "x64";
+              break;
+            case 6:
+              arch = "IA64";
+              break;
+            case 0:
+              arch = "x86";
+              break;
+          }
+        } catch (e) {
+          LOG("gOSVersion - error getting processor architecture.  Exception: " + e);
+        } finally {
+          osVersion += " (" + arch + ")";
+        }
+      } finally {
+        kernel32.close();
+      }
+    }
+#endif
+
     try {
       osVersion += " (" + sysInfo.getProperty("secondaryLibrary") + ")";
     }
@@ -350,7 +477,7 @@ function LOG(string) {
 #  @param   defaultValue
 #           The default value to return in the event the preference has
 #           no setting
-#  @returns The value of the preference, or undefined if there was no
+#  @return  The value of the preference, or undefined if there was no
 #           user or default value.
  */
 function getPref(func, preference, defaultValue) {
@@ -419,7 +546,7 @@ function getUpdateFile(pathArray) {
  * @param   defaultCode
  *          The default code to look up should human readable status text
  *          not exist for |code|
- * @returns A human readable status text string
+ * @return  A human readable status text string
  */
 function getStatusTextFromCode(code, defaultCode) {
   var reason;
@@ -439,7 +566,7 @@ function getStatusTextFromCode(code, defaultCode) {
 
 /**
  * Get the Active Updates directory
- * @returns The active updates directory, as a nsIFile object
+ * @return The active updates directory, as a nsIFile object
  */
 function getUpdatesDir() {
   // Right now, we only support downloading one patch at a time, so we always
@@ -452,7 +579,7 @@ function getUpdatesDir() {
  * directory.
  * @param   dir
  *          The dir to look for an update.status file in
- * @returns The status value of the update.
+ * @return  The status value of the update.
  */
 function readStatusFile(dir) {
   var statusFile = dir.clone();
@@ -476,6 +603,22 @@ function writeStatusFile(dir, state) {
   var statusFile = dir.clone();
   statusFile.append(FILE_UPDATE_STATUS);
   writeStringToFile(statusFile, state);
+}
+
+/**
+ * Determines if the service should be used to attempt an update
+ * or not.  For now this is only when PREF_APP_UPDATE_SERVICE_ENABLED
+ * is true and we have Firefox.
+ *
+ * @return  true if the service should be used for updates.
+ */
+function shouldUseService() {
+#ifdef MOZ_MAINTENANCE_SERVICE
+  return getPref("getBoolPref", 
+                 PREF_APP_UPDATE_SERVICE_ENABLED, false);
+#else
+  return false;
+#endif
 }
 
 /**
@@ -582,17 +725,22 @@ function getLocale() {
   if (gLocale)
     return gLocale;
 
-  var localeFile = FileUtils.getFile(KEY_APPDIR, [FILE_UPDATE_LOCALE]);
-  if (!localeFile.exists())
-    localeFile = FileUtils.getFile(KEY_GRED, [FILE_UPDATE_LOCALE]);
+  for each (res in ['app', 'gre']) {
+    var channel = Services.io.newChannel("resource://" + res + "/" + FILE_UPDATE_LOCALE, null, null);
+    try {
+      var inputStream = channel.open();
+      gLocale = readStringFromInputStream(inputStream);
+    } catch(e) {}
+    if (gLocale)
+      break;
+  }
 
-  if (!localeFile.exists())
+  if (!gLocale)
     throw Components.Exception(FILE_UPDATE_LOCALE + " file doesn't exist in " +
                                "either the " + KEY_APPDIR + " or " + KEY_GRED +
                                " directories", Cr.NS_ERROR_FILE_NOT_FOUND);
 
-  gLocale = readStringFromFile(localeFile);
-  LOG("getLocale - getting locale from file: " + localeFile.path +
+  LOG("getLocale - getting locale from file: " + channel.originalURI.spec +
       ", locale: " + gLocale);
   return gLocale;
 }
@@ -698,6 +846,17 @@ function writeStringToFile(file, text) {
   FileUtils.closeSafeFileOutputStream(fos);
 }
 
+function readStringFromInputStream(inputStream) {
+  var sis = Cc["@mozilla.org/scriptableinputstream;1"].
+            createInstance(Ci.nsIScriptableInputStream);
+  sis.init(inputStream);
+  var text = sis.read(sis.available());
+  sis.close();
+  if (text[text.length - 1] == "\n")
+    text = text.slice(0, -1);
+  return text;
+}
+
 /**
  * Reads a string of text from a file.  A trailing newline will be removed
  * before the result is returned.  This function only works with ASCII text.
@@ -710,14 +869,7 @@ function readStringFromFile(file) {
   var fis = Cc["@mozilla.org/network/file-input-stream;1"].
             createInstance(Ci.nsIFileInputStream);
   fis.init(file, FileUtils.MODE_RDONLY, FileUtils.PERMS_FILE, 0);
-  var sis = Cc["@mozilla.org/scriptableinputstream;1"].
-            createInstance(Ci.nsIScriptableInputStream);
-  sis.init(fis);
-  var text = sis.read(sis.available());
-  sis.close();
-  if (text[text.length - 1] == "\n")
-    text = text.slice(0, -1);
-  return text;
+  return readStringFromInputStream(fis);
 }
 
 /**
@@ -1246,6 +1398,7 @@ UpdateService.prototype = {
                    createInstance(Ci.nsIUpdatePrompt);
 
     update.state = status;
+    this._submitTelemetryPing(status);
     if (status == STATE_SUCCEEDED) {
       update.statusText = gUpdateBundle.GetStringFromName("installSuccess");
 
@@ -1278,7 +1431,37 @@ UpdateService.prototype = {
           writeStatusFile(getUpdatesDir(), update.state = STATE_PENDING);
           return;
         }
-        else if (update.errorCode == ELEVATION_CANCELED) {
+
+        if (update.errorCode == ELEVATION_CANCELED) {
+          writeStatusFile(getUpdatesDir(), update.state = STATE_PENDING);
+          return;
+        }
+
+        if (update.errorCode == SERVICE_UPDATER_COULD_NOT_BE_STARTED ||
+            update.errorCode == SERVICE_NOT_ENOUGH_COMMAND_LINE_ARGS ||
+            update.errorCode == SERVICE_UPDATER_SIGN_ERROR ||
+            update.errorCode == SERVICE_UPDATER_COMPARE_ERROR ||
+            update.errorCode == SERVICE_UPDATER_IDENTITY_ERROR ||
+            update.errorCode == SERVICE_STILL_APPLYING_ON_SUCCESS ||
+            update.errorCode == SERVICE_STILL_APPLYING_ON_FAILURE) {
+          var failCount = getPref("getIntPref", 
+                                  PREF_APP_UPDATE_SERVICE_ERRORS, 0);
+          var maxFail = getPref("getIntPref", 
+                                PREF_APP_UPDATE_SERVICE_MAX_ERRORS, 
+                                DEFAULT_SERVICE_MAX_ERRORS);
+
+          // As a safety, when the service reaches maximum failures, it will
+          // disable itself and fallback to using the normal update mechanism
+          // without the service.
+          if (failCount >= maxFail) {
+            Services.prefs.setBoolPref(PREF_APP_UPDATE_SERVICE_ENABLED, false);
+            Services.prefs.clearUserPref(PREF_APP_UPDATE_SERVICE_ERRORS);
+          } else {
+            failCount++;
+            Services.prefs.setIntPref(PREF_APP_UPDATE_SERVICE_ERRORS, 
+                                      failCount);
+          }
+
           writeStatusFile(getUpdatesDir(), update.state = STATE_PENDING);
           return;
         }
@@ -1306,6 +1489,31 @@ UpdateService.prototype = {
       update.QueryInterface(Ci.nsIWritablePropertyBag);
       update.setProperty("patchingFailed", oldType);
       prompter.showUpdateError(update);
+    }
+  },
+
+  /**
+   * Submit the results of applying the update via telemetry.
+   *
+   * @param  status
+   *         The status of the update as read from the update.status file
+   */
+  _submitTelemetryPing: function AUS__submitTelemetryPing(status) {
+    try {
+      let parts = status.split(":");
+      if ((parts.length == 1 && status != STATE_SUCCEEDED) ||
+          (parts.length > 1  && parts[0] != STATE_FAILED)) {
+        // we only want to report success or failure
+        return;
+      }
+      let result = 0; // 0 means success
+      if (parts.length > 1) {
+        result = parseInt(parts[1]) || UNEXPECTED_ERROR;
+      }
+      Services.telemetry.getHistogramById("UPDATE_STATUS").add(result);
+    } catch(e) {
+      // Don't allow any exception to be propagated.
+      Components.utils.reportError(e);
     }
   },
 
@@ -1376,7 +1584,7 @@ UpdateService.prototype = {
    * be offered.
    * @param   updates
    *          An array of available nsIUpdate items
-   * @returns The nsIUpdate to offer.
+   * @return  The nsIUpdate to offer.
    */
   selectUpdate: function AUS_selectUpdate(updates) {
     if (updates.length == 0)
@@ -1549,6 +1757,11 @@ UpdateService.prototype = {
   },
 
   _checkAddonCompatibility: function AUS__checkAddonCompatibility() {
+    try {
+      var hotfixID = Services.prefs.getCharPref(PREF_EM_HOTFIX_ID);
+    }
+    catch (e) { }
+
     // Get all the installed add-ons
     var self = this;
     AddonManager.getAllAddons(function(addons) {
@@ -1573,9 +1786,10 @@ UpdateService.prototype = {
         // incompatible. If an addon's type equals plugin it is skipped since
         // checking plugins compatibility information isn't supported and
         // getting the scope property of a plugin breaks in some environments
-        // (see bug 566787).
+        // (see bug 566787). The hotfix add-on is also ignored as it shouldn't
+        // block the user from upgrading.
         try {
-          if (addon.type != "plugin" &&
+          if (addon.type != "plugin" && addon.id != hotfixID &&
               !addon.appDisabled && !addon.userDisabled &&
               addon.scope != AddonManager.SCOPE_APPLICATION &&
               addon.isCompatible &&
@@ -1859,7 +2073,7 @@ UpdateManager.prototype = {
    * Loads an updates.xml formatted file into an array of nsIUpdate items.
    * @param   file
    *          A nsIFile for the updates.xml file
-   * @returns The array of nsIUpdate items held in the file.
+   * @return  The array of nsIUpdate items held in the file.
    */
   _loadXMLFileIntoArray: function UM__loadXMLFileIntoArray(file) {
     if (!file.exists()) {
@@ -2043,7 +2257,7 @@ UpdateManager.prototype = {
       for (let i = updates.length - 1; i >= 0; --i) {
         let state = updates[i].state;
         if (state == STATE_NONE || state == STATE_DOWNLOADING ||
-            state == STATE_PENDING) {
+            state == STATE_PENDING || state == STATE_PENDING_SVC) {
           updates.splice(i, 1);
         }
       }
@@ -2242,24 +2456,8 @@ Checker.prototype = {
     var prefs = Services.prefs;
     var certs = null;
     if (!prefs.prefHasUserValue(PREF_APP_UPDATE_URL_OVERRIDE) &&
-        getPref("getBoolPref", PREF_APP_UPDATE_CERT_CHECKATTRS, true) &&
-        prefs.getBranch(PREF_APP_UPDATE_CERTS_BRANCH).getChildList("").length) {
-      certs = [];
-      let counter = 1;
-      while (true) {
-        let prefBranchCert = prefs.getBranch(PREF_APP_UPDATE_CERTS_BRANCH +
-                                             counter + ".");
-        let prefCertAttrs = prefBranchCert.getChildList("");
-        if (prefCertAttrs.length == 0)
-          break;
-
-        let certAttrs = {};
-        for each (let prefCertAttr in prefCertAttrs)
-          certAttrs[prefCertAttr] = prefBranchCert.getCharPref(prefCertAttr);
-
-        certs.push(certAttrs);
-        counter++;
-      }
+        getPref("getBoolPref", PREF_APP_UPDATE_CERT_CHECKATTRS, true)) {
+      certs = gCertUtils.readCertPrefs(PREF_APP_UPDATE_CERTS_BRANCH);
     }
 
     try {
@@ -2394,7 +2592,8 @@ Downloader.prototype = {
    * Whether or not a patch has been downloaded and staged for installation.
    */
   get patchIsStaged() {
-    return readStatusFile(getUpdatesDir()) == STATE_PENDING;
+    var readState = readStatusFile(getUpdatesDir()); 
+    return readState == STATE_PENDING || readState == STATE_PENDING_SVC;
   },
 
   /**
@@ -2446,7 +2645,7 @@ Downloader.prototype = {
    *          A nsIUpdate object to select a patch from
    * @param   updateDir
    *          A nsIFile representing the update directory
-   * @returns A nsIUpdatePatch object to download
+   * @return  A nsIUpdatePatch object to download
    */
   _selectPatch: function Downloader__selectPatch(update, updateDir) {
     // Given an update to download, we will always try to download the patch
@@ -2456,7 +2655,7 @@ Downloader.prototype = {
      * Return the first UpdatePatch with the given type.
      * @param   type
      *          The type of the patch ("complete" or "partial")
-     * @returns A nsIUpdatePatch object matching the type specified
+     * @return  A nsIUpdatePatch object matching the type specified
      */
     function getPatchOfType(type) {
       for (var i = 0; i < update.patchCount; ++i) {
@@ -2484,6 +2683,7 @@ Downloader.prototype = {
       case STATE_DOWNLOADING:
         LOG("Downloader:_selectPatch - resuming download");
         return selectedPatch;
+      case STATE_PENDING_SVC:
       case STATE_PENDING:
         LOG("Downloader:_selectPatch - already downloaded and staged");
         return null;
@@ -2711,7 +2911,7 @@ Downloader.prototype = {
     var deleteActiveUpdate = false;
     if (Components.isSuccessCode(status)) {
       if (this._verifyDownload()) {
-        state = STATE_PENDING;
+        state = shouldUseService() ? STATE_PENDING_SVC : STATE_PENDING
 
         // We only need to explicitly show the prompt if this is a background
         // download, since otherwise some kind of UI is already visible and

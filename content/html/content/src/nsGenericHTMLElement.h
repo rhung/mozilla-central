@@ -47,6 +47,7 @@
 #include "nsGkAtoms.h"
 #include "nsContentCreatorFunctions.h"
 #include "nsDOMMemoryReporter.h"
+#include "nsIDOMMozBrowserFrameElement.h"
 
 class nsIDOMAttr;
 class nsIDOMEventListener;
@@ -132,6 +133,8 @@ public:
   nsresult GetOffsetParent(nsIDOMElement** aOffsetParent);
   NS_IMETHOD GetInnerHTML(nsAString& aInnerHTML);
   NS_IMETHOD SetInnerHTML(const nsAString& aInnerHTML);
+  NS_IMETHOD GetOuterHTML(nsAString& aOuterHTML);
+  NS_IMETHOD SetOuterHTML(const nsAString& aOuterHTML);
   NS_IMETHOD InsertAdjacentHTML(const nsAString& aPosition,
                                 const nsAString& aText);
   nsresult ScrollIntoView(bool aTop, PRUint8 optional_argc);
@@ -161,6 +164,10 @@ public:
   nsresult ClearDataset();
   nsresult GetContextMenu(nsIDOMHTMLMenuElement** aContextMenu);
 
+protected:
+  nsresult GetMarkup(bool aIncludeSelf, nsAString& aMarkup);
+
+public:
   // Implementation for nsIContent
   virtual nsresult BindToTree(nsIDocument* aDocument, nsIContent* aParent,
                               nsIContent* aBindingParent,
@@ -878,7 +885,7 @@ public:
                               bool aCompileEventHandlers);
   virtual void UnbindFromTree(bool aDeep = true,
                               bool aNullParent = true);
-  virtual PRUint32 GetDesiredIMEState();
+  virtual IMEState GetDesiredIMEState();
   virtual nsEventStates IntrinsicState() const;
 
   virtual nsresult PreHandleEvent(nsEventChainPreVisitor& aVisitor);
@@ -1013,7 +1020,8 @@ PR_STATIC_ASSERT(ELEMENT_TYPE_SPECIFIC_BITS_OFFSET + 1 < 32);
  */
 
 class nsGenericHTMLFrameElement : public nsGenericHTMLElement,
-                                  public nsIFrameLoaderOwner
+                                  public nsIFrameLoaderOwner,
+                                  public nsIDOMMozBrowserFrameElement
 {
 public:
   nsGenericHTMLFrameElement(already_AddRefed<nsINodeInfo> aNodeInfo,
@@ -1058,6 +1066,9 @@ public:
   NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED_NO_UNLINK(nsGenericHTMLFrameElement,
                                                      nsGenericHTMLElement)
 
+  // nsIDOMMozBrowserFrameElement
+  NS_DECL_NSIDOMMOZBROWSERFRAMEELEMENT
+
 protected:
   // This doesn't really ensure a frame loade in all cases, only when
   // it makes sense.
@@ -1065,6 +1076,8 @@ protected:
   nsresult LoadSrc();
   nsresult GetContentDocument(nsIDOMDocument** aContentDocument);
   nsresult GetContentWindow(nsIDOMWindow** aContentWindow);
+
+  nsresult BrowserFrameSecurityCheck();
 
   nsRefPtr<nsFrameLoader> mFrameLoader;
   // True when the element is created by the parser
@@ -1570,6 +1583,12 @@ protected:
   } \
   NS_SCRIPTABLE NS_IMETHOD SetSpellcheck(bool aSpellcheck) { \
     return _to SetSpellcheck(aSpellcheck); \
+  } \
+  NS_SCRIPTABLE NS_IMETHOD GetOuterHTML(nsAString& aOuterHTML) { \
+    return _to GetOuterHTML(aOuterHTML); \
+  } \
+  NS_SCRIPTABLE NS_IMETHOD SetOuterHTML(const nsAString& aOuterHTML) { \
+    return _to SetOuterHTML(aOuterHTML); \
   } \
   NS_SCRIPTABLE NS_IMETHOD InsertAdjacentHTML(const nsAString& position, const nsAString& text) { \
     return _to InsertAdjacentHTML(position, text); \

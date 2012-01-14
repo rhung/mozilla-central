@@ -54,9 +54,9 @@ nsHtml5Tokenizer::FlushViewSource()
 }
 
 void
-nsHtml5Tokenizer::StartViewSource()
+nsHtml5Tokenizer::StartViewSource(const nsAutoString& aTitle)
 {
-  mViewSource->Start();
+  mViewSource->Start(aTitle);
 }
 
 void
@@ -176,7 +176,7 @@ nsHtml5Tokenizer::errNcrNonCharacter(PRUnichar ch)
 }
 
 void
-nsHtml5Tokenizer::errAstralNonCharacter(int ch)
+nsHtml5Tokenizer::errAstralNonCharacter(PRInt32 ch)
 {
   if (NS_UNLIKELY(mViewSource)) {
     mViewSource->AddErrorToCurrentNode("errNcrNonCharacter");

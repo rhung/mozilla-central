@@ -64,6 +64,8 @@ public:
 
   NS_FORWARD_NSIDOMNSEVENT(nsDOMEvent::)
 
+  virtual nsresult InitFromCtor(const nsAString& aType,
+                                JSContext* aCx, jsval* aVal);
 protected:
   // Internal helper functions
   nsIntPoint GetClientPoint();

@@ -159,7 +159,8 @@ JSClass nsXULPDGlobalObject::gSharedGlobalClass = {
 
 nsXULPrototypeDocument::nsXULPrototypeDocument()
     : mRoot(nsnull),
-      mLoaded(false)
+      mLoaded(false),
+      mCCGeneration(0)
 {
     ++gRefCnt;
 }
@@ -195,6 +196,9 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsXULPrototypeDocument)
     tmp->mPrototypeWaiters.Clear();
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(nsXULPrototypeDocument)
+    if (nsCCUncollectableMarker::InGeneration(cb, tmp->mCCGeneration)) {
+        return NS_SUCCESS_INTERRUPTED_TRAVERSE;
+    }
     NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NATIVE_MEMBER(mRoot,
                                                     nsXULPrototypeElement)
     NS_CYCLE_COLLECTION_NOTE_EDGE_NAME(cb, "mGlobalObject");
@@ -723,8 +727,7 @@ nsXULPDGlobalObject::EnsureScriptEnvironment(PRUint32 lang_id)
                                         getter_AddRefs(languageRuntime));
   NS_ENSURE_SUCCESS(rv, NS_OK);
 
-  nsCOMPtr<nsIScriptContext> ctxNew;
-  rv = languageRuntime->CreateContext(getter_AddRefs(ctxNew));
+  nsCOMPtr<nsIScriptContext> ctxNew = languageRuntime->CreateContext();
   // We have to setup a special global object.  We do this then
   // attach it as the global for this context.  Then, ::SetScriptContext
   // will re-fetch the global and set it up in our language globals array.

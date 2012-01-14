@@ -527,6 +527,27 @@ SpecialPowersAPI.prototype = {
     Components.utils.forceGC();
   },
 
+  exactGC: function(win, callback) {
+    var self = this;
+    let count = 0;
+
+    function doPreciseGCandCC() {
+      function scheduledGCCallback() {
+        self.getDOMWindowUtils(win).cycleCollect();
+
+        if (++count < 2) {
+          doPreciseGCandCC();
+        } else {
+          callback();
+        }
+      }
+
+      Components.utils.schedulePreciseGC(scheduledGCCallback);
+    }
+
+    doPreciseGCandCC();
+  },
+
   hasContentProcesses: function() {
     try {
       var rt = Cc["@mozilla.org/xre/app-info;1"].getService(Ci.nsIXULRuntime);
@@ -620,6 +641,10 @@ SpecialPowersAPI.prototype = {
       copyString(str);
   },
 
+  openDialog: function(win, args) {
+    return win.openDialog.apply(win, args);
+  },
+
   // :jdm gets credit for this.  ex: getPrivilegedProps(window, 'location.href');
   getPrivilegedProps: function(obj, props) {
     parts = props.split('.');
@@ -685,6 +710,14 @@ SpecialPowersAPI.prototype = {
     var cbHelperSvc = Components.classes["@mozilla.org/widget/clipboardhelper;1"].
                       getService(Components.interfaces.nsIClipboardHelper);
     cbHelperSvc.copyString(preExpectedVal);
+  },
+
+  supportsSelectionClipboard: function() {
+    if (this._cb == null) {
+      this._cb = Components.classes["@mozilla.org/widget/clipboard;1"].
+                            getService(Components.interfaces.nsIClipboard);
+    }
+    return this._cb.supportsSelectionClipboard();
   },
 
   snapshotWindow: function (win, withCaret) {

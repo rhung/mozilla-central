@@ -62,40 +62,6 @@ gcli.addCommand({
 });
 
 
-let canon = gcli._internal.require("gcli/canon");
-
-/**
- * 'help' command
- */
-gcli.addCommand({
-  name: "help",
-  returnType: "html",
-  description: gcli.lookup("helpDesc"),
-  exec: function Command_help(args, context) {
-    let output = [];
-
-    output.push("<strong>" + gcli.lookup("helpAvailable") + ":</strong><br/>");
-
-    let commandNames = canon.getCommandNames();
-    commandNames.sort();
-
-    output.push("<table>");
-    for (let i = 0; i < commandNames.length; i++) {
-      let command = canon.getCommand(commandNames[i]);
-      if (!command.hidden && command.description) {
-        output.push("<tr>");
-        output.push('<th class="gcliCmdHelpRight">' + command.name + "</th>");
-        output.push("<td>&#x2192; " + command.description + "</td>");
-        output.push("</tr>");
-      }
-    }
-    output.push("</table>");
-
-    return output.join("");
-  }
-});
-
-
 /**
  * 'console' command
  */
@@ -117,6 +83,18 @@ gcli.addCommand({
   }
 });
 
+
+/**
+ * 'console close' command
+ */
+gcli.addCommand({
+  name: "console close",
+  description: gcli.lookup("consolecloseDesc"),
+  exec: function(args, context) {
+    let tab = HUDService.getHudReferenceById(context.environment.hudId).tab;
+    HUDService.deactivateHUDForContext(tab);
+  }
+});
 
 /**
  * 'inspect' command

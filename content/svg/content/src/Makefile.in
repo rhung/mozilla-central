@@ -61,6 +61,8 @@ CPPSRCS		= \
 		DOMSVGPathSegList.cpp \
 		DOMSVGPoint.cpp \
 		DOMSVGPointList.cpp \
+		DOMSVGStringList.cpp \
+		DOMSVGTests.cpp \
 		DOMSVGTransform.cpp \
 		DOMSVGTransformList.cpp \
 		nsDOMSVGZoomEvent.cpp \
@@ -119,6 +121,7 @@ CPPSRCS		= \
 		nsSVGTextPathElement.cpp \
 		nsSVGTextPositioningElement.cpp \
 		nsSVGTitleElement.cpp \
+		nsSVGUnknownElement.cpp \
 		nsSVGUseElement.cpp \
 		nsSVGViewBox.cpp \
 		SVGAnimatedLengthList.cpp \
@@ -133,6 +136,7 @@ CPPSRCS		= \
 		SVGPathData.cpp \
 		SVGPathSegUtils.cpp \
 		SVGPointList.cpp \
+		SVGStringList.cpp \
 		SVGTransform.cpp \
 		SVGTransformList.cpp \
 		SVGTransformListParser.cpp \

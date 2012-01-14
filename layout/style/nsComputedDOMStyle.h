@@ -260,7 +260,13 @@ private:
   nsIDOMCSSValue* DoGetBorderTopLeftRadius();
   nsIDOMCSSValue* DoGetBorderTopRightRadius();
   nsIDOMCSSValue* DoGetFloatEdge();
-  nsIDOMCSSValue* DoGetBorderImage();
+
+  /* Border Image */
+  nsIDOMCSSValue* DoGetBorderImageSource();
+  nsIDOMCSSValue* DoGetBorderImageSlice();
+  nsIDOMCSSValue* DoGetBorderImageWidth();
+  nsIDOMCSSValue* DoGetBorderImageOutset();
+  nsIDOMCSSValue* DoGetBorderImageRepeat();
 
   /* Box Shadow */
   nsIDOMCSSValue* DoGetBoxShadow();
@@ -307,6 +313,7 @@ private:
   /* Text Properties */
   nsIDOMCSSValue* DoGetLineHeight();
   nsIDOMCSSValue* DoGetTextAlign();
+  nsIDOMCSSValue* DoGetTextAlignLast();
   nsIDOMCSSValue* DoGetMozTextBlink();
   nsIDOMCSSValue* DoGetTextDecoration();
   nsIDOMCSSValue* DoGetMozTextDecorationColor();
@@ -322,6 +329,7 @@ private:
   nsIDOMCSSValue* DoGetWordWrap();
   nsIDOMCSSValue* DoGetHyphens();
   nsIDOMCSSValue* DoGetMozTabSize();
+  nsIDOMCSSValue* DoGetTextSizeAdjust();
 
   /* Visibility properties */
   nsIDOMCSSValue* DoGetOpacity();
@@ -364,6 +372,7 @@ private:
 
   /* Column properties */
   nsIDOMCSSValue* DoGetColumnCount();
+  nsIDOMCSSValue* DoGetColumnFill();
   nsIDOMCSSValue* DoGetColumnWidth();
   nsIDOMCSSValue* DoGetColumnGap();
   nsIDOMCSSValue* DoGetColumnRuleWidth();

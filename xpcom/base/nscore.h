@@ -57,20 +57,15 @@
  */
 #include "prtypes.h"
 
+/*
+ * This is for functions that are like malloc_usable_size but also take a
+ * computed size as a fallback.  Such functions are used for measuring the size
+ * of data structures.
+ */
+typedef size_t(*nsMallocSizeOfFun)(const void *p, size_t computedSize);
+
 /* Core XPCOM declarations. */
 
-/**
- * Macros defining the target platform...
- */
-#ifdef _WIN32
-#define NS_WIN32 1
-
-#elif defined(__unix)
-#define NS_UNIX 1
-
-#elif defined(XP_OS2)
-#define NS_OS2 1
-#endif
 /*----------------------------------------------------------------------*/
 /* Import/export defines */
 
@@ -164,7 +159,7 @@
 #define NS_CONSTRUCTOR_FASTCALL
 #endif
 
-#ifdef NS_WIN32
+#ifdef XP_WIN
 
 #define NS_IMPORT __declspec(dllimport)
 #define NS_IMPORT_(type) __declspec(dllimport) type __stdcall
@@ -249,7 +244,7 @@
  */
 #if (__GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 1))
 # define MOZ_DEPRECATED __attribute__((deprecated))
-#elif defined(_MSC_VER) && (_MSC_VER >= 1300)
+#elif defined(_MSC_VER)
 # define MOZ_DEPRECATED __declspec(deprecated)
 #else
 # define MOZ_DEPRECATED
@@ -335,7 +330,7 @@
 #ifdef NS_NO_VTABLE
 #undef NS_NO_VTABLE
 #endif
-#if defined(_MSC_VER) && _MSC_VER >= 1100
+#if defined(_MSC_VER)
 #define NS_NO_VTABLE __declspec(novtable)
 #else
 #define NS_NO_VTABLE
@@ -377,17 +372,8 @@ typedef PRUint32 nsrefcnt;
 /* ------------------------------------------------------------------------ */
 /* Casting macros for hiding C++ features from older compilers */
 
-  /*
-    All our compiler support template specialization, but not all support the
-    |template <>| notation.  The compiler that don't understand this notation
-    just omit it for specialization.
-
-    Need to add an autoconf test for this.
-  */
-
   /* under VC++ (Windows), we don't have autoconf yet */
-#if defined(_MSC_VER) && (_MSC_VER>=1100)
-  #define HAVE_CPP_MODERN_SPECIALIZE_TEMPLATE_SYNTAX
+#if defined(_MSC_VER)
   #define HAVE_CPP_2BYTE_WCHAR_T
 #endif
 
@@ -397,17 +383,11 @@ typedef PRUint32 nsrefcnt;
    * commercial build.  When this is fixed there will be no need for the
    * |reinterpret_cast| in nsLiteralString.h either.
    */
-  #if defined(HAVE_CPP_2BYTE_WCHAR_T) && defined(NS_WIN32)
+  #if defined(HAVE_CPP_2BYTE_WCHAR_T) && defined(XP_WIN)
     typedef wchar_t PRUnichar;
   #else
     typedef PRUint16 PRUnichar;
   #endif
-#endif
-
-#ifdef HAVE_CPP_MODERN_SPECIALIZE_TEMPLATE_SYNTAX
-  #define NS_SPECIALIZE_TEMPLATE  template <>
-#else
-  #define NS_SPECIALIZE_TEMPLATE
 #endif
 
 /*
@@ -466,7 +446,6 @@ typedef PRUint32 nsrefcnt;
  * Static type annotations, enforced when static-checking is enabled:
  *
  * NS_STACK_CLASS: a class which must only be instantiated on the stack
- * NS_FINAL_CLASS: a class which may not be subclassed
  *
  * NS_MUST_OVERRIDE:
  *   a method which every immediate subclass of this class must
@@ -483,13 +462,11 @@ typedef PRUint32 nsrefcnt;
 #define NS_STACK_CLASS __attribute__((user("NS_stack")))
 #define NS_OKONHEAP    __attribute__((user("NS_okonheap")))
 #define NS_SUPPRESS_STACK_CHECK __attribute__((user("NS_suppress_stackcheck")))
-#define NS_FINAL_CLASS __attribute__((user("NS_final")))
 #define NS_MUST_OVERRIDE __attribute__((user("NS_must_override")))
 #else
 #define NS_STACK_CLASS
 #define NS_OKONHEAP
 #define NS_SUPPRESS_STACK_CHECK
-#define NS_FINAL_CLASS
 #define NS_MUST_OVERRIDE
 #endif
 

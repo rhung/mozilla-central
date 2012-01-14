@@ -43,23 +43,24 @@
 #import "nsRoleMap.h"
 
 #include "nsRect.h"
+#include "nsCocoaUtils.h"
 #include "nsCoord.h"
 #include "nsObjCExceptions.h"
 
 #include "nsIAccessible.h"
+#include "nsIAccessibleRelation.h"
 #include "nsIAccessibleText.h"
 #include "nsIAccessibleEditableText.h"
+#include "Relation.h"
+#include "Role.h"
 
+#include "nsAccessNode.h"
 #include "nsRootAccessible.h"
 
-using namespace mozilla::a11y;
+#include "mozilla/Services.h"
 
-// These constants are only defined in OS X SDK 10.4, so we define them in order
-// to be able to use for earlier OS versions.
-const NSString *kInstanceDescriptionAttribute = @"AXDescription";       // NSAccessibilityDescriptionAttribute
-const NSString *kTopLevelUIElementAttribute   = @"AXTopLevelUIElement"; // NSAccessibilityTopLevelUIElementAttribute
-const NSString *kTextLinkSubrole              = @"AXTextLink";          // NSAccessibilitySecureTextFieldSubrole
-const NSString *kURLAttribute                 = @"AXURL";
+using namespace mozilla;
+using namespace mozilla::a11y;
 
 // converts a screen-global point in the cocoa coordinate system (with origo in the bottom-left corner
 // of the screen), into a top-left screen point, that gecko can use.
@@ -126,8 +127,26 @@ GetNativeFromGeckoAccessible(nsIAccessible *anAccessible)
   NS_OBJC_END_TRY_ABORT_BLOCK_NSNULL;
 }
 
+/**
+ * Get a localized string from the string bundle.
+ * Return nil is not found.
+ */
+static NSString* 
+GetLocalizedString(const nsString& aString)
+{
+  if (!nsAccessNode::GetStringBundle())
+    return nil;
+
+  nsXPIDLString text;
+  nsresult rv = nsAccessNode::GetStringBundle()->GetStringFromName(aString.get(),
+                                 getter_Copies(text));
+  NS_ENSURE_SUCCESS(rv, nil);
+
+  return !text.IsEmpty() ? nsCocoaUtils::ToNSString(text) : nil;
+}
+
 #pragma mark -
- 
+
 @implementation mozAccessible
  
 - (id)initWithAccessible:(nsAccessibleWrap*)geckoAccessible
@@ -141,7 +160,7 @@ GetNativeFromGeckoAccessible(nsIAccessible *anAccessible)
     
     // Check for OS X "role skew"; the role constants in nsIAccessible.idl need to match the ones
     // in nsRoleMap.h.
-    NS_ASSERTION([AXRoles[nsIAccessibleRole::ROLE_LAST_ENTRY] isEqualToString:@"ROLE_LAST_ENTRY"], "Role skew in the role map!");
+    NS_ASSERTION([AXRoles[roles::LAST_ENTRY] isEqualToString:@"ROLE_LAST_ENTRY"], "Role skew in the role map!");
   }
    
   return self;
@@ -198,8 +217,8 @@ GetNativeFromGeckoAccessible(nsIAccessible *anAccessible)
                                                            NSAccessibilityFocusedAttribute,
                                                            NSAccessibilityHelpAttribute,
                                                            NSAccessibilityTitleUIElementAttribute,
-                                                           kTopLevelUIElementAttribute,
-                                                           kInstanceDescriptionAttribute,
+                                                           NSAccessibilityTopLevelUIElementAttribute,
+                                                           NSAccessibilityDescriptionAttribute,
                                                            nil];
   }
 
@@ -234,9 +253,14 @@ GetNativeFromGeckoAccessible(nsIAccessible *anAccessible)
     return [NSNumber numberWithBool:[self isEnabled]];
   if ([attribute isEqualToString:NSAccessibilityValueAttribute])
     return [self value];
-  if ([attribute isEqualToString:NSAccessibilityRoleDescriptionAttribute])
+  if ([attribute isEqualToString:NSAccessibilityRoleDescriptionAttribute]) {
+    if (mRole == roles::INTERNAL_FRAME || mRole == roles::DOCUMENT_FRAME)
+      return GetLocalizedString(NS_LITERAL_STRING("htmlContent")) ? : @"HTML Content";
+
     return NSAccessibilityRoleDescription([self role], nil);
-  if ([attribute isEqualToString: (NSString*) kInstanceDescriptionAttribute])
+  }
+  
+  if ([attribute isEqualToString:NSAccessibilityDescriptionAttribute])
     return [self customDescription];
   if ([attribute isEqualToString:NSAccessibilityFocusedAttribute])
     return [NSNumber numberWithBool:[self isFocused]];
@@ -244,18 +268,22 @@ GetNativeFromGeckoAccessible(nsIAccessible *anAccessible)
     return [self size];
   if ([attribute isEqualToString:NSAccessibilityWindowAttribute])
     return [self window];
-  if ([attribute isEqualToString: (NSString*) kTopLevelUIElementAttribute])
+  if ([attribute isEqualToString:NSAccessibilityTopLevelUIElementAttribute])
     return [self window];
-  if ([attribute isEqualToString:NSAccessibilityTitleAttribute] || 
-      [attribute isEqualToString:NSAccessibilityTitleUIElementAttribute])
+  if ([attribute isEqualToString:NSAccessibilityTitleAttribute])
     return [self title];
+  if ([attribute isEqualToString:NSAccessibilityTitleUIElementAttribute]) {
+    Relation rel = mGeckoAccessible->RelationByType(nsIAccessibleRelation::RELATION_LABELLED_BY);
+    nsAccessible* tempAcc = rel.Next();
+    return tempAcc ? GetNativeFromGeckoAccessible(tempAcc) : nil;
+  }
   if ([attribute isEqualToString:NSAccessibilityHelpAttribute])
     return [self help];
     
 #ifdef DEBUG
  NSLog (@"!!! %@ can't respond to attribute %@", self, attribute);
 #endif
-  return nil; // be nice and return empty string instead?
+  return nil;
 
   NS_OBJC_END_TRY_ABORT_BLOCK_NIL;
 }
@@ -349,11 +377,14 @@ GetNativeFromGeckoAccessible(nsIAccessible *anAccessible)
 {
   NS_OBJC_BEGIN_TRY_ABORT_BLOCK_NIL;
 
+  if (mParent)
+    return mParent;
+
   nsCOMPtr<nsIAccessible> accessibleParent(mGeckoAccessible->GetUnignoredParent());
   if (accessibleParent) {
     id nativeParent = GetNativeFromGeckoAccessible(accessibleParent);
     if (nativeParent)
-      return GetClosestInterestingAccessible(nativeParent);
+      return mParent = GetClosestInterestingAccessible(nativeParent);
   }
   
   // GetUnignoredParent() returns null when there is no unignored accessible all the way up to
@@ -365,7 +396,7 @@ GetNativeFromGeckoAccessible(nsIAccessible *anAccessible)
   id nativeParent = GetNativeFromGeckoAccessible(static_cast<nsIAccessible*>(root));
   NSAssert1 (nativeParent, @"!!! we can't find a parent for %@", self);
   
-  return GetClosestInterestingAccessible(nativeParent);
+  return mParent = GetClosestInterestingAccessible(nativeParent);
 
   NS_OBJC_END_TRY_ABORT_BLOCK_NIL;
 }
@@ -391,9 +422,9 @@ GetNativeFromGeckoAccessible(nsIAccessible *anAccessible)
 {
   NS_OBJC_BEGIN_TRY_ABORT_BLOCK_NIL;
 
-  if (mChildren)
+  if (mChildren || !mGeckoAccessible->AreChildrenCached())
     return mChildren;
-    
+
   mChildren = [[NSMutableArray alloc] init];
   
   // get the array of children.
@@ -604,11 +635,29 @@ GetNativeFromGeckoAccessible(nsIAccessible *anAccessible)
 {
   NS_OBJC_BEGIN_TRY_ABORT_BLOCK;
 
+  [mChildren makeObjectsPerformSelector:@selector(invalidateParent)];
+
   // make room for new children
   [mChildren release];
   mChildren = nil;
 
   NS_OBJC_END_TRY_ABORT_BLOCK;
+}
+
+- (void)appendChild:(nsAccessible*)aAccessible
+{
+  // if mChildren is nil, then we don't even need to bother
+  if (!mChildren)
+    return;
+    
+  mozAccessible *curNative = GetNativeFromGeckoAccessible(aAccessible);
+  if (curNative)
+    [mChildren addObject:GetObjectOrRepresentedView(curNative)];
+}
+
+- (void)invalidateParent
+{
+  mParent = nil;
 }
 
 - (void)expire

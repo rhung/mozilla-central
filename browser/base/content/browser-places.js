@@ -127,7 +127,7 @@ var StarUI = {
         }
         break;
       case "keypress":
-        if (aEvent.getPreventDefault()) {
+        if (aEvent.defaultPrevented) {
           // The event has already been consumed inside of the panel.
           break;
         }
@@ -140,7 +140,7 @@ var StarUI = {
             if (aEvent.target.className == "expander-up" ||
                 aEvent.target.className == "expander-down" ||
                 aEvent.target.id == "editBMPanel_newFolderButton") {
-              //XXX Why is this necessary? The getPreventDefault() check should
+              //XXX Why is this necessary? The defaultPrevented check should
               //    be enough.
               break;
             }
@@ -386,15 +386,14 @@ var PlacesCommandHook = {
                                        , hiddenRows: [ "description"
                                                      , "location"
                                                      , "loadInSidebar"
-                                                     , "folderPicker"
                                                      , "keyword" ]
-                                       });
+                                       }, window);
     }
     else {
       PlacesUIUtils.showBookmarkDialog({ action: "edit"
                                        , type: "bookmark"
                                        , itemId: itemId
-                                       });
+                                       }, window);
     }
   },
 
@@ -427,7 +426,7 @@ var PlacesCommandHook = {
                                      , type: "folder"
                                      , URIList: pages
                                      , hiddenRows: [ "description" ]
-                                     });
+                                     }, window);
     }
   },
 
@@ -478,7 +477,7 @@ var PlacesCommandHook = {
                                      , hiddenRows: [ "feedLocation"
                                                    , "siteLocation"
                                                    , "description" ]
-                                     });
+                                     }, window);
   },
 
   /**

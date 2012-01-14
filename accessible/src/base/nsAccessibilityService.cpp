@@ -50,6 +50,7 @@
 #include "nsIContentViewer.h"
 #include "nsCURILoader.h"
 #include "nsDocAccessible.h"
+#include "nsHTMLCanvasAccessible.h"
 #include "nsHTMLImageMapAccessible.h"
 #include "nsHTMLLinkAccessible.h"
 #include "nsHTMLSelectAccessible.h"
@@ -58,6 +59,7 @@
 #include "nsHyperTextAccessibleWrap.h"
 #include "nsIAccessibilityService.h"
 #include "nsIAccessibleProvider.h"
+#include "Role.h"
 #include "States.h"
 #include "Statistics.h"
 
@@ -105,10 +107,8 @@
 #include "AtkSocketAccessible.h"
 #endif
 
-#ifndef DISABLE_XFORMS_HOOKS
 #include "nsXFormsFormControlsAccessible.h"
 #include "nsXFormsWidgetsAccessible.h"
-#endif
 
 #include "mozilla/FunctionTimer.h"
 #include "mozilla/dom/Element.h"
@@ -276,6 +276,26 @@ nsAccessibilityService::CreateHTMLComboboxAccessible(nsIContent* aContent,
 }
 
 already_AddRefed<nsAccessible>
+nsAccessibilityService::CreateHTMLCanvasAccessible(nsIContent* aContent,
+                                                   nsIPresShell* aPresShell)
+{
+  nsCOMPtr<nsIWeakReference> weakShell(do_GetWeakReference(aPresShell));
+  nsAccessible* accessible = new nsHTMLCanvasAccessible(aContent, weakShell);
+  NS_IF_ADDREF(accessible);
+  return accessible;
+}
+
+already_AddRefed<nsAccessible>
+nsAccessibilityService::CreateHTMLFileInputAccessible(nsIContent* aContent,
+                                                      nsIPresShell* aPresShell)
+{
+  nsCOMPtr<nsIWeakReference> weakShell(do_GetWeakReference(aPresShell));
+  nsAccessible* accessible = new nsHTMLFileInputAccessible(aContent, weakShell);
+  NS_IF_ADDREF(accessible);
+  return accessible;
+}
+
+already_AddRefed<nsAccessible>
 nsAccessibilityService::CreateHTMLImageAccessible(nsIContent* aContent,
                                                   nsIPresShell* aPresShell)
 {
@@ -320,7 +340,7 @@ nsAccessibilityService::CreateHTMLMediaAccessible(nsIContent* aContent,
 {
   nsCOMPtr<nsIWeakReference> weakShell(do_GetWeakReference(aPresShell));
   nsAccessible* accessible = new nsEnumRoleAccessible(aContent, weakShell,
-                                                      nsIAccessibleRole::ROLE_GROUPING);
+                                                      roles::GROUPING);
   NS_IF_ADDREF(accessible);
   return accessible;
 }
@@ -1073,13 +1093,11 @@ nsAccessibilityService::GetOrCreateAccessible(nsINode* aNode,
 
           if (tableAccessible) {
             if (!roleMapEntry) {
-              PRUint32 role = tableAccessible->Role();
-              if (role != nsIAccessibleRole::ROLE_TABLE &&
-                  role != nsIAccessibleRole::ROLE_TREE_TABLE) {
-                // No ARIA role and not in table: override role. For example,
-                // <table role="label"><td>content</td></table>
+              roles::Role role = tableAccessible->Role();
+              // No ARIA role and not in table: override role. For example,
+              // <table role="label"><td>content</td></table>
+              if (role != roles::TABLE && role != roles::TREE_TABLE)
                 roleMapEntry = &nsARIAMap::gEmptyRoleMap;
-              }
             }
 
             break;
@@ -1124,13 +1142,13 @@ nsAccessibilityService::GetOrCreateAccessible(nsINode* aNode,
       if ((!partOfHTMLTable || !tryTagNameOrFrame) &&
           frameType != nsGkAtoms::tableOuterFrame) {
 
-        if (roleMapEntry->role == nsIAccessibleRole::ROLE_TABLE ||
-            roleMapEntry->role == nsIAccessibleRole::ROLE_TREE_TABLE) {
+        if (roleMapEntry->role == roles::TABLE ||
+            roleMapEntry->role == roles::TREE_TABLE) {
           newAcc = new nsARIAGridAccessibleWrap(content, aWeakShell);
 
-        } else if (roleMapEntry->role == nsIAccessibleRole::ROLE_GRID_CELL ||
-            roleMapEntry->role == nsIAccessibleRole::ROLE_ROWHEADER ||
-            roleMapEntry->role == nsIAccessibleRole::ROLE_COLUMNHEADER) {
+        } else if (roleMapEntry->role == roles::GRID_CELL ||
+            roleMapEntry->role == roles::ROWHEADER ||
+            roleMapEntry->role == roles::COLUMNHEADER) {
           newAcc = new nsARIAGridCellAccessibleWrap(content, aWeakShell);
         }
       }
@@ -1180,15 +1198,13 @@ nsAccessibilityService::GetOrCreateAccessible(nsINode* aNode,
 
   if (!newAcc) {
     // Create generic accessibles for SVG and MathML nodes.
-    if (content->GetNameSpaceID() == kNameSpaceID_SVG &&
-        content->Tag() == nsGkAtoms::svg) {
+    if (content->IsSVG(nsGkAtoms::svg)) {
       newAcc = new nsEnumRoleAccessible(content, aWeakShell,
-                                        nsIAccessibleRole::ROLE_DIAGRAM);
+                                        roles::DIAGRAM);
     }
-    else if (content->GetNameSpaceID() == kNameSpaceID_MathML &&
-             content->Tag() == nsGkAtoms::math) {
+    else if (content->IsMathML(nsGkAtoms::math)) {
       newAcc = new nsEnumRoleAccessible(content, aWeakShell,
-                                        nsIAccessibleRole::ROLE_EQUATION);
+                                        roles::EQUATION);
     }
   }
 
@@ -1419,7 +1435,7 @@ nsAccessibilityService::CreateAccessibleByType(nsIContent* aContent,
 
     case nsIAccessibleProvider::XULPane:
       accessible = new nsEnumRoleAccessible(aContent, aWeakShell,
-                                            nsIAccessibleRole::ROLE_PANE);
+                                            roles::PANE);
       break;
 
     case nsIAccessibleProvider::XULProgressMeter:
@@ -1495,7 +1511,6 @@ nsAccessibilityService::CreateAccessibleByType(nsIContent* aContent,
 
 #endif // MOZ_XUL
 
-#ifndef DISABLE_XFORMS_HOOKS
     // XForms elements
     case nsIAccessibleProvider::XFormsContainer:
       accessible = new nsXFormsContainerAccessible(aContent, aWeakShell);
@@ -1573,8 +1588,6 @@ nsAccessibilityService::CreateAccessibleByType(nsIContent* aContent,
       accessible = new nsXFormsComboboxPopupWidgetAccessible(aContent, aWeakShell);
       break;
 
-#endif
-
     default:
       return nsnull;
   }
@@ -1589,7 +1602,20 @@ nsAccessibilityService::CreateHTMLAccessibleByMarkup(nsIFrame* aFrame,
                                                      nsIWeakReference* aWeakShell)
 {
   // This method assumes we're in an HTML namespace.
-  nsIAtom *tag = aContent->Tag();
+  nsIAtom* tag = aContent->Tag();
+  if (tag == nsGkAtoms::figcaption) {
+    nsAccessible* accessible =
+      new nsHTMLFigcaptionAccessible(aContent, aWeakShell);
+    NS_IF_ADDREF(accessible);
+    return accessible;
+  }
+
+  if (tag == nsGkAtoms::figure) {
+    nsAccessible* accessible = new nsHTMLFigureAccessible(aContent, aWeakShell);
+    NS_IF_ADDREF(accessible);
+    return accessible;
+  }
+
   if (tag == nsGkAtoms::legend) {
     nsAccessible* accessible = new nsHTMLLegendAccessible(aContent, aWeakShell);
     NS_IF_ADDREF(accessible);
@@ -1621,8 +1647,8 @@ nsAccessibilityService::CreateHTMLAccessibleByMarkup(nsIFrame* aFrame,
     // Only some roles truly enjoy life as nsHTMLLinkAccessibles, for details
     // see closed bug 494807.
     nsRoleMapEntry *roleMapEntry = nsAccUtils::GetRoleMapEntry(aContent);
-    if (roleMapEntry && roleMapEntry->role != nsIAccessibleRole::ROLE_NOTHING &&
-        roleMapEntry->role != nsIAccessibleRole::ROLE_LINK) {
+    if (roleMapEntry && roleMapEntry->role != roles::NOTHING &&
+        roleMapEntry->role != roles::LINK) {
       nsAccessible* accessible = new nsHyperTextAccessibleWrap(aContent,
                                                                aWeakShell);
       NS_IF_ADDREF(accessible);
@@ -1664,7 +1690,7 @@ nsAccessibilityService::CreateHTMLAccessibleByMarkup(nsIFrame* aFrame,
 
   if (tag == nsGkAtoms::tr) {
     nsAccessible* accessible = new nsEnumRoleAccessible(aContent, aWeakShell,
-                                                        nsIAccessibleRole::ROLE_ROW);
+                                                        roles::ROW);
     NS_IF_ADDREF(accessible);
     return accessible;
   }
@@ -1788,7 +1814,7 @@ nsAccessibilityService::CreateAccessibleForDeckChild(nsIFrame* aFrame,
       }
 #endif
       nsAccessible* accessible = new nsEnumRoleAccessible(aContent, aWeakShell,
-                                                          nsIAccessibleRole::ROLE_PROPERTYPAGE);
+                                                          roles::PROPERTYPAGE);
       NS_IF_ADDREF(accessible);
       return accessible;
     }

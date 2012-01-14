@@ -30,6 +30,7 @@
  *   Drew Willcoxon <adw@mozilla.com>
  *   Philipp von Weitershausen <philipp@weitershausen.de>
  *   Paolo Amadini <http://www.amadzone.org/>
+ *   Richard Newman <rnewman@mozilla.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -222,7 +223,6 @@ NS_INTERFACE_MAP_BEGIN(nsNavHistory)
   NS_INTERFACE_MAP_ENTRY(nsIBrowserHistory)
   NS_INTERFACE_MAP_ENTRY(nsIObserver)
   NS_INTERFACE_MAP_ENTRY(nsISupportsWeakReference)
-  NS_INTERFACE_MAP_ENTRY(nsICharsetResolver)
   NS_INTERFACE_MAP_ENTRY(nsPIPlacesDatabase)
   NS_INTERFACE_MAP_ENTRY(nsPIPlacesHistoryListenersNotifier)
   NS_INTERFACE_MAP_ENTRY(mozIStorageVacuumParticipant)
@@ -258,7 +258,7 @@ void GetTagsSqlFragment(PRInt64 aTagsFolder,
     _sqlFragment.Assign(NS_LITERAL_CSTRING(
          "(SELECT GROUP_CONCAT(t_t.title, ',') "
            "FROM moz_bookmarks b_t "
-           "JOIN moz_bookmarks t_t ON t_t.id = b_t.parent  "
+           "JOIN moz_bookmarks t_t ON t_t.id = +b_t.parent  "
            "WHERE b_t.fk = ") + aRelation + NS_LITERAL_CSTRING(" "
            "AND t_t.parent = ") +
            nsPrintfCString("%lld", aTagsFolder) + NS_LITERAL_CSTRING(" "
@@ -404,7 +404,7 @@ nsNavHistory::Init()
   // Observe preferences changes.
   Preferences::AddWeakObservers(this, kObservedPrefs);
 
-  nsCOMPtr<nsIObserverService> obsSvc = mozilla::services::GetObserverService();
+  nsCOMPtr<nsIObserverService> obsSvc = services::GetObserverService();
   if (obsSvc) {
     (void)obsSvc->AddObserver(this, TOPIC_PLACES_CONNECTION_CLOSED, true);
     (void)obsSvc->AddObserver(this, TOPIC_IDLE_DAILY, true);
@@ -721,10 +721,10 @@ nsNavHistory::FindLastVisit(nsIURI* aURI,
 bool nsNavHistory::IsURIStringVisited(const nsACString& aURIString)
 {
   nsCOMPtr<mozIStorageStatement> stmt = mDB->GetStatement(
-    "SELECT h.id "
+    "SELECT 1 "
     "FROM moz_places h "
     "WHERE url = ?1 "
-      "AND EXISTS(SELECT id FROM moz_historyvisits WHERE place_id = h.id LIMIT 1) "
+      "AND last_visit_date NOTNULL "
   );
   NS_ENSURE_TRUE(stmt, false);
   mozStorageStatementScoper scoper(stmt);
@@ -1550,8 +1550,7 @@ nsNavHistory::AddVisit(nsIURI* aURI, PRTime aTime, nsIURI* aReferringURI,
   // However, for redirects and downloads (since we implement nsIDownloadHistory)
   // this will not happen and we need to send it ourselves.
   if (newItem && (aIsRedirect || aTransitionType == TRANSITION_DOWNLOAD)) {
-    nsCOMPtr<nsIObserverService> obsService =
-      do_GetService(NS_OBSERVERSERVICE_CONTRACTID);
+    nsCOMPtr<nsIObserverService> obsService = services::GetObserverService();
     if (obsService)
       obsService->NotifyObservers(aURI, NS_LINK_VISITED_EVENT_TOPIC, nsnull);
   }
@@ -5598,45 +5597,4 @@ nsNavHistory::GetDateFormatBundle()
     NS_ENSURE_SUCCESS(rv, nsnull);
   }
   return mDateFormatBundle;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-//// nsICharsetResolver
-
-NS_IMETHODIMP
-nsNavHistory::RequestCharset(nsIWebNavigation* aWebNavigation,
-                             nsIChannel* aChannel,
-                             bool* aWantCharset,
-                             nsISupports** aClosure,
-                             nsACString& aResult)
-{
-  NS_ASSERTION(NS_IsMainThread(), "This can only be called on the main thread");
-  NS_ENSURE_ARG(aChannel);
-  NS_ENSURE_ARG_POINTER(aWantCharset);
-  NS_ENSURE_ARG_POINTER(aClosure);
-
-  *aWantCharset = false;
-  *aClosure = nsnull;
-
-  nsCOMPtr<nsIURI> uri;
-  nsresult rv = aChannel->GetURI(getter_AddRefs(uri));
-  if (NS_FAILED(rv))
-    return NS_OK;
-
-  nsAutoString charset;
-  rv = GetCharsetForURI(uri, charset);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  CopyUTF16toUTF8(charset, aResult);
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsNavHistory::NotifyResolvedCharset(const nsACString& aCharset,
-                                    nsISupports* aClosure)
-{
-  NS_ASSERTION(NS_IsMainThread(), "This can only be called on the main thread");
-
-  NS_ERROR("Unexpected call to NotifyResolvedCharset -- we never set aWantCharset to true!");
-  return NS_ERROR_NOT_IMPLEMENTED;
 }

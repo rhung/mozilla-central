@@ -47,7 +47,6 @@
 #include "nsITokenizer.h"
 #include "nsThreadUtils.h"
 #include "nsIContentSink.h"
-#include "nsIParserFilter.h"
 #include "nsIRequest.h"
 #include "nsIChannel.h"
 #include "nsCOMArray.h"
@@ -118,11 +117,6 @@ class nsHtml5Parser : public nsIParser,
     }
 
     /**
-     * No-op for backwards compat.
-     */
-    NS_IMETHOD_(void) SetParserFilter(nsIParserFilter* aFilter);
-
-    /**
      * Get the channel associated with this parser
      * @param aChannel out param that will contain the result
      * @return NS_OK if successful or NS_NOT_AVAILABLE if not
@@ -137,7 +131,7 @@ class nsHtml5Parser : public nsIParser,
     /**
      * Get the stream parser for this parser
      */
-    NS_IMETHOD GetStreamListener(nsIStreamListener** aListener);
+    virtual nsIStreamListener* GetStreamListener();
 
     /**
      * Don't call. For interface compat only.
@@ -167,7 +161,7 @@ class nsHtml5Parser : public nsIParser,
     /**
      * Set up request observer.
      *
-     * @param   aURL ignored (for interface compat only)
+     * @param   aURL used for View Source title
      * @param   aListener a listener to forward notifications to
      * @param   aKey the root context key (used for document.write)
      * @param   aMode ignored (for interface compat only)

@@ -1420,6 +1420,8 @@ nsObjectFrame::PrintPlugin(nsRenderingContext& aRenderingContext,
   /* XXX this just flat-out doesn't work in a thebes world --
    * RenderEPS is a no-op.  So don't bother to do any work here.
    */
+  (void)window;
+  (void)npprint;
 
 #elif defined(XP_OS2)
   void *hps = GetPSFromRC(aRenderingContext);
@@ -1705,7 +1707,7 @@ nsObjectFrame::PaintPlugin(nsDisplayListBuilder* aBuilder,
                            nsRenderingContext& aRenderingContext,
                            const nsRect& aDirtyRect, const nsRect& aPluginRect)
 {
-#if defined(ANDROID)
+#if defined(MOZ_WIDGET_ANDROID)
   if (mInstanceOwner) {
     NPWindow *window;
     mInstanceOwner->GetWindow(window);

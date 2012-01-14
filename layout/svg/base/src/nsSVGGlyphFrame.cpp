@@ -53,7 +53,6 @@
 #include "gfxContext.h"
 #include "gfxMatrix.h"
 #include "gfxPlatform.h"
-#include "gfxTextRunWordCache.h"
 
 using namespace mozilla;
 
@@ -271,42 +270,6 @@ nsSVGGlyphFrame::DidSetStyleContext(nsStyleContext* aOldStyleContext)
   }
 }
 
-void
-nsSVGGlyphFrame::SetSelected(bool          aSelected,
-                             SelectionType aType)
-{
-#if defined(DEBUG) && defined(SVG_DEBUG_SELECTION)
-  printf("nsSVGGlyphFrame(%p)::SetSelected()\n", this);
-#endif
-
-  if (aType != nsISelectionController::SELECTION_NORMAL)
-    return;
-
-  // check whether style allows selection
-  bool selectable;
-  IsSelectable(&selectable, nsnull);
-  if (!selectable)
-    return;
-
-  if (aSelected) {
-    AddStateBits(NS_FRAME_SELECTED_CONTENT);
-  } else {
-    RemoveStateBits(NS_FRAME_SELECTED_CONTENT);
-  }
-
-  nsSVGUtils::UpdateGraphic(this);
-}
-
-NS_IMETHODIMP
-nsSVGGlyphFrame::GetSelected(bool *aSelected) const
-{
-  nsresult rv = nsSVGGlyphFrameBase::GetSelected(aSelected);
-#if defined(DEBUG) && defined(SVG_DEBUG_SELECTION)
-  printf("nsSVGGlyphFrame(%p)::GetSelected()=%d\n", this, *aSelected);
-#endif
-  return rv;
-}
-
 NS_IMETHODIMP
 nsSVGGlyphFrame::IsSelectable(bool* aIsSelectable,
                               PRUint8* aSelectStyle) const
@@ -501,11 +464,9 @@ nsSVGGlyphFrame::UpdateCoveredRegion()
     return NS_OK;
   }
 
-  mPropagateTransform = false;
   CharacterIterator iter(this, true);
   iter.SetInitialMatrix(tmpCtx);
   AddBoundingBoxesToPath(&iter, tmpCtx);
-  mPropagateTransform = true;
   tmpCtx->IdentityMatrix();
 
   // Be careful when replacing the following logic to get the fill and stroke
@@ -751,7 +712,7 @@ nsSVGGlyphFrame::GetCharacterPositions(nsTArray<CharacterPosition>* aCharacterPo
     if (!aCharacterPositions->SetLength(strLength))
       return false;
 
-    gfxFloat pathScale = textPath->GetPathScale();
+    gfxFloat pathScale = textPath->GetOffsetScale();
 
     CharacterPosition *cp = aCharacterPositions->Elements();
 
@@ -877,7 +838,7 @@ nsSVGGlyphFrame::GetSubStringAdvance(PRUint32 aCharnum,
     gfxFloat pathScale = 1.0;
     nsSVGTextPathFrame *textPath = FindTextPathParent();
     if (textPath)
-      pathScale = textPath->GetPathScale();
+      pathScale = textPath->GetOffsetScale();
     if (dxcount > aFragmentChars) 
       dxcount = aFragmentChars;
     for (PRUint32 i = aCharnum; i < dxcount; i++) {
@@ -984,9 +945,7 @@ nsSVGGlyphFrame::GetHighlight(PRUint32 *charnum, PRUint32 *nchars,
   *charnum=0;
   *nchars=0;
 
-  bool hasHighlight =
-    (mState & NS_FRAME_SELECTED_CONTENT) == NS_FRAME_SELECTED_CONTENT;
-
+  bool hasHighlight = IsSelected();
   if (!hasHighlight) {
     NS_ERROR("nsSVGGlyphFrame::GetHighlight() called by renderer when there is no highlight");
     return NS_ERROR_FAILURE;
@@ -1101,7 +1060,7 @@ nsSVGGlyphFrame::SetGlyphPosition(gfxPoint *aPosition, bool aForceGlobalTransfor
 
   gfxFloat pathScale = 1.0;
   if (textPath)
-    pathScale = textPath->GetPathScale();
+    pathScale = textPath->GetOffsetScale();
 
   nsTArray<float> dxList, dyList;
   GetEffectiveDxDy(strLength, dxList, dyList);
@@ -1501,23 +1460,10 @@ nsSVGGlyphFrame::NotifyGlyphMetricsChange()
     containerFrame->NotifyGlyphMetricsChange();
 }
 
-bool
-nsSVGGlyphFrame::GetGlobalTransform(gfxMatrix *aMatrix)
-{
-  if (!mPropagateTransform) {
-    aMatrix->Reset();
-    return true;
-  }
-
-  *aMatrix = GetCanvasTM();
-  return !aMatrix->IsSingular();
-}
-
 void
 nsSVGGlyphFrame::SetupGlobalTransform(gfxContext *aContext)
 {
-  gfxMatrix matrix;
-  GetGlobalTransform(&matrix);
+  gfxMatrix matrix = GetCanvasTM();
   if (!matrix.IsSingular()) {
     aContext->Multiply(matrix);
   }
@@ -1526,9 +1472,6 @@ nsSVGGlyphFrame::SetupGlobalTransform(gfxContext *aContext)
 void
 nsSVGGlyphFrame::ClearTextRun()
 {
-  if (!mTextRun)
-    return;
-  gfxTextRunWordCache::RemoveTextRun(mTextRun);
   delete mTextRun;
   mTextRun = nsnull;
 }
@@ -1599,7 +1542,8 @@ nsSVGGlyphFrame::EnsureTextRun(float *aDrawScale, float *aMetricsScale,
     gfxMatrix m;
     if (aForceGlobalTransform ||
         !(GetStateBits() & NS_STATE_SVG_NONDISPLAY_CHILD)) {
-      if (!GetGlobalTransform(&m))
+      m = GetCanvasTM();
+      if (m.IsSingular())
         return false;
     }
 
@@ -1641,16 +1585,16 @@ nsSVGGlyphFrame::EnsureTextRun(float *aDrawScale, float *aMetricsScale,
     nsRefPtr<gfxContext> tmpCtx = MakeTmpCtx();
     tmpCtx->SetMatrix(m);
 
-    // Use only the word cache here. We don't want to cache the textrun
-    // globally because we'll never hit in that cache, since we create
+    // Use only the fonts' internal word caching here.
+    // We don't cache the textrun globally because we create
     // a new fontgroup every time. Even if we cached fontgroups, we
     // might render at very many different sizes (e.g. during zoom
     // animation) and caching a textrun for each such size would be bad.
     gfxTextRunFactory::Parameters params = {
         tmpCtx, nsnull, nsnull, nsnull, 0, GetTextRunUnitsFactor()
     };
-    mTextRun = gfxTextRunWordCache::MakeTextRun(text.get(), text.Length(),
-      fontGroup, &params, flags);
+    mTextRun =
+      fontGroup->MakeTextRun(text.get(), text.Length(), &params, flags);
     if (!mTextRun)
       return false;
   }

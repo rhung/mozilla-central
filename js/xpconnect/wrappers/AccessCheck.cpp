@@ -52,6 +52,7 @@
 #include "WrapperFactory.h"
 
 #include "jsfriendapi.h"
+#include "jscntxt.h" // JSID_IS_ATOM, JSFlatString* -> JSString*
 
 using namespace mozilla;
 using namespace js;
@@ -154,8 +155,6 @@ IsPermitted(const char *name, JSFlatString *prop, bool set)
         NAME('L', "Location",
              PROP('h', W("hash") W("href"))
              PROP('r', R("replace")))
-        NAME('N', "Navigator",
-             PROP('p', RW("preference")))
         NAME('W', "Window",
              PROP('b', R("blur"))
              PROP('c', R("close") R("closed"))
@@ -488,7 +487,7 @@ ExposedPropertiesOnly::check(JSContext *cx, JSObject *wrapper, jsid id, Wrapper:
 
     jsid exposedPropsId = GetRTIdByIndex(cx, XPCJSRuntime::IDX_EXPOSEDPROPS);
 
-    JSBool found = JS_FALSE;
+    JSBool found = false;
     JSAutoEnterCompartment ac;
     if (!ac.enter(cx, wrappedObject) ||
         !JS_HasPropertyById(cx, wrappedObject, exposedPropsId, &found))

@@ -55,6 +55,7 @@ import nu.validator.htmlparser.common.TokenHandler;
 import nu.validator.htmlparser.common.XmlViolationPolicy;
 
 import org.xml.sax.ErrorHandler;
+import org.xml.sax.Locator;
 import org.xml.sax.SAXException;
 import org.xml.sax.SAXParseException;
 
@@ -198,6 +199,8 @@ public abstract class TreeBuilder<T> implements TokenHandler,
 
     final static int KEYGEN = 65;
 
+    final static int MENUITEM = 66;
+
     // start insertion modes
 
     private static final int INITIAL = 0;
@@ -340,7 +343,7 @@ public abstract class TreeBuilder<T> implements TokenHandler,
     // [NOCPP[
 
     private static final @Local String HTML_LOCAL = "html";
-
+    
     // ]NOCPP]
 
     private int mode = INITIAL;
@@ -362,6 +365,8 @@ public abstract class TreeBuilder<T> implements TokenHandler,
 
     private DoctypeExpectation doctypeExpectation = DoctypeExpectation.HTML;
 
+    private LocatorImpl firstCommentLocation;
+    
     // ]NOCPP]
 
     private boolean scriptingEnabled = false;
@@ -519,6 +524,21 @@ public abstract class TreeBuilder<T> implements TokenHandler,
         errorHandler.warning(spe);
     }
 
+    /**
+     * Reports a warning with an explicit locator
+     * 
+     * @param message
+     *            the message
+     * @throws SAXException
+     */
+    final void warn(String message, Locator locator) throws SAXException {
+        if (errorHandler == null) {
+            return;
+        }
+        SAXParseException spe = new SAXParseException(message, locator);
+        errorHandler.warning(spe);
+    }
+
     // ]NOCPP]
     
     @SuppressWarnings("unchecked") public final void startTokenization(Tokenizer self) throws SAXException {
@@ -536,6 +556,7 @@ public abstract class TreeBuilder<T> implements TokenHandler,
         html4 = false;
         idLocations.clear();
         wantingComments = wantsComments();
+        firstCommentLocation = null;
         // ]NOCPP]
         start(fragment);
         charBufferLen = 0;
@@ -619,6 +640,11 @@ public abstract class TreeBuilder<T> implements TokenHandler,
                                         false);
                             } else if (isAlmostStandards(publicIdentifier,
                                     systemIdentifier)) {
+                                // [NOCPP[
+                                if (firstCommentLocation != null) {
+                                    warn("Comments seen before doctype. Internet Explorer will go into the quirks mode.", firstCommentLocation);
+                                }
+                                // ]NOCPP]
                                 errAlmostStandardsDoctype();
                                 documentModeInternal(
                                         DocumentMode.ALMOST_STANDARDS_MODE,
@@ -626,6 +652,9 @@ public abstract class TreeBuilder<T> implements TokenHandler,
                                         false);
                             } else {
                                 // [NOCPP[
+                                if (firstCommentLocation != null) {
+                                    warn("Comments seen before doctype. Internet Explorer will go into the quirks mode.", firstCommentLocation);
+                                }
                                 if ((Portability.literalEqualsString(
                                         "-//W3C//DTD HTML 4.0//EN",
                                         publicIdentifier) && (systemIdentifier == null || Portability.literalEqualsString(
@@ -672,12 +701,18 @@ public abstract class TreeBuilder<T> implements TokenHandler,
                                         true);
                             } else if (isAlmostStandards(publicIdentifier,
                                     systemIdentifier)) {
+                                if (firstCommentLocation != null) {
+                                    warn("Comments seen before doctype. Internet Explorer will go into the quirks mode.", firstCommentLocation);
+                                }
                                 err("Almost standards mode doctype. Expected \u201C<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01//EN\" \"http://www.w3.org/TR/html4/strict.dtd\">\u201D.");
                                 documentModeInternal(
                                         DocumentMode.ALMOST_STANDARDS_MODE,
                                         publicIdentifier, systemIdentifier,
                                         true);
                             } else {
+                                if (firstCommentLocation != null) {
+                                    warn("Comments seen before doctype. Internet Explorer will go into the quirks mode.", firstCommentLocation);
+                                }
                                 if ("-//W3C//DTD HTML 4.01//EN".equals(publicIdentifier)) {
                                     if (!"http://www.w3.org/TR/html4/strict.dtd".equals(systemIdentifier)) {
                                         warn("The doctype did not contain the system identifier prescribed by the HTML 4.01 specification. Expected \u201C<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01//EN\" \"http://www.w3.org/TR/html4/strict.dtd\">\u201D.");
@@ -702,6 +737,9 @@ public abstract class TreeBuilder<T> implements TokenHandler,
                                         true);
                             } else if (isAlmostStandards(publicIdentifier,
                                     systemIdentifier)) {
+                                if (firstCommentLocation != null) {
+                                    warn("Comments seen before doctype. Internet Explorer will go into the quirks mode.", firstCommentLocation);
+                                }
                                 if ("-//W3C//DTD HTML 4.01 Transitional//EN".equals(publicIdentifier)
                                         && systemIdentifier != null) {
                                     if (!"http://www.w3.org/TR/html4/loose.dtd".equals(systemIdentifier)) {
@@ -715,6 +753,9 @@ public abstract class TreeBuilder<T> implements TokenHandler,
                                         publicIdentifier, systemIdentifier,
                                         true);
                             } else {
+                                if (firstCommentLocation != null) {
+                                    warn("Comments seen before doctype. Internet Explorer will go into the quirks mode.", firstCommentLocation);
+                                }
                                 err("The doctype was not the HTML 4.01 Transitional doctype. Expected \u201C<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01 Transitional//EN\" \"http://www.w3.org/TR/html4/loose.dtd\">\u201D.");
                                 documentModeInternal(
                                         DocumentMode.STANDARDS_MODE,
@@ -735,6 +776,9 @@ public abstract class TreeBuilder<T> implements TokenHandler,
                                         html4);
                             } else if (isAlmostStandards(publicIdentifier,
                                     systemIdentifier)) {
+                                if (firstCommentLocation != null) {
+                                    warn("Comments seen before doctype. Internet Explorer will go into the quirks mode.", firstCommentLocation);
+                                }
                                 if ("-//W3C//DTD HTML 4.01 Transitional//EN".equals(publicIdentifier)) {
                                     if (!"http://www.w3.org/TR/html4/loose.dtd".equals(systemIdentifier)) {
                                         warn("The doctype did not contain the system identifier prescribed by the HTML 4.01 specification. Expected \u201C<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01 Transitional//EN\" \"http://www.w3.org/TR/html4/loose.dtd\">\u201D.");
@@ -747,6 +791,9 @@ public abstract class TreeBuilder<T> implements TokenHandler,
                                         publicIdentifier, systemIdentifier,
                                         html4);
                             } else {
+                                if (firstCommentLocation != null) {
+                                    warn("Comments seen before doctype. Internet Explorer will go into the quirks mode.", firstCommentLocation);
+                                }
                                 if ("-//W3C//DTD HTML 4.01//EN".equals(publicIdentifier)) {
                                     if (!"http://www.w3.org/TR/html4/strict.dtd".equals(systemIdentifier)) {
                                         warn("The doctype did not contain the system identifier prescribed by the HTML 4.01 specification. Expected \u201C<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01//EN\" \"http://www.w3.org/TR/html4/strict.dtd\">\u201D.");
@@ -822,6 +869,9 @@ public abstract class TreeBuilder<T> implements TokenHandler,
             throws SAXException {
         needToDropLF = false;
         // [NOCPP[
+        if (firstCommentLocation == null) {
+            firstCommentLocation = new LocatorImpl(tokenizer);
+        }
         if (!wantingComments) {
             return;
         }
@@ -889,7 +939,7 @@ public abstract class TreeBuilder<T> implements TokenHandler,
             case IN_BODY:
             case IN_CELL:
             case IN_CAPTION:
-                if (!isInForeignButNotHtmlIntegrationPoint()) {
+                if (!isInForeignButNotHtmlOrMathTextIntegrationPoint()) {
                     reconstructTheActiveFormattingElements();
                 }
                 // fall through
@@ -948,7 +998,7 @@ public abstract class TreeBuilder<T> implements TokenHandler,
                                      * Reconstruct the active formatting
                                      * elements, if any.
                                      */
-                                    if (!isInForeignButNotHtmlIntegrationPoint()) {
+                                    if (!isInForeignButNotHtmlOrMathTextIntegrationPoint()) {
                                         flushCharacters();
                                         reconstructTheActiveFormattingElements();
                                     }
@@ -1145,7 +1195,7 @@ public abstract class TreeBuilder<T> implements TokenHandler,
                                      * Reconstruct the active formatting
                                      * elements, if any.
                                      */
-                                    if (!isInForeignButNotHtmlIntegrationPoint()) {
+                                    if (!isInForeignButNotHtmlOrMathTextIntegrationPoint()) {
                                         flushCharacters();
                                         reconstructTheActiveFormattingElements();
                                     }
@@ -1260,11 +1310,7 @@ public abstract class TreeBuilder<T> implements TokenHandler,
             return;
         }
         if (currentPtr >= 0) {
-            StackNode<T> stackNode = stack[currentPtr];
-            if (stackNode.ns == "http://www.w3.org/1999/xhtml") {
-                return;
-            }
-            if (stackNode.isHtmlIntegrationPoint()) {
+            if (isSpecialParentInForeign(stack[currentPtr])) {
                 return;
             }
             accumulateCharacters(REPLACEMENT_CHARACTER, 0, 1);
@@ -2057,6 +2103,7 @@ public abstract class TreeBuilder<T> implements TokenHandler,
                             case AREA_OR_WBR:
                                 reconstructTheActiveFormattingElements();
                                 // FALL THROUGH to PARAM_OR_SOURCE_OR_TRACK
+                            // CPPONLY: case MENUITEM:
                             case PARAM_OR_SOURCE_OR_TRACK:
                                 appendVoidElementToCurrentMayFoster(
                                         elementName,
@@ -2235,17 +2282,6 @@ public abstract class TreeBuilder<T> implements TokenHandler,
                                 attributes = null; // CPP
                                 break starttagloop;
                             case RT_OR_RP:
-                                /*
-                                 * If the stack of open elements has a ruby
-                                 * element in scope, then generate implied end
-                                 * tags. If the current node is not then a ruby
-                                 * element, this is a parse error; pop all the
-                                 * nodes from the current node up to the node
-                                 * immediately before the bottommost ruby
-                                 * element on the stack of open elements.
-                                 * 
-                                 * Insert an HTML element for the token.
-                                 */
                                 eltPos = findLastInScope("ruby");
                                 if (eltPos != NOT_FOUND_ON_STACK) {
                                     generateImpliedEndTags();
@@ -2255,9 +2291,6 @@ public abstract class TreeBuilder<T> implements TokenHandler,
                                         errStartTagSeenWithoutRuby(name);
                                     } else {
                                         errUnclosedChildrenInRuby();
-                                    }
-                                    while (currentPtr > eltPos) {
-                                        pop();
                                     }
                                 }
                                 appendToCurrentNodeAndPushElementMayFoster(
@@ -3517,6 +3550,7 @@ public abstract class TreeBuilder<T> implements TokenHandler,
                                     HtmlAttributes.EMPTY_ATTRIBUTES);
                             break endtagloop;
                         case AREA_OR_WBR:
+                        // CPPONLY: case MENUITEM:
                         case PARAM_OR_SOURCE_OR_TRACK:
                         case EMBED_OR_IMG:
                         case IMAGE:
@@ -4683,10 +4717,10 @@ public abstract class TreeBuilder<T> implements TokenHandler,
                             case ALTER_INFOSET:
                                 // fall through
                             case ALLOW:
-                                warn("Attribute \u201Cxmlns:xlink\u201D with the value \u201Chttp://www.w3org/1999/xlink\u201D is not serializable as XML 1.0 without changing document semantics.");
+                                warn("Attribute \u201Cxmlns:xlink\u201D with a value other than \u201Chttp://www.w3.org/1999/xlink\u201D is not serializable as XML 1.0 without changing document semantics.");
                                 break;
                             case FATAL:
-                                fatal("Attribute \u201Cxmlns:xlink\u201D with the value \u201Chttp://www.w3org/1999/xlink\u201D is not serializable as XML 1.0 without changing document semantics.");
+                                fatal("Attribute \u201Cxmlns:xlink\u201D with a value other than \u201Chttp://www.w3.org/1999/xlink\u201D is not serializable as XML 1.0 without changing document semantics.");
                                 break;
                         }
                     }
@@ -5242,10 +5276,11 @@ public abstract class TreeBuilder<T> implements TokenHandler,
                 && stack[currentPtr].ns != "http://www.w3.org/1999/xhtml";
     }
 
-    private boolean isInForeignButNotHtmlIntegrationPoint() {
-        return currentPtr >= 0
-                && stack[currentPtr].ns != "http://www.w3.org/1999/xhtml"
-                && !stack[currentPtr].isHtmlIntegrationPoint();
+    private boolean isInForeignButNotHtmlOrMathTextIntegrationPoint() {
+        if (currentPtr < 0) {
+            return false;
+        }
+        return !isSpecialParentInForeign(stack[currentPtr]);
     }
 
     /**

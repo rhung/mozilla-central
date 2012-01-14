@@ -94,10 +94,13 @@ function setupHighlighterTests()
   InspectorUI.toggleInspectorUI();
 }
 
-function runSelectionTests()
+function runSelectionTests(subject)
 {
   Services.obs.removeObserver(runSelectionTests,
     InspectorUI.INSPECTOR_NOTIFICATIONS.OPENED, false);
+
+  is(subject.wrappedJSObject, InspectorUI,
+     "InspectorUI accessible in the observer");
 
   executeSoon(function() {
     Services.obs.addObserver(performTestComparisons,
@@ -117,12 +120,12 @@ function performTestComparisons(evt)
   is(InspectorUI.selection, h1, "selection matches node");
   is(InspectorUI.selection, InspectorUI.highlighter.highlitNode, "selection matches highlighter");
 
-  Services.obs.addObserver(finishTestComparisons,
-      InspectorUI.INSPECTOR_NOTIFICATIONS.HIGHLIGHTING, false);
 
   div = doc.querySelector("div#checkOutThisWickedSpread");
 
   executeSoon(function() {
+    Services.obs.addObserver(finishTestComparisons,
+        InspectorUI.INSPECTOR_NOTIFICATIONS.HIGHLIGHTING, false);
     InspectorUI.inspectNode(div);
   });
 }
@@ -150,29 +153,27 @@ function finishTestComparisons()
                              .QueryInterface(Ci.nsIMarkupDocumentViewer);
   contentViewer.fullZoom = 2;
 
-  // check what zoom factor we're at, should be 2
-  let zoom =
-      InspectorUI.win.QueryInterface(Components.interfaces.nsIInterfaceRequestor)
-      .getInterface(Components.interfaces.nsIDOMWindowUtils)
-      .screenPixelsPerCSSPixel;
+  executeSoon(function() {
+    // check what zoom factor we're at, should be 2
+    let zoom = InspectorUI.highlighter.zoom;
+    is(zoom, 2, "zoom is 2?");
 
-  is(zoom, 2, "zoom is 2?");
+    // simulate the zoomed dimensions of the div element
+    let divDims = div.getBoundingClientRect();
+    let divWidth = divDims.width * zoom;
+    let divHeight = divDims.height * zoom;
 
-  // simulate the zoomed dimensions of the div element
-  let divDims = div.getBoundingClientRect();
-  let divWidth = divDims.width * zoom;
-  let divHeight = divDims.height * zoom;
+    // now zoomed, get new dimensions of transparent veil box over element
+    let veilBoxDims = InspectorUI.highlighter.veilTransparentBox.getBoundingClientRect();
+    let veilBoxWidth = veilBoxDims.width;
+    let veilBoxHeight = veilBoxDims.height;
 
-  // now zoomed, get new dimensions of transparent veil box over element
-  let veilBoxDims = InspectorUI.highlighter.veilTransparentBox.getBoundingClientRect();
-  let veilBoxWidth = veilBoxDims.width;
-  let veilBoxHeight = veilBoxDims.height;
+    is(veilBoxWidth, divWidth, "transparent veil box width matches width of element (2x zoom)");
+    is(veilBoxHeight, divHeight, "transparent veil box height matches width of element (2x zoom)");
 
-  is(veilBoxWidth, divWidth, "transparent veil box width matches width of element (2x zoom)");
-  is(veilBoxHeight, divHeight, "transparent veil box height matches width of element (2x zoom)");
-
-  doc = h1 = div = null;
-  executeSoon(finishUp);
+    doc = h1 = div = null;
+    executeSoon(finishUp);
+  });
 }
 
 function finishUp() {

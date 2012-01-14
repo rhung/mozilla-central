@@ -179,7 +179,8 @@
         <menupopup id="appmenu_webDeveloper_popup">
           <menuitem id="appmenu_webConsole"
                     label="&webConsoleCmd.label;"
-                    oncommand="HUDConsoleUI.toggleHUD();"
+                    type="checkbox"
+                    command="Tools:WebConsole"
                     key="key_webConsole"/>
           <menuitem id="appmenu_pageInspect"
                     hidden="true"
@@ -192,6 +193,11 @@
                     label="&scratchpad.label;"
                     key="key_scratchpad"
                     command="Tools:Scratchpad"/>
+          <menuitem id="appmenu_styleeditor"
+                    hidden="true"
+                    label="&styleeditor.label;"
+                    key="key_styleeditor"
+                    command="Tools:StyleEditor"/>
           <menuitem id="appmenu_pageSource"
                     label="&viewPageSourceCmd.label;"
                     command="View:PageSource"

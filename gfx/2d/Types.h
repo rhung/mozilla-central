@@ -38,22 +38,7 @@
 #ifndef MOZILLA_GFX_TYPES_H_
 #define MOZILLA_GFX_TYPES_H_
 
-#if defined (_SVR4) || defined (SVR4) || defined (__OpenBSD__) || defined (_sgi) || defined (__sun) || defined (sun) || defined (__digital__)
-#  include <inttypes.h>
-#elif defined (_MSC_VER)
-typedef unsigned __int8 uint8_t;
-typedef __int16 int16_t;
-typedef unsigned __int16 uint16_t;
-typedef __int32 int32_t;
-typedef unsigned __int32 uint32_t;
-typedef __int64 int64_t;
-typedef unsigned __int64 uint64_t;
-
-#elif defined (_AIX)
-#  include <sys/inttypes.h>
-#else
-#  include <stdint.h>
-#endif
+#include "mozilla/StdInt.h"
 
 #include <stddef.h>
 
@@ -68,6 +53,7 @@ enum SurfaceType
   SURFACE_D2D1_BITMAP, /* Surface wrapping a ID2D1Bitmap */
   SURFACE_D2D1_DRAWTARGET, /* Surface made from a D2D draw target */
   SURFACE_CAIRO, /* Surface wrapping a cairo surface */
+  SURFACE_CAIRO_IMAGE, /* Data surface wrapping a cairo image surface */
   SURFACE_COREGRAPHICS_IMAGE, /* Surface wrapping a CoreGraphics Image */
   SURFACE_SKIA /* Surface wrapping a Skia bitmap */
 };
@@ -91,24 +77,29 @@ enum BackendType
 enum FontType
 {
   FONT_DWRITE,
+  FONT_GDI,
   FONT_MAC,
-  FONT_SKIA
+  FONT_SKIA,
+  FONT_CAIRO
 };
 
 enum NativeSurfaceType
 {
-  NATIVE_SURFACE_D3D10_TEXTURE
+  NATIVE_SURFACE_D3D10_TEXTURE,
+  NATIVE_SURFACE_CAIRO_SURFACE
 };
 
 enum NativeFontType
 {
   NATIVE_FONT_DWRITE_FONT_FACE,
+  NATIVE_FONT_GDI_FONT_FACE,
   NATIVE_FONT_MAC_FONT_FACE,
-  NATIVE_FONT_SKIA_FONT_FACE
+  NATIVE_FONT_SKIA_FONT_FACE,
+  NATIVE_FONT_CAIRO_FONT_FACE
 };
 
 enum CompositionOp { OP_OVER, OP_ADD, OP_ATOP, OP_OUT, OP_IN, OP_SOURCE, OP_DEST_IN, OP_DEST_OUT, OP_DEST_OVER, OP_DEST_ATOP, OP_XOR, OP_COUNT };
-enum ExtendMode { EXTEND_CLAMP, EXTEND_WRAP, EXTEND_MIRROR };
+enum ExtendMode { EXTEND_CLAMP, EXTEND_REPEAT, EXTEND_REFLECT };
 enum FillRule { FILL_WINDING, FILL_EVEN_ODD };
 enum AntialiasMode { AA_NONE, AA_GRAY, AA_SUBPIXEL };
 enum Snapping { SNAP_NONE, SNAP_ALIGNED };
@@ -116,6 +107,7 @@ enum Filter { FILTER_LINEAR, FILTER_POINT };
 enum PatternType { PATTERN_COLOR, PATTERN_SURFACE, PATTERN_LINEAR_GRADIENT, PATTERN_RADIAL_GRADIENT };
 enum JoinStyle { JOIN_BEVEL, JOIN_ROUND, JOIN_MITER, JOIN_MITER_OR_BEVEL };
 enum CapStyle { CAP_BUTT, CAP_ROUND, CAP_SQUARE };
+enum SamplingBounds { SAMPLING_UNBOUNDED, SAMPLING_BOUNDED };
 
 /* Color is stored in non-premultiplied form */
 struct Color
