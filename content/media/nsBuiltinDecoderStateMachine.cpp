@@ -45,7 +45,9 @@
 #include "mozilla/mozalloc.h"
 #include "VideoUtils.h"
 #include "nsTimeRanges.h"
+
 #include "mozilla/Preferences.h"
+#include "mozilla/StdInt.h"
 
 using namespace mozilla;
 using namespace mozilla::layers;
@@ -767,29 +769,6 @@ void nsBuiltinDecoderStateMachine::AudioLoop()
         NS_WARNING("Int overflow calculating audio end time");
         break;
       }
-
-// The remoted audio stream does not block writes when the other end's buffers
-// are full, so this sleep is necessary to stop the audio thread spinning its
-// wheels.  When bug 695612 is fixed, this block of code can be removed.
-#if defined(REMOTE_AUDIO)
-      PRInt64 audioAhead = mAudioEndTime - GetMediaTime();
-      if (audioAhead > AMPLE_AUDIO_USECS &&
-          framesWritten > minWriteFrames)
-      {
-        // We've pushed enough audio onto the hardware that we've queued up a
-        // significant amount ahead of the playback position. The decode
-        // thread will be going to sleep, so we won't get any new audio
-        // anyway, so sleep until we need to push to the hardware again.
-        Wait(AMPLE_AUDIO_USECS / 2);
-        // Kick the decode thread; since above we only do a NotifyAll when
-        // we pop an audio chunk of the queue, the decoder won't wake up if
-        // we've got no more decoded chunks to push to the hardware. We can
-        // hit this condition if the last frame in the stream doesn't have
-        // it's EOS flag set, and the decode thread sleeps just after decoding
-        // that packet, but before realising there's no more packets.
-        mon.NotifyAll();
-      }
-#endif
     }
   }
   if (mReader->mAudioQueue.AtEndOfStream() &&
@@ -1147,6 +1126,33 @@ void nsBuiltinDecoderStateMachine::ResetPlayback()
   mAudioCompleted = false;
 }
 
+void nsBuiltinDecoderStateMachine::NotifyDataArrived(const char* aBuffer,
+                                                     PRUint32 aLength,
+                                                     PRUint32 aOffset)
+{
+  NS_ASSERTION(NS_IsMainThread(), "Only call on main thread");
+  mReader->NotifyDataArrived(aBuffer, aLength, aOffset);
+
+  // While playing an unseekable stream of unknown duration, mEndTime is
+  // updated (in AdvanceFrame()) as we play. But if data is being downloaded
+  // faster than played, mEndTime won't reflect the end of playable data
+  // since we haven't played the frame at the end of buffered data. So update
+  // mEndTime here as new data is downloaded to prevent such a lag.
+  nsTimeRanges buffered;
+  if (mDecoder->IsInfinite() &&
+      NS_SUCCEEDED(mDecoder->GetBuffered(&buffered)))
+  {
+    PRUint32 length = 0;
+    buffered.GetLength(&length);
+    if (length) {
+      double end = 0;
+      buffered.End(length - 1, &end);
+      ReentrantMonitorAutoEnter mon(mDecoder->GetReentrantMonitor());
+      mEndTime = NS_MAX<PRInt64>(mEndTime, end * USECS_PER_S);
+    }
+  }
+}
+
 void nsBuiltinDecoderStateMachine::Seek(double aTime)
 {
   NS_ASSERTION(NS_IsMainThread(), "Should be on main thread.");
@@ -1158,7 +1164,7 @@ void nsBuiltinDecoderStateMachine::Seek(double aTime)
   NS_ASSERTION(mState >= DECODER_STATE_DECODING,
                "We should have loaded metadata");
   double t = aTime * static_cast<double>(USECS_PER_S);
-  if (t > PR_INT64_MAX) {
+  if (t > INT64_MAX) {
     // Prevent integer overflow.
     return;
   }
@@ -1528,7 +1534,11 @@ void nsBuiltinDecoderStateMachine::DecodeSeek()
   // if we need to seek again.
 
   nsCOMPtr<nsIRunnable> stopEvent;
-  if (GetMediaTime() == mEndTime) {
+  bool isLiveStream = mDecoder->GetStream()->GetLength() == -1;
+  if (GetMediaTime() == mEndTime && !isLiveStream) {
+    // Seeked to end of media, move to COMPLETED state. Note we don't do
+    // this if we're playing a live stream, since the end of media will advance
+    // once we download more data!
     LOG(PR_LOG_DEBUG, ("%p Changed state from SEEKING (to %lld) to COMPLETED",
                         mDecoder.get(), seekTime));
     stopEvent = NS_NewRunnableMethod(mDecoder, &nsBuiltinDecoder::SeekingStoppedAtEnd);
@@ -1594,7 +1604,7 @@ nsresult nsBuiltinDecoderStateMachine::RunStateMachine()
 {
   mDecoder->GetReentrantMonitor().AssertCurrentThreadIn();
 
-  nsMediaStream* stream = mDecoder->GetCurrentStream();
+  nsMediaStream* stream = mDecoder->GetStream();
   NS_ENSURE_TRUE(stream, NS_ERROR_NULL_POINTER);
 
   switch (mState) {
@@ -1675,7 +1685,7 @@ nsresult nsBuiltinDecoderStateMachine::RunStateMachine()
       // data to begin playback, or if we've not downloaded a reasonable
       // amount of data inside our buffering time.
       TimeDuration elapsed = now - mBufferingStart;
-      bool isLiveStream = mDecoder->GetCurrentStream()->GetLength() == -1;
+      bool isLiveStream = mDecoder->GetStream()->GetLength() == -1;
       if ((isLiveStream || !mDecoder->CanPlayThrough()) &&
             elapsed < TimeDuration::FromSeconds(mBufferingWait) &&
             (mQuickBuffering ? HasLowDecodedData(QUICK_BUFFERING_LOW_DATA_USECS)
@@ -1873,7 +1883,7 @@ void nsBuiltinDecoderStateMachine::AdvanceFrame()
 
   // Check to see if we don't have enough data to play up to the next frame.
   // If we don't, switch to buffering mode.
-  nsMediaStream* stream = mDecoder->GetCurrentStream();
+  nsMediaStream* stream = mDecoder->GetStream();
   if (mState == DECODER_STATE_DECODING &&
       mDecoder->GetState() == nsBuiltinDecoder::PLAY_STATE_PLAYING &&
       HasLowDecodedData(remainingTime + EXHAUSTED_DATA_MARGIN_USECS) &&
@@ -2051,7 +2061,7 @@ void nsBuiltinDecoderStateMachine::StartBuffering()
 }
 
 nsresult nsBuiltinDecoderStateMachine::GetBuffered(nsTimeRanges* aBuffered) {
-  nsMediaStream* stream = mDecoder->GetCurrentStream();
+  nsMediaStream* stream = mDecoder->GetStream();
   NS_ENSURE_TRUE(stream, NS_ERROR_FAILURE);
   stream->Pin();
   nsresult res = mReader->GetBuffered(aBuffered, mStartTime);
@@ -2201,4 +2211,8 @@ nsIThread* nsBuiltinDecoderStateMachine::GetStateMachineThread()
   return StateMachineTracker::Instance().GetGlobalStateMachineThread();
 }
 
-
+void nsBuiltinDecoderStateMachine::NotifyAudioAvailableListener()
+{
+  mDecoder->GetReentrantMonitor().AssertCurrentThreadIn();
+  mEventManager.NotifyAudioAvailableListener();
+}

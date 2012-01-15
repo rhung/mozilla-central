@@ -42,7 +42,6 @@
 #include "Events.h"
 
 #include "jsapi.h"
-#include "jscntxt.h"
 #include "jsfriendapi.h"
 
 #include "nsTraceRefcnt.h"
@@ -317,6 +316,9 @@ private:
   StopPropagation(JSContext* aCx, uintN aArgc, jsval* aVp)
   {
     JSObject* obj = JS_THIS_OBJECT(aCx, aVp);
+    if (!obj) {
+      return false;
+    }
 
     Event* event = GetInstancePrivate(aCx, obj, sFunctions[0].name);
     if (!event) {
@@ -332,6 +334,9 @@ private:
   StopImmediatePropagation(JSContext* aCx, uintN aArgc, jsval* aVp)
   {
     JSObject* obj = JS_THIS_OBJECT(aCx, aVp);
+    if (!obj) {
+      return false;
+    }
 
     Event* event = GetInstancePrivate(aCx, obj, sFunctions[3].name);
     if (!event) {
@@ -347,6 +352,9 @@ private:
   PreventDefault(JSContext* aCx, uintN aArgc, jsval* aVp)
   {
     JSObject* obj = JS_THIS_OBJECT(aCx, aVp);
+    if (!obj) {
+      return false;
+    }
 
     Event* event = GetInstancePrivate(aCx, obj, sFunctions[1].name);
     if (!event) {
@@ -367,6 +375,9 @@ private:
   InitEvent(JSContext* aCx, uintN aArgc, jsval* aVp)
   {
     JSObject* obj = JS_THIS_OBJECT(aCx, aVp);
+    if (!obj) {
+      return false;
+    }
 
     Event* event = GetInstancePrivate(aCx, obj, sFunctions[2].name);
     if (!event) {
@@ -443,7 +454,7 @@ class MessageEvent : public Event
   static JSFunctionSpec sFunctions[];
 
 protected:
-  uint64* mData;
+  uint64_t* mData;
   size_t mDataByteCount;
   nsTArray<nsCOMPtr<nsISupports> > mClonedObjects;
   bool mMainRuntime;
@@ -627,6 +638,9 @@ private:
   InitMessageEvent(JSContext* aCx, uintN aArgc, jsval* aVp)
   {
     JSObject* obj = JS_THIS_OBJECT(aCx, aVp);
+    if (!obj) {
+      return false;
+    }
 
     MessageEvent* event = GetInstancePrivate(aCx, obj, sFunctions[0].name);
     if (!event) {
@@ -823,6 +837,9 @@ private:
   InitErrorEvent(JSContext* aCx, uintN aArgc, jsval* aVp)
   {
     JSObject* obj = JS_THIS_OBJECT(aCx, aVp);
+    if (!obj) {
+      return false;
+    }
 
     ErrorEvent* event = GetInstancePrivate(aCx, obj, sFunctions[0].name);
     if (!event) {
@@ -831,7 +848,7 @@ private:
 
     JSString* type, *message, *filename;
     JSBool bubbles, cancelable;
-    uint32 lineNumber;
+    uint32_t lineNumber;
     if (!JS_ConvertArguments(aCx, aArgc, JS_ARGV(aCx, aVp), "SbbSSu", &type,
                              &bubbles, &cancelable, &message, &filename,
                              &lineNumber)) {
@@ -1010,6 +1027,9 @@ private:
   InitProgressEvent(JSContext* aCx, uintN aArgc, jsval* aVp)
   {
     JSObject* obj = JS_THIS_OBJECT(aCx, aVp);
+    if (!obj) {
+      return false;
+    }
 
     ProgressEvent* event = GetInstancePrivate(aCx, obj, sFunctions[0].name);
     if (!event) {

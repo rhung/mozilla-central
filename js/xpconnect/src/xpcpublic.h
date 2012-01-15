@@ -41,6 +41,7 @@
 #define xpcpublic_h
 
 #include "jsapi.h"
+#include "js/MemoryMetrics.h"
 #include "jsclass.h"
 #include "jsfriendapi.h"
 #include "jsgc.h"
@@ -55,6 +56,10 @@
 
 class nsIPrincipal;
 struct nsDOMClassInfoData;
+
+#ifndef BAD_TLS_INDEX
+#define BAD_TLS_INDEX ((PRUint32) -1)
+#endif
 
 nsresult
 xpc_CreateGlobalObject(JSContext *cx, JSClass *clasp,
@@ -81,15 +86,17 @@ xpc_LocalizeContext(JSContext *cx);
 nsresult
 xpc_MorphSlimWrapper(JSContext *cx, nsISupports *tomorph);
 
-#define IS_WRAPPER_CLASS(clazz)                                               \
-    ((clazz)->ext.isWrappedNative)
+static inline bool IS_WRAPPER_CLASS(js::Class* clazz)
+{
+    return clazz->ext.isWrappedNative;
+}
 
 inline JSBool
 DebugCheckWrapperClass(JSObject* obj)
 {
     NS_ASSERTION(IS_WRAPPER_CLASS(js::GetObjectClass(obj)),
                  "Forgot to check if this is a wrapper?");
-    return JS_TRUE;
+    return true;
 }
 
 // If IS_WRAPPER_CLASS for the JSClass of an object is true, the object can be
@@ -182,108 +189,38 @@ xpc_UnmarkGrayObject(JSObject *obj)
         xpc_UnmarkGrayObjectRecursive(obj);
 }
 
+// No JS can be on the stack when this is called. Probably only useful from
+// xpcshell.
+NS_EXPORT_(void)
+xpc_ActivateDebugMode();
+
+namespace xpc {
+
+// If these functions return false, then an exception will be set on cx.
+bool Base64Encode(JSContext *cx, JS::Value val, JS::Value *out);
+bool Base64Decode(JSContext *cx, JS::Value val, JS::Value *out);
+
+/**
+ * Convert an nsString to jsval, returning true on success.
+ * Note, the ownership of the string buffer may be moved from str to rval.
+ * If that happens, str will point to an empty string after this call.
+ */
+bool StringToJsval(JSContext *cx, nsString &str, JS::Value *rval);
+
+void *GetCompartmentName(JSContext *cx, JSCompartment *c);
+void DestroyCompartmentName(void *string);
+size_t JsMallocSizeOf(const void *ptr, size_t computedSize);
+
+} // namespace xpc
+
 class nsIMemoryMultiReporterCallback;
 
 namespace mozilla {
 namespace xpconnect {
 namespace memory {
 
-struct CompartmentStats
-{
-    CompartmentStats(JSContext *cx, JSCompartment *c);
-
-    nsCString name;
-    PRInt64 gcHeapArenaHeaders;
-    PRInt64 gcHeapArenaPadding;
-    PRInt64 gcHeapArenaUnused;
-
-    PRInt64 gcHeapObjectsNonFunction;
-    PRInt64 gcHeapObjectsFunction;
-    PRInt64 gcHeapStrings;
-    PRInt64 gcHeapShapesTree;
-    PRInt64 gcHeapShapesDict;
-    PRInt64 gcHeapScripts;
-    PRInt64 gcHeapTypeObjects;
-    PRInt64 gcHeapXML;
-
-    PRInt64 objectSlots;
-    PRInt64 stringChars;
-    PRInt64 shapesExtraTreeTables;
-    PRInt64 shapesExtraDictTables;
-    PRInt64 shapesExtraTreeShapeKids;
-    PRInt64 scriptData;
-
-#ifdef JS_METHODJIT
-    PRInt64 mjitCodeMethod;
-    PRInt64 mjitCodeRegexp;
-    PRInt64 mjitCodeUnused;
-    PRInt64 mjitData;
-#endif
-#ifdef JS_TRACER
-    PRInt64 tjitCode;
-    PRInt64 tjitDataAllocatorsMain;
-    PRInt64 tjitDataAllocatorsReserve;
-    PRInt64 tjitDataNonAllocators;
-#endif
-    TypeInferenceMemoryStats typeInferenceMemory;
-};
-
-struct IterateData
-{
-    IterateData()
-      : runtimeObjectSize(0),
-        atomsTableSize(0),
-        stackSize(0),
-        gcHeapChunkTotal(0),
-        gcHeapChunkCleanUnused(0),
-        gcHeapChunkDirtyUnused(0),
-        gcHeapChunkCleanDecommitted(0),
-        gcHeapChunkDirtyDecommitted(0),
-        gcHeapArenaUnused(0),
-        gcHeapChunkAdmin(0),
-        gcHeapUnusedPercentage(0),
-        totalObjects(0),
-        totalShapes(0),
-        totalScripts(0),
-        totalStrings(0),
-#ifdef JS_METHODJIT
-        totalMjit(0),
-#endif
-        totalTypeInference(0),
-        totalAnalysisTemp(0),
-        compartmentStatsVector(),
-        currCompartmentStats(NULL) { }
-
-    PRInt64 runtimeObjectSize;
-    PRInt64 atomsTableSize;
-    PRInt64 stackSize;
-    PRInt64 gcHeapChunkTotal;
-    PRInt64 gcHeapChunkCleanUnused;
-    PRInt64 gcHeapChunkDirtyUnused;
-    PRInt64 gcHeapChunkCleanDecommitted;
-    PRInt64 gcHeapChunkDirtyDecommitted;
-    PRInt64 gcHeapArenaUnused;
-    PRInt64 gcHeapChunkAdmin;
-    PRInt64 gcHeapUnusedPercentage;
-    PRInt64 totalObjects;
-    PRInt64 totalShapes;
-    PRInt64 totalScripts;
-    PRInt64 totalStrings;
-#ifdef JS_METHODJIT
-    PRInt64 totalMjit;
-#endif
-    PRInt64 totalTypeInference;
-    PRInt64 totalAnalysisTemp;
-
-    nsTArray<CompartmentStats> compartmentStatsVector;
-    CompartmentStats *currCompartmentStats;
-};
-
-JSBool
-CollectCompartmentStatsForRuntime(JSRuntime *rt, IterateData *data);
-
 void
-ReportJSRuntimeStats(const IterateData &data, const nsACString &pathPrefix,
+ReportJSRuntimeStats(const JS::IterateData &data, const nsACString &pathPrefix,
                      nsIMemoryMultiReporterCallback *callback,
                      nsISupports *closure);
 

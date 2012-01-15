@@ -128,8 +128,11 @@ nsHtml5Parser::GetCommand(nsCString& aCommand)
 NS_IMETHODIMP_(void)
 nsHtml5Parser::SetCommand(const char* aCommand)
 {
-  NS_ASSERTION(!strcmp(aCommand, "view") || !strcmp(aCommand, "view-source"),
-      "Parser command was not view");
+  NS_ASSERTION(!strcmp(aCommand, "view") ||
+               !strcmp(aCommand, "view-source") ||
+               !strcmp(aCommand, "external-resource") ||
+               !strcmp(aCommand, kLoadAsData),
+               "Unsupported parser command");
 }
 
 NS_IMETHODIMP_(void)
@@ -152,12 +155,6 @@ nsHtml5Parser::SetDocumentCharset(const nsACString& aCharset,
   mStreamParser->SetDocumentCharset(trimmed, aCharsetSource);
   mExecutor->SetDocumentCharsetAndSource(trimmed,
                                          aCharsetSource);
-}
-
-NS_IMETHODIMP_(void)
-nsHtml5Parser::SetParserFilter(nsIParserFilter* aFilter)
-{
-  NS_ERROR("Attempt to set a parser filter on HTML5 parser.");
 }
 
 NS_IMETHODIMP
@@ -215,7 +212,7 @@ nsHtml5Parser::IsComplete()
 }
 
 NS_IMETHODIMP
-nsHtml5Parser::Parse(nsIURI* aURL, // legacy parameter; ignored
+nsHtml5Parser::Parse(nsIURI* aURL,
                      nsIRequestObserver* aObserver,
                      void* aKey,
                      nsDTDMode aMode) // legacy; ignored
@@ -229,6 +226,7 @@ nsHtml5Parser::Parse(nsIURI* aURL, // legacy parameter; ignored
   NS_PRECONDITION(mStreamParser, 
                   "Can't call this Parse() variant on script-created parser");
   mStreamParser->SetObserver(aObserver);
+  mStreamParser->SetViewSourceTitle(aURL); // In case we're viewing source
   mExecutor->SetStreamParser(mStreamParser);
   mExecutor->SetParser(this);
   mRootContextKey = aKey;
@@ -710,13 +708,18 @@ nsHtml5Parser::MarkAsNotScriptCreated(const char* aCommand)
     mode = VIEW_SOURCE_HTML;
   } else if (!nsCRT::strcmp(aCommand, "view-source-xml")) {
     mode = VIEW_SOURCE_XML;
+  } else if (!nsCRT::strcmp(aCommand, "view-source-plain")) {
+    mode = VIEW_SOURCE_PLAIN;
   } else if (!nsCRT::strcmp(aCommand, "plain-text")) {
     mode = PLAIN_TEXT;
+  } else if (!nsCRT::strcmp(aCommand, kLoadAsData)) {
+    mode = LOAD_AS_DATA;
   }
 #ifdef DEBUG
   else {
-    NS_ASSERTION(!nsCRT::strcmp(aCommand, "view"),
-        "Unsupported parser command!");
+    NS_ASSERTION(!nsCRT::strcmp(aCommand, "view") ||
+                 !nsCRT::strcmp(aCommand, "external-resource"),
+                 "Unsupported parser command!");
   }
 #endif
   mStreamParser = new nsHtml5StreamParser(mExecutor, this, mode);
@@ -829,6 +832,9 @@ nsHtml5Parser::Initialize(nsIDocument* aDoc,
 
 void
 nsHtml5Parser::StartTokenizer(bool aScriptingEnabled) {
+  if (!aScriptingEnabled) {
+    mExecutor->PreventScriptExecution();
+  }
   mTreeBuilder->setScriptingEnabled(aScriptingEnabled);
   mTokenizer->start();
 }

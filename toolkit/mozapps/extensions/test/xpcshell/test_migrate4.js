@@ -76,6 +76,18 @@ var addon6 = {
   }]
 };
 
+var defaultTheme = {
+  id: "default@tests.mozilla.org",
+  version: "1.0",
+  name: "Default",
+  internalName: "classic/1.0",
+  targetApplications: [{
+    id: "xpcshell@tests.mozilla.org",
+    minVersion: "1",
+    maxVersion: "2"
+  }]
+};
+
 const profileDir = gProfD.clone();
 profileDir.append("extensions");
 
@@ -99,9 +111,10 @@ function prepare_profile() {
   writeInstallRDFForExtension(addon4, profileDir);
   writeInstallRDFForExtension(addon5, profileDir);
   writeInstallRDFForExtension(addon6, profileDir);
+  writeInstallRDFForExtension(defaultTheme, profileDir);
 
   startupManager();
-  installAllFiles([do_get_addon("test_migrate8")],
+  installAllFiles([do_get_addon("test_migrate8"), do_get_addon("test_migrate9")],
                   function() {
     restartManager();
 
@@ -110,12 +123,16 @@ function prepare_profile() {
                                  "addon3@tests.mozilla.org",
                                  "addon4@tests.mozilla.org",
                                  "addon5@tests.mozilla.org",
-                                 "addon6@tests.mozilla.org"],
-                                 function([a1, a2, a3, a4, a5, a6]) {
+                                 "addon6@tests.mozilla.org",
+                                 "addon9@tests.mozilla.org"],
+                                 function([a1, a2, a3, a4, a5, a6, a9]) {
+      a1.applyBackgroundUpdates = AddonManager.AUTOUPDATE_DEFAULT;
       a2.userDisabled = true;
-      a2.applyBackgroundUpdates = false;
+      a2.applyBackgroundUpdates = AddonManager.AUTOUPDATE_DISABLE;
+      a3.applyBackgroundUpdates = AddonManager.AUTOUPDATE_ENABLE;
       a4.userDisabled = true;
       a6.userDisabled = true;
+      a9.userDisabled = false;
 
       for each (let addon in [a1, a2, a3, a4, a5, a6]) {
         oldSyncGUIDs[addon.id] = addon.syncGUID;
@@ -154,6 +171,9 @@ function prepare_profile() {
 }
 
 function perform_migration() {
+  // Turn on disabling for all scopes
+  Services.prefs.setIntPref("extensions.autoDisableScopes", 15);
+
   let dbfile = gProfD.clone();
   dbfile.append("extensions.sqlite");
   let db = AM_Cc["@mozilla.org/storage/service;1"].
@@ -182,15 +202,16 @@ function test_results() {
                                "addon5@tests.mozilla.org",
                                "addon6@tests.mozilla.org",
                                "addon7@tests.mozilla.org",
-                               "addon8@tests.mozilla.org"],
-                               function([a1, a2, a3, a4, a5, a6, a7, a8]) {
+                               "addon8@tests.mozilla.org",
+                               "addon9@tests.mozilla.org"],
+                               function([a1, a2, a3, a4, a5, a6, a7, a8, a9]) {
     // addon1 was enabled
     do_check_neq(a1, null);
     do_check_eq(a1.syncGUID, oldSyncGUIDs[a1.id]);
     do_check_false(a1.userDisabled);
     do_check_false(a1.appDisabled);
     do_check_true(a1.isActive);
-    do_check_true(a1.applyBackgroundUpdates);
+    do_check_eq(a1.applyBackgroundUpdates, AddonManager.AUTOUPDATE_DEFAULT);
     do_check_true(a1.foreignInstall);
     do_check_false(a1.hasBinaryComponents);
     do_check_false(a1.strictCompatibility);
@@ -201,7 +222,7 @@ function test_results() {
     do_check_true(a2.userDisabled);
     do_check_false(a2.appDisabled);
     do_check_false(a2.isActive);
-    do_check_false(a2.applyBackgroundUpdates);
+    do_check_eq(a2.applyBackgroundUpdates, AddonManager.AUTOUPDATE_DISABLE);
     do_check_true(a2.foreignInstall);
     do_check_false(a2.hasBinaryComponents);
     do_check_false(a2.strictCompatibility);
@@ -212,7 +233,7 @@ function test_results() {
     do_check_true(a3.userDisabled);
     do_check_false(a3.appDisabled);
     do_check_false(a3.isActive);
-    do_check_true(a3.applyBackgroundUpdates);
+    do_check_eq(a3.applyBackgroundUpdates, AddonManager.AUTOUPDATE_ENABLE);
     do_check_true(a3.foreignInstall);
     do_check_false(a3.hasBinaryComponents);
     do_check_false(a3.strictCompatibility);
@@ -223,7 +244,7 @@ function test_results() {
     do_check_false(a4.userDisabled);
     do_check_false(a4.appDisabled);
     do_check_true(a4.isActive);
-    do_check_true(a4.applyBackgroundUpdates);
+    do_check_eq(a4.applyBackgroundUpdates, AddonManager.AUTOUPDATE_DEFAULT);
     do_check_true(a4.foreignInstall);
     do_check_false(a4.hasBinaryComponents);
     do_check_true(a4.strictCompatibility);
@@ -233,7 +254,7 @@ function test_results() {
     do_check_false(a5.userDisabled);
     do_check_false(a5.appDisabled);
     do_check_true(a5.isActive);
-    do_check_true(a5.applyBackgroundUpdates);
+    do_check_eq(a4.applyBackgroundUpdates, AddonManager.AUTOUPDATE_DEFAULT);
     do_check_true(a5.foreignInstall);
     do_check_false(a5.hasBinaryComponents);
     do_check_false(a5.strictCompatibility);
@@ -245,7 +266,7 @@ function test_results() {
     do_check_true(a6.userDisabled);
     do_check_false(a6.appDisabled);
     do_check_false(a6.isActive);
-    do_check_true(a6.applyBackgroundUpdates);
+    do_check_eq(a6.applyBackgroundUpdates, AddonManager.AUTOUPDATE_DEFAULT);
     do_check_true(a6.foreignInstall);
     do_check_eq(a6.sourceURI.spec, "http://localhost:4444/addons/test_migrate4_6.xpi");
     do_check_eq(a6.releaseNotesURI.spec, "http://example.com/updateInfo.xhtml");
@@ -258,7 +279,7 @@ function test_results() {
     do_check_false(a7.userDisabled);
     do_check_false(a7.appDisabled);
     do_check_true(a7.isActive);
-    do_check_true(a7.applyBackgroundUpdates);
+    do_check_eq(a7.applyBackgroundUpdates, AddonManager.AUTOUPDATE_DEFAULT);
     do_check_false(a7.foreignInstall);
     do_check_eq(a7.sourceURI.spec, "http://localhost:4444/addons/test_migrate4_7.xpi");
     do_check_eq(a7.releaseNotesURI, null);
@@ -270,8 +291,18 @@ function test_results() {
     do_check_false(a8.userDisabled);
     do_check_false(a8.appDisabled);
     do_check_true(a8.isActive);
+    do_check_false(a8.foreignInstall);
     do_check_true(a8.hasBinaryComponents);
     do_check_false(a8.strictCompatibility);
+
+    // addon9 is the active theme
+    do_check_neq(a9, null);
+    do_check_false(a9.userDisabled);
+    do_check_false(a9.appDisabled);
+    do_check_true(a9.isActive);
+    do_check_false(a9.foreignInstall);
+    do_check_false(a9.hasBinaryComponents);
+    do_check_true(a9.strictCompatibility);
 
     testserver.stop(do_test_finished);
   });

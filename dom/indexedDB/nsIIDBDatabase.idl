@@ -45,12 +45,19 @@ interface nsIIDBTransaction;
 interface nsIDOMDOMStringList;
 interface nsIDOMEventListener;
 
+[scriptable, uuid(fb143548-08d1-43b4-95f2-a1cd58f8db76)]
+interface nsIIDBObjectStoreParameters : nsISupports
+{
+  attribute jsval keyPath;
+  attribute boolean autoIncrement;
+};
+
 /**
  * IDBDatabase interface.  See
  * http://dvcs.w3.org/hg/IndexedDB/raw-file/tip/Overview.html#idl-def-IDBDatabase
  * for more information.
  */
-[scriptable, builtinclass, uuid(7ad626df-3328-476f-ba10-8ccec4924340)]
+[scriptable, builtinclass, uuid(bb877dff-ab5b-4ebb-9b3c-a7fa97cd4b51)]
 interface nsIIDBDatabase : nsISupports
 {
   readonly attribute DOMString name;
@@ -59,17 +66,10 @@ interface nsIIDBDatabase : nsISupports
 
   readonly attribute nsIDOMDOMStringList objectStoreNames;
 
-  /**
-   * Optional arguments:
-   *   - keyPath (string):
-   *       Specifies key path on objects in the objectStore. Defaults to no key
-   *       path.
-   *   - autoIncrement (boolean):
-   *       Specifies if the objectStore has a key generator. Defaults to false.
-   */
   [implicit_jscontext]
   nsIIDBObjectStore
   createObjectStore([Null(Stringify)] in DOMString name,
+                    /* nsIIDBObjectStoreParameters */
                     [optional /* none */] in jsval options);
 
   void
@@ -82,6 +82,8 @@ interface nsIIDBDatabase : nsISupports
 
   void
   close();
+
+  attribute nsIDOMEventListener onabort;
 
   attribute nsIDOMEventListener onerror;
 

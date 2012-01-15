@@ -65,10 +65,11 @@ interface nsIDOMEvent;
 interface nsITransferable;
 interface nsIQueryContentEventResult;
 interface nsIDOMWindow;
+interface nsIDOMBlob;
 interface nsIDOMFile;
 interface nsIFile;
 
-[scriptable, uuid(c5cf91b3-0b89-4417-b13c-5540ba6ebde8)]
+[scriptable, uuid(b9c1f815-c2f2-4607-a060-6a8566581927)]
 interface nsIDOMWindowUtils : nsISupports {
 
   /**
@@ -377,12 +378,6 @@ interface nsIDOMWindowUtils : nsISupports {
    */
   void cycleCollect([optional] in nsICycleCollectorListener aListener);
 
-  /**
-   * Force processing of any queued paints
-   */
-
-  void processUpdates();
-
   /** Synthesize a simple gesture event for a window. The event types
    *  supported are: MozSwipeGesture, MozMagnifyGestureStart,
    *  MozMagnifyGestureUpdate, MozMagnifyGesture, MozRotateGestureStart,
@@ -557,7 +552,7 @@ interface nsIDOMWindowUtils : nsISupports {
    * Returns the real classname (possibly of the mostly-transparent security
    * wrapper) of aObj.
    */
-  string getClassName(/*in JSObjectPtr aObj*/);
+  [implicit_jscontext] string getClassName(in jsval aObject);
 
   /**
    * Generate a content command event.
@@ -837,6 +832,9 @@ interface nsIDOMWindowUtils : nsISupports {
    */
   readonly attribute AString layerManagerType;
 
+  void startFrameTimeRecording();
+  void stopFrameTimeRecording([optional] out unsigned long frameCount,
+                              [retval, array, size_is(frameCount)] out float frameTime);
   /**
    * The DPI of the display
    */
@@ -926,4 +924,64 @@ interface nsIDOMWindowUtils : nsISupports {
    */
   boolean checkAndClearPaintedState(in nsIDOMElement aElement);
 
+  /*
+   * Get internal id of the stored blob.
+   */
+  long long getFileId(in nsIDOMBlob aBlob);
+
+  /*
+   * Get file ref count info for given database and file id.
+   *
+   */
+  boolean getFileReferences(in AString aDatabaseName, in long long aId,
+                            [optional] out long aRefCnt,
+                            [optional] out long aDBRefCnt,
+                            [optional] out long aSliceRefCnt);
+
+  /**
+   * Begin opcode-level profiling of all JavaScript execution in the window's
+   * runtime.
+   */
+  [implicit_jscontext]
+  void startPCCountProfiling();
+
+  /**
+   * Stop opcode-level profiling of JavaScript execution in the runtime, and
+   * collect all counts for use by getPCCount methods.
+   */
+  [implicit_jscontext]
+  void stopPCCountProfiling();
+
+  /**
+   * Purge collected PC counters.
+   */
+  [implicit_jscontext]
+  void purgePCCounts();
+
+  /**
+   * Get the number of scripts with opcode-level profiling information.
+   */
+  [implicit_jscontext]
+  long getPCCountScriptCount();
+
+  /**
+   * Get a JSON string for a short summary of a script and the PC counts
+   * accumulated for it.
+   */
+  [implicit_jscontext]
+  AString getPCCountScriptSummary(in long script);
+
+  /**
+   * Get a JSON string with full information about a profiled script,
+   * including the decompilation of the script and placement of decompiled
+   * operations within it, and PC counts for each operation.
+   */
+  [implicit_jscontext]
+  AString getPCCountScriptContents(in long script);
+
+  /**
+   * Returns true if painting is suppressed for this window and false
+   * otherwise.
+   */
+  readonly attribute boolean paintingSuppressed;
 };

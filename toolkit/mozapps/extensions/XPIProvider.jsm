@@ -113,8 +113,6 @@ const KEY_APP_SYSTEM_LOCAL            = "app-system-local";
 const KEY_APP_SYSTEM_SHARE            = "app-system-share";
 const KEY_APP_SYSTEM_USER             = "app-system-user";
 
-const CATEGORY_UPDATE_PARAMS          = "extension-update-params";
-
 const UNKNOWN_XPCOM_ABI               = "unknownABI";
 const XPI_PERMISSION                  = "install";
 
@@ -127,8 +125,7 @@ const TOOLKIT_ID                      = "toolkit@mozilla.org";
 
 const BRANCH_REGEXP                   = /^([^\.]+\.[0-9]+[a-z]*).*/gi;
 
-const DB_SCHEMA                       = 9;
-const REQ_VERSION                     = 2;
+const DB_SCHEMA                       = 12;
 
 #ifdef MOZ_COMPATIBILITY_NIGHTLY
 const PREF_EM_CHECK_COMPATIBILITY = PREF_EM_CHECK_COMPATIBILITY_BASE +
@@ -156,8 +153,15 @@ const DB_METADATA        = ["syncGUID",
                             "applyBackgroundUpdates"];
 const DB_BOOL_METADATA   = ["visible", "active", "userDisabled", "appDisabled",
                             "pendingUninstall", "bootstrap", "skinnable",
-                            "softDisabled", "foreignInstall",
+                            "softDisabled", "isForeignInstall",
                             "hasBinaryComponents", "strictCompatibility"];
+
+// Properties that should be migrated where possible from an old database. These
+// shouldn't include properties that can be read directly from install.rdf files
+// or calculated
+const DB_MIGRATE_METADATA= ["installDate", "userDisabled", "softDisabled",
+                            "sourceURI", "applyBackgroundUpdates",
+                            "releaseNotesURI", "isForeignInstall", "syncGUID"];
 
 const BOOTSTRAP_REASONS = {
   APP_STARTUP     : 1,
@@ -816,6 +820,17 @@ function loadManifestFromRDF(aUri, aStream) {
 
   addon.applyBackgroundUpdates = AddonManager.AUTOUPDATE_DEFAULT;
 
+  // Generate random GUID used for Sync.
+  // This was lifted from util.js:makeGUID() from services-sync.
+  let rng = Cc["@mozilla.org/security/random-generator;1"].
+            createInstance(Ci.nsIRandomGenerator);
+  let bytes = rng.generateRandomBytes(9);
+  let byte_string = [String.fromCharCode(byte) for each (byte in bytes)]
+                    .join("");
+  // Base64 encode
+  addon.syncGUID = btoa(byte_string).replace('+', '-', 'g')
+                                    .replace('/', '_', 'g');
+
   return addon;
 }
 
@@ -1125,33 +1140,7 @@ function verifyZipSigning(aZip, aPrincipal) {
  */
 function escapeAddonURI(aAddon, aUri, aUpdateType, aAppVersion)
 {
-  var addonStatus = aAddon.userDisabled || aAddon.softDisabled ? "userDisabled"
-                                                               : "userEnabled";
-
-  if (!aAddon.isCompatible)
-    addonStatus += ",incompatible";
-  if (aAddon.blocklistState == Ci.nsIBlocklistService.STATE_BLOCKED)
-    addonStatus += ",blocklisted";
-  if (aAddon.blocklistState == Ci.nsIBlocklistService.STATE_SOFTBLOCKED)
-    addonStatus += ",softblocked";
-
-  try {
-    var xpcomABI = Services.appinfo.XPCOMABI;
-  } catch (ex) {
-    xpcomABI = UNKNOWN_XPCOM_ABI;
-  }
-
-  let uri = aUri.replace(/%ITEM_ID%/g, aAddon.id);
-  uri = uri.replace(/%ITEM_VERSION%/g, aAddon.version);
-  uri = uri.replace(/%ITEM_STATUS%/g, addonStatus);
-  uri = uri.replace(/%APP_ID%/g, Services.appinfo.ID);
-  uri = uri.replace(/%APP_VERSION%/g, aAppVersion ? aAppVersion :
-                                                    Services.appinfo.version);
-  uri = uri.replace(/%REQ_VERSION%/g, REQ_VERSION);
-  uri = uri.replace(/%APP_OS%/g, Services.appinfo.OS);
-  uri = uri.replace(/%APP_ABI%/g, xpcomABI);
-  uri = uri.replace(/%APP_LOCALE%/g, getLocale());
-  uri = uri.replace(/%CURRENT_APP_VERSION%/g, Services.appinfo.version);
+  let uri = AddonManager.escapeAddonURI(aAddon, aUri, aAppVersion);
 
   // If there is an updateType then replace the UPDATE_TYPE string
   if (aUpdateType)
@@ -1167,27 +1156,14 @@ function escapeAddonURI(aAddon, aUri, aUpdateType, aAppVersion)
     maxVersion = "";
   uri = uri.replace(/%ITEM_MAXAPPVERSION%/g, maxVersion);
 
-  // Replace custom parameters (names of custom parameters must have at
-  // least 3 characters to prevent lookups for something like %D0%C8)
-  var catMan = null;
-  uri = uri.replace(/%(\w{3,})%/g, function(aMatch, aParam) {
-    if (!catMan) {
-      catMan = Cc["@mozilla.org/categorymanager;1"].
-               getService(Ci.nsICategoryManager);
-    }
+  let compatMode = "normal";
+  if (!XPIProvider.checkCompatibility)
+    compatMode = "ignore";
+  else if (AddonManager.strictCompatibility)
+    compatMode = "strict";
+  uri = uri.replace(/%COMPATIBILITY_MODE%/g, compatMode);
 
-    try {
-      var contractID = catMan.getCategoryEntry(CATEGORY_UPDATE_PARAMS, aParam);
-      var paramHandler = Cc[contractID].getService(Ci.nsIPropertyBag2);
-      return paramHandler.getPropertyAsAString(aParam);
-    }
-    catch(e) {
-      return aMatch;
-    }
-  });
-
-  // escape() does not properly encode + symbols in any embedded FVF strings.
-  return uri.replace(/\+/g, "%2B");
+  return uri;
 }
 
 /**
@@ -2576,7 +2552,12 @@ var XPIProvider = {
     }
 
     /**
-     * Called when a new add-on has been detected.
+     * Called to add the metadata for an add-on in one of the install locations
+     * to the database. This can be called in three different cases. Either an
+     * add-on has been dropped into the location from outside of Firefox, or
+     * an add-on has been installed through the application, or the database
+     * has been upgraded or become corrupt and add-on data has to be reloaded
+     * into it.
      *
      * @param  aInstallLocation
      *         The install location containing the add-on
@@ -2600,17 +2581,20 @@ var XPIProvider = {
       if (aInstallLocation.name in aManifests)
         newAddon = aManifests[aInstallLocation.name][aId];
 
+      // If we aren't recovering from a corrupt database or we don't have
+      // migration data for this add-on then this must be a new install.
+      let isNewInstall = !aActiveBundles && !aMigrateData;
+ 
+      // If it's a new install and we haven't yet loaded the manifest then it
+      // must be something dropped directly into the install location
+      let isDetectedInstall = isNewInstall && !newAddon;
+
+      // Load the manifest if necessary and sanity check the add-on ID
       try {
-        // Otherwise the add-on has appeared in the install location.
         if (!newAddon) {
           // Load the manifest from the add-on.
           let file = aInstallLocation.getLocationForID(aId);
           newAddon = loadManifestFromFile(file);
-
-          // The default theme is never a foreign install
-          if (newAddon.type != "theme" || newAddon.internalName != XPIProvider.defaultSkin)
-            newAddon.foreignInstall = true;
-
         }
         // The add-on in the manifest should match the add-on ID.
         if (newAddon.id != aId)
@@ -2633,34 +2617,25 @@ var XPIProvider = {
       newAddon.visible = !(newAddon.id in visibleAddons);
       newAddon.installDate = aAddonState.mtime;
       newAddon.updateDate = aAddonState.mtime;
+      newAddon.foreignInstall = isDetectedInstall;
 
-      // Check if the add-on is a foreign install and is in a scope where
-      // add-ons that were dropped in should default to disabled.
-      let disablingScopes = Prefs.getIntPref(PREF_EM_AUTO_DISABLED_SCOPES, 0);
-      if (newAddon.foreignInstall && aInstallLocation.scope & disablingScopes)
-        newAddon.userDisabled = true;
-
-      // If there is migration data then apply it.
       if (aMigrateData) {
+        // If there is migration data then apply it.
         LOG("Migrating data from old database");
-        // A theme's disabled state is determined by the selected theme
-        // preference which is read in loadManifestFromRDF
-        if (newAddon.type != "theme")
-          newAddon.userDisabled = aMigrateData.userDisabled;
-        if ("syncGUID" in aMigrateData)
-          newAddon.syncGUID = aMigrateData.syncGUID;
-        if ("installDate" in aMigrateData)
-          newAddon.installDate = aMigrateData.installDate;
-        if ("softDisabled" in aMigrateData)
-          newAddon.softDisabled = aMigrateData.softDisabled;
-        if ("applyBackgroundUpdates" in aMigrateData)
-          newAddon.applyBackgroundUpdates = aMigrateData.applyBackgroundUpdates;
-        if ("sourceURI" in aMigrateData)
-          newAddon.sourceURI = aMigrateData.sourceURI;
-        if ("releaseNotesURI" in aMigrateData)
-          newAddon.releaseNotesURI = aMigrateData.releaseNotesURI;
-        if ("foreignInstall" in aMigrateData)
-          newAddon.foreignInstall = aMigrateData.foreignInstall;
+
+        DB_MIGRATE_METADATA.forEach(function(aProp) {
+          // A theme's disabled state is determined by the selected theme
+          // preference which is read in loadManifestFromRDF
+          if (aProp == "userDisabled" && newAddon.type == "theme")
+            return;
+
+          if (aProp in aMigrateData)
+            newAddon[aProp] = aMigrateData[aProp];
+        });
+
+        // Force all non-profile add-ons to be foreignInstalls since they can't
+        // have been installed through the API
+        newAddon.foreignInstall |= aInstallLocation.name != KEY_APP_PROFILE;
 
         // Some properties should only be migrated if the add-on hasn't changed.
         // The version property isn't a perfect check for this but covers the
@@ -2675,6 +2650,18 @@ var XPIProvider = {
         // Since the DB schema has changed make sure softDisabled is correct
         applyBlocklistChanges(newAddon, newAddon, aOldAppVersion,
                               aOldPlatformVersion);
+      }
+
+      // The default theme is never a foreign install
+      if (newAddon.type == "theme" && newAddon.internalName == XPIProvider.defaultSkin)
+        newAddon.foreignInstall = false;
+
+      if (isDetectedInstall && newAddon.foreignInstall) {
+        // If the add-on is a foreign install and is in a scope where add-ons
+        // that were dropped in should default to disabled then disable it
+        let disablingScopes = Prefs.getIntPref(PREF_EM_AUTO_DISABLED_SCOPES, 0);
+        if (aInstallLocation.scope & disablingScopes)
+          newAddon.userDisabled = true;
       }
 
       if (aActiveBundles) {
@@ -2714,11 +2701,8 @@ var XPIProvider = {
       }
 
       if (newAddon.visible) {
-        // Remember add-ons that were installed during startup. If there was a
-        // cached manifest or migration data then this install is already
-        // expected
-        if (!aMigrateData && (!(aInstallLocation.name in aManifests) ||
-                              !(aId in aManifests[aInstallLocation.name]))) {
+        // Remember add-ons that were first detected during startup.
+        if (isDetectedInstall) {
           // If a copy from a higher priority location was removed then this
           // add-on has changed
           if (AddonManager.getStartupChanges(AddonManager.STARTUP_CHANGE_UNINSTALLED)
@@ -3329,6 +3313,41 @@ var XPIProvider = {
     addons.forEach(function(aAddon) {
       this.updateAddonDisabledState(aAddon);
     }, this);
+  },
+
+  /**
+   * Update the repositoryAddon property for all add-ons.
+   *
+   * @param  aCallback
+   *         Function to call when operation is complete.
+   */
+  updateAddonRepositoryData: function XPI_updateAddonRepositoryData(aCallback) {
+    let self = this;
+    XPIDatabase.getVisibleAddons(null, function UARD_getVisibleAddonsCallback(aAddons) {
+      let pending = aAddons.length;
+      if (pending == 0) {
+        aCallback();
+        return;
+      }
+
+      function notifyComplete() {
+        if (--pending == 0)
+          aCallback();
+      }
+
+      aAddons.forEach(function UARD_forEachCallback(aAddon) {
+        AddonRepository.getCachedAddonByID(aAddon.id,
+                                           function UARD_getCachedAddonCallback(aRepoAddon) {
+          if (aRepoAddon) {
+            aAddon._repositoryAddon = aRepoAddon;
+            aAddon.compatibilityOverrides = aRepoAddon.compatibilityOverrides;
+            self.updateAddonDisabledState(aAddon);
+          }
+
+          notifyComplete();
+        });
+      });
+    });
   },
 
   /**
@@ -3949,7 +3968,7 @@ const FIELDS_ADDON = "internal_id, id, syncGUID, location, version, type, " +
                      "appDisabled, pendingUninstall, descriptor, " +
                      "installDate, updateDate, applyBackgroundUpdates, bootstrap, " +
                      "skinnable, size, sourceURI, releaseNotesURI, softDisabled, " +
-                     "foreignInstall, hasBinaryComponents, strictCompatibility";
+                     "isForeignInstall, hasBinaryComponents, strictCompatibility";
 
 /**
  * A helper function to log an SQL error.
@@ -4037,6 +4056,9 @@ AsyncAddonListCallback.prototype = {
       XPIDatabase.makeAddonFromRowAsync(row, function(aAddon) {
         function completeAddon(aRepositoryAddon) {
           aAddon._repositoryAddon = aRepositoryAddon;
+          aAddon.compatibilityOverrides = aRepositoryAddon ?
+                                            aRepositoryAddon.compatibilityOverrides :
+                                            null;
           self.addons.push(aAddon);
           if (self.complete && self.addons.length == self.count)
            self.callback(self.addons);
@@ -4098,7 +4120,7 @@ var XPIDatabase = {
                             ":descriptor, :installDate, :updateDate, " +
                             ":applyBackgroundUpdates, :bootstrap, :skinnable, " +
                             ":size, :sourceURI, :releaseNotesURI, :softDisabled, " +
-                            ":foreignInstall, :hasBinaryComponents, " +
+                            ":isForeignInstall, :hasBinaryComponents, " +
                             ":strictCompatibility)",
     addAddonMetadata_addon_locale: "INSERT INTO addon_locale VALUES " +
                                    "(:internal_id, :name, :locale)",
@@ -4476,61 +4498,47 @@ var XPIDatabase = {
     // Attempt to migrate data from a different (even future!) version of the
     // database
     try {
-      // Build a list of sql statements that might recover useful data from this
-      // and future versions of the schema
-      var sql = [];
-      sql.push("SELECT internal_id, id, syncGUID, location, userDisabled, " +
-               "softDisabled, installDate, version, applyBackgroundUpdates, " +
-               "sourceURI, releaseNotesURI, foreignInstall FROM addon");
-      sql.push("SELECT internal_id, id, location, userDisabled, " +
-               "softDisabled, installDate, version, applyBackgroundUpdates, " +
-               "sourceURI, releaseNotesURI, foreignInstall FROM addon");
-      sql.push("SELECT internal_id, id, location, userDisabled, " +
-               "softDisabled, installDate, version, applyBackgroundUpdates, " +
-               "sourceURI, releaseNotesURI FROM addon");
-      sql.push("SELECT internal_id, id, location, userDisabled, " +
-               "installDate, version, applyBackgroundUpdates, " +
-               "sourceURI, releaseNotesURI FROM addon");
-      sql.push("SELECT internal_id, id, location, userDisabled, installDate, " +
-               "version FROM addon");
+      var stmt = this.connection.createStatement("PRAGMA table_info(addon)");
 
-      var stmt = null;
-      if (!sql.some(function(aSql) {
-        try {
-          stmt = this.connection.createStatement(aSql);
-          return true;
+      const REQUIRED = ["internal_id", "id", "location", "userDisabled",
+                        "installDate", "version"];
+
+      let reqCount = 0;
+      let props = [];
+      for (let row in resultRows(stmt)) {
+        if (REQUIRED.indexOf(row.name) != -1) {
+          reqCount++;
+          props.push(row.name);
         }
-        catch (e) {
-          return false;
+        else if (DB_METADATA.indexOf(row.name) != -1) {
+          props.push(row.name);
         }
-      }, this)) {
+        else if (DB_BOOL_METADATA.indexOf(row.name) != -1) {
+          props.push(row.name);
+        }
+      }
+
+      if (reqCount < REQUIRED.length) {
         ERROR("Unable to read anything useful from the database");
         return migrateData;
       }
+      stmt.finalize();
 
+      stmt = this.connection.createStatement("SELECT " + props.join(",") + " FROM addon");
       for (let row in resultRows(stmt)) {
         if (!(row.location in migrateData))
           migrateData[row.location] = {};
-        migrateData[row.location][row.id] = {
-          internal_id: row.internal_id,
-          version: row.version,
-          installDate: row.installDate,
-          userDisabled: row.userDisabled == 1,
+        let addonData = {
           targetApplications: []
-        };
+        }
+        migrateData[row.location][row.id] = addonData;
 
-        if ("syncGUID" in row)
-          migrateData[row.location][row.id].syncGUID = row.syncGUID;
-        if ("softDisabled" in row)
-          migrateData[row.location][row.id].softDisabled = row.softDisabled == 1;
-        if ("applyBackgroundUpdates" in row)
-          migrateData[row.location][row.id].applyBackgroundUpdates = row.applyBackgroundUpdates == 1;
-        if ("sourceURI" in row)
-          migrateData[row.location][row.id].sourceURI = row.sourceURI;
-        if ("releaseNotesURI" in row)
-          migrateData[row.location][row.id].releaseNotesURI = row.releaseNotesURI;
-        if ("foreignInstall" in row)
-          migrateData[row.location][row.id].foreignInstall = row.foreignInstall;
+        props.forEach(function(aProp) {
+          if (DB_BOOL_METADATA.indexOf(aProp) != -1)
+            addonData[aProp] = row[aProp] == 1;
+          else
+            addonData[aProp] = row[aProp];
+        })
       }
 
       var taStmt = this.connection.createStatement("SELECT id, minVersion, " +
@@ -4652,7 +4660,7 @@ var XPIDatabase = {
                                   "bootstrap INTEGER, skinnable INTEGER, " +
                                   "size INTEGER, sourceURI TEXT, " +
                                   "releaseNotesURI TEXT, softDisabled INTEGER, " +
-                                  "foreignInstall INTEGER, " +
+                                  "isForeignInstall INTEGER, " +
                                   "hasBinaryComponents INTEGER, " +
                                   "strictCompatibility INTEGER, " +
                                   "UNIQUE (id, location), " +
@@ -5286,18 +5294,6 @@ var XPIDatabase = {
    *         The file descriptor of the add-on
    */
   addAddonMetadata: function XPIDB_addAddonMetadata(aAddon, aDescriptor) {
-    // Create a GUID if one does not exist
-    if (!aAddon.syncGUID) {
-      let rng = Cc["@mozilla.org/security/random-generator;1"].
-                createInstance(Ci.nsIRandomGenerator);
-      let bytes = rng.generateRandomBytes(9);
-      let byte_string = [String.fromCharCode(byte) for each (byte in bytes)]
-                        .join("");
-      // Base64 encode
-      aAddon.syncGUID = btoa(byte_string).replace('+', '-', 'g')
-                                         .replace('/', '_', 'g');
-    }
-
     // If there is no DB yet then forcibly create one
     if (!this.connection)
       this.openConnection(false, true);
@@ -6151,6 +6147,8 @@ AddonInstall.prototype = {
       AddonRepository.getCachedAddonByID(aAddon.id, function(aRepoAddon) {
         if (aRepoAddon) {
           aAddon._repositoryAddon = aRepoAddon;
+          aAddon.compatibilityOverrides = aRepoAddon.compatibilityOverrides;
+          aAddon.appDisabled = !isUsableAddon(aAddon);
           aCallback();
           return;
         }
@@ -6159,6 +6157,10 @@ AddonInstall.prototype = {
         AddonRepository.cacheAddons([aAddon.id], function() {
           AddonRepository.getCachedAddonByID(aAddon.id, function(aRepoAddon) {
             aAddon._repositoryAddon = aRepoAddon;
+            aAddon.compatibilityOverrides = aRepoAddon ?
+                                              aRepoAddon.compatibilityOverrides :
+                                              null;
+            aAddon.appDisabled = !isUsableAddon(aAddon);
             aCallback();
           });
         });
@@ -6969,10 +6971,24 @@ UpdateChecker.prototype = {
   onUpdateCheckComplete: function UC_onUpdateCheckComplete(aUpdates) {
     let AUC = AddonUpdateChecker;
 
+    let ignoreMaxVersion = false;
+    let ignoreStrictCompat = false;
+    if (!XPIProvider.checkCompatibility) {
+      ignoreMaxVersion = true;
+      ignoreStrictCompat = true;
+    } else if (this.addon.type == "extension" &&
+               !AddonManager.strictCompatibility &&
+               !this.addon.strictCompatibility &&
+               !this.addon.hasBinaryComponents) {
+      ignoreMaxVersion = true;
+    }
+
     // Always apply any compatibility update for the current version
     let compatUpdate = AUC.getCompatibilityUpdate(aUpdates, this.addon.version,
-                                                  this.syncCompatibility);
-
+                                                  this.syncCompatibility,
+                                                  null, null,
+                                                  ignoreMaxVersion,
+                                                  ignoreStrictCompat);
     // Apply the compatibility update to the database
     if (compatUpdate)
       this.addon.applyCompatibilityUpdate(compatUpdate, this.syncCompatibility);
@@ -6986,7 +7002,9 @@ UpdateChecker.prototype = {
          Services.vc.compare(this.platformVersion, Services.appinfo.platformVersion) != 0)) {
       compatUpdate = AUC.getCompatibilityUpdate(aUpdates, this.addon.version,
                                                 false, this.appVersion,
-                                                this.platformVersion);
+                                                this.platformVersion,
+                                                ignoreMaxVersion,
+                                                ignoreStrictCompat);
     }
 
     if (compatUpdate)
@@ -7006,9 +7024,16 @@ UpdateChecker.prototype = {
                          AddonManager.UPDATE_STATUS_NO_ERROR);
     }
 
+    let compatOverrides = AddonManager.strictCompatibility ?
+                            null :
+                            this.addon.compatibilityOverrides;
+
     let update = AUC.getNewestCompatibleUpdate(aUpdates,
                                                this.appVersion,
-                                               this.platformVersion);
+                                               this.platformVersion,
+                                               ignoreMaxVersion,
+                                               ignoreStrictCompat,
+                                               compatOverrides);
 
     if (update && Services.vc.compare(this.addon.version, update.version) < 0) {
       for (let i = 0; i < XPIProvider.installs.length; i++) {
@@ -7068,6 +7093,13 @@ AddonInternal.prototype = {
   sourceURI: null,
   releaseNotesURI: null,
   foreignInstall: false,
+
+  get isForeignInstall() {
+    return this.foreignInstall;
+  },
+  set isForeignInstall(aVal) {
+    this.foreignInstall = aVal;
+  },
 
   get selectedLocale() {
     if (this._selectedLocale)
@@ -7140,6 +7172,17 @@ AddonInternal.prototype = {
     // always use strict compatibility checking.
     if (this.type == "extension" && !AddonManager.strictCompatibility &&
         !this.strictCompatibility && !this.hasBinaryComponents) {
+
+      // The repository can specify compatibility overrides.
+      // Note: For now, only blacklisting is supported by overrides.
+      if (this._repositoryAddon &&
+          this._repositoryAddon.compatibilityOverrides) {
+        let overrides = this._repositoryAddon.compatibilityOverrides;
+        let override = AddonRepository.findMatchingCompatOverride(this.version,
+                                                                  overrides);
+        if (override && override.type == "incompatible")
+          return false;
+      }
 
       // Extremely old extensions should not be compatible by default.
       let minCompatVersion;
@@ -7242,9 +7285,10 @@ AddonInternal.prototype = {
    *         A JS object containing the cached metadata
    */
   importMetadata: function(aObj) {
-    ["targetApplications", "userDisabled", "softDisabled", "existingAddonID",
-     "sourceURI", "releaseNotesURI", "installDate", "updateDate",
-     "applyBackgroundUpdates"].forEach(function(aProp) {
+    ["syncGUID", "targetApplications", "userDisabled", "softDisabled",
+     "existingAddonID", "sourceURI", "releaseNotesURI", "installDate",
+     "updateDate", "applyBackgroundUpdates", "compatibilityOverrides"]
+    .forEach(function(aProp) {
       if (!(aProp in aObj))
         return;
 
@@ -7360,7 +7404,7 @@ function AddonWrapper(aAddon) {
   ["id", "syncGUID", "version", "type", "isCompatible", "isPlatformCompatible",
    "providesUpdatesSecurely", "blocklistState", "blocklistURL", "appDisabled",
    "softDisabled", "skinnable", "size", "foreignInstall", "hasBinaryComponents",
-   "strictCompatibility"].forEach(function(aProp) {
+   "strictCompatibility", "compatibilityOverrides"].forEach(function(aProp) {
      this.__defineGetter__(aProp, function() aAddon[aProp]);
   }, this);
 
@@ -7543,7 +7587,9 @@ function AddonWrapper(aAddon) {
     if (aAddon.syncGUID == val)
       return val;
 
-    XPIDatabase.setAddonSyncGUID(aAddon, val);
+    if (aAddon instanceof DBAddonInternal)
+      XPIDatabase.setAddonSyncGUID(aAddon, val);
+
     aAddon.syncGUID = val;
 
     return val;

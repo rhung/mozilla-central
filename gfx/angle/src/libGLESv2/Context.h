@@ -65,7 +65,7 @@ enum
     MAX_TEXTURE_IMAGE_UNITS = 16,
     MAX_VERTEX_TEXTURE_IMAGE_UNITS_VTF = 4,   // For devices supporting vertex texture fetch
     MAX_COMBINED_TEXTURE_IMAGE_UNITS_VTF = MAX_TEXTURE_IMAGE_UNITS + MAX_VERTEX_TEXTURE_IMAGE_UNITS_VTF,    
-    MAX_FRAGMENT_UNIFORM_VECTORS_SM2 = 32 - 3,    // Reserve space for dx_Viewport, dx_Depth, and dx_DepthRange. dx_PointOrLines and dx_FrontCCW use separate bool registers.
+    MAX_FRAGMENT_UNIFORM_VECTORS_SM2 = 32 - 3,    // Reserve space for dx_Coord, dx_Depth, and dx_DepthRange. dx_PointOrLines and dx_FrontCCW use separate bool registers.
     MAX_FRAGMENT_UNIFORM_VECTORS_SM3 = 224 - 3,
     MAX_DRAW_BUFFERS = 1,
 
@@ -219,6 +219,7 @@ struct State
 
     GLint unpackAlignment;
     GLint packAlignment;
+    bool packReverseRowOrder;
 };
 
 // Helper class to construct and cache vertex declarations
@@ -360,6 +361,9 @@ class Context
     void setPackAlignment(GLint alignment);
     GLint getPackAlignment() const;
 
+    void setPackReverseRowOrder(bool reverseRowOrder);
+    bool getPackReverseRowOrder() const;
+
     // These create  and destroy methods are merely pass-throughs to 
     // ResourceManager, which owns these object types
     GLuint createBuffer();
@@ -427,8 +431,8 @@ class Context
     void sync(bool block);   // flush/finish
 
 	// Draw the last segment of a line loop
-    void drawClosingLine(unsigned int first, unsigned int last);
-    void drawClosingLine(GLsizei count, GLenum type, const void *indices);
+    void drawClosingLine(unsigned int first, unsigned int last, int minIndex);
+    void drawClosingLine(GLsizei count, GLenum type, const void *indices, int minIndex);
 
     void recordInvalidEnum();
     void recordInvalidValue();

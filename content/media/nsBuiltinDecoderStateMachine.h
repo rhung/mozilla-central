@@ -223,10 +223,7 @@ public:
     return 0;
   }
 
-  void NotifyDataArrived(const char* aBuffer, PRUint32 aLength, PRUint32 aOffset) {
-    NS_ASSERTION(NS_IsMainThread(), "Only call on main thread");
-    mReader->NotifyDataArrived(aBuffer, aLength, aOffset);
-  }
+  void NotifyDataArrived(const char* aBuffer, PRUint32 aLength, PRUint32 aOffset);
 
   PRInt64 GetEndMediaTime() const {
     mDecoder->GetReentrantMonitor().AssertCurrentThreadIn();
@@ -264,6 +261,10 @@ public:
 
   // Drop reference to decoder.  Only called during shutdown dance.
   void ReleaseDecoder() { mDecoder = nsnull; }
+
+   // Called when a "MozAudioAvailable" event listener is added to the media
+   // element. Called on the main thread.
+   void NotifyAudioAvailableListener();
 
 protected:
 

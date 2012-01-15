@@ -114,6 +114,8 @@
 #include "nsIClipboard.h"
 #include "nsWidgetsCID.h"
 #include "nsISupportsPrimitives.h"
+#include "mozilla/dom/sms/SmsParent.h"
+
 static NS_DEFINE_CID(kCClipboardCID, NS_CLIPBOARD_CID);
 static const char* sClipboardTextFlavors[] = { kUnicodeMime };
 
@@ -124,6 +126,7 @@ using namespace mozilla::net;
 using namespace mozilla::places;
 using mozilla::unused; // heh
 using base::KillProcess;
+using namespace mozilla::dom::sms;
 
 namespace mozilla {
 namespace dom {
@@ -222,8 +225,7 @@ ContentParent::Init()
     nsCOMPtr<nsIThreadInternal>
             threadInt(do_QueryInterface(NS_GetCurrentThread()));
     if (threadInt) {
-        threadInt->GetObserver(getter_AddRefs(mOldObserver));
-        threadInt->SetObserver(this);
+        threadInt->AddObserver(this);
     }
     if (obs) {
         obs->NotifyObservers(static_cast<nsIObserver*>(this), "ipc:content-created", nsnull);
@@ -341,7 +343,7 @@ ContentParent::ActorDestroy(ActorDestroyReason why)
     nsCOMPtr<nsIThreadInternal>
         threadInt(do_QueryInterface(NS_GetCurrentThread()));
     if (threadInt)
-        threadInt->SetObserver(mOldObserver);
+        threadInt->RemoveObserver(this);
     if (mRunToCompletionDepth)
         mRunToCompletionDepth = 0;
 
@@ -932,6 +934,19 @@ ContentParent::DeallocPExternalHelperApp(PExternalHelperAppParent* aService)
     return true;
 }
 
+PSmsParent*
+ContentParent::AllocPSms()
+{
+    return new SmsParent();
+}
+
+bool
+ContentParent::DeallocPSms(PSmsParent* aSms)
+{
+    delete aSms;
+    return true;
+}
+
 PStorageParent*
 ContentParent::AllocPStorage(const StorageConstructData& aData)
 {
@@ -1103,10 +1118,8 @@ ContentParent::RecvLoadURIExternal(const IPC::URI& uri)
 NS_IMETHODIMP
 ContentParent::OnDispatchedEvent(nsIThreadInternal *thread)
 {
-    if (mOldObserver)
-        return mOldObserver->OnDispatchedEvent(thread);
-
-    return NS_OK;
+   NS_NOTREACHED("OnDispatchedEvent unimplemented");
+   return NS_ERROR_NOT_IMPLEMENTED;
 }
 
 /* void onProcessNextEvent (in nsIThreadInternal thread, in boolean mayWait, in unsigned long recursionDepth); */
@@ -1117,9 +1130,6 @@ ContentParent::OnProcessNextEvent(nsIThreadInternal *thread,
 {
     if (mRunToCompletionDepth)
         ++mRunToCompletionDepth;
-
-    if (mOldObserver)
-        return mOldObserver->OnProcessNextEvent(thread, mayWait, recursionDepth);
 
     return NS_OK;
 }
@@ -1139,9 +1149,6 @@ ContentParent::AfterProcessNextEvent(nsIThreadInternal *thread,
                 UnblockChild();
             }
     }
-
-    if (mOldObserver)
-        return mOldObserver->AfterProcessNextEvent(thread, recursionDepth);
 
     return NS_OK;
 }

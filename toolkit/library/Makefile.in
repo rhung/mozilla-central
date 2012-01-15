@@ -107,12 +107,11 @@ ifndef MOZ_NATIVE_ZLIB
 CPPSRCS += dlldeps-zlib.cpp
 endif
 
-LOCAL_INCLUDES += -I$(topsrcdir)/widget/src/windows
+LOCAL_INCLUDES += -I$(topsrcdir)/widget/windows
 LOCAL_INCLUDES += -I$(topsrcdir)/xpcom/base
 endif
 
 ifneq (,$(filter WINNT OS2,$(OS_ARCH)))
-REQUIRES += libreg
 DEFINES += -DZLIB_DLL=1
 endif
 
@@ -128,9 +127,9 @@ CPPSRCS += dlldeps-zlib.cpp
 endif
 
 RESFILE = xulrunos2.res
-RCFLAGS += -i $(topsrcdir)/widget/src/os2
+RCFLAGS += -i $(topsrcdir)/widget/os2
 
-LOCAL_INCLUDES += -I$(topsrcdir)/widget/src/os2
+LOCAL_INCLUDES += -I$(topsrcdir)/widget/os2
 LOCAL_INCLUDES += -I$(topsrcdir)/xpcom/base
 endif
 
@@ -147,6 +146,10 @@ STATIC_LIBS += \
   hal_s \
   $(NULL)
 
+ifdef MOZ_B2G_RIL #{
+STATIC_LIBS += mozril_s
+endif #}
+
 ifdef MOZ_IPDL_TESTS
 STATIC_LIBS += ipdlunittest_s
 endif
@@ -161,7 +164,7 @@ STATIC_LIBS += \
   xpcom_core \
   ucvutil_s \
   chromium_s \
-  mozreg_s \
+  snappy_s \
   $(NULL)
 
 # component libraries
@@ -189,7 +192,6 @@ COMPONENT_LIBS += \
   appcomps \
   jsreflect \
   composer \
-  jetpack_s \
   telemetry \
   jsdebugger \
   storagecomps \
@@ -288,9 +290,6 @@ endif
 
 ifdef MOZ_ENABLE_GTK2
 COMPONENT_LIBS += widget_gtk2
-ifdef MOZ_PREF_EXTENSIONS
-COMPONENT_LIBS += system-pref
-endif
 endif
 
 ifdef MOZ_ENABLE_GTK2
@@ -307,6 +306,7 @@ endif
 
 ifeq ($(MOZ_WIDGET_TOOLKIT),android)
 COMPONENT_LIBS += widget_android
+STATIC_LIBS += skia_npapi
 endif
 
 ifeq ($(MOZ_WIDGET_TOOLKIT),gonk)
@@ -315,14 +315,10 @@ endif
 
 STATIC_LIBS += thebes gl ycbcr
 
-ifeq ($(MOZ_WIDGET_TOOLKIT),android)
-STATIC_LIBS += profiler
-endif
-
-STATIC_LIBS += angle
+COMPONENT_LIBS += profiler
 
 ifeq (windows,$(MOZ_WIDGET_TOOLKIT))
-COMPONENT_LIBS += gkwidget
+COMPONENT_LIBS += widget_windows
 endif
 ifeq (os2,$(MOZ_WIDGET_TOOLKIT))
 COMPONENT_LIBS += wdgtos2
@@ -377,10 +373,13 @@ EXTRA_DSO_LDOPTS += \
   $(NSS_LIBS) \
   $(MOZ_CAIRO_LIBS) \
   $(MOZ_HARFBUZZ_LIBS) \
-  $(MOZ_OTS_LIBS) \
   $(MOZ_APP_EXTRA_LIBS) \
   $(SQLITE_LIBS) \
   $(NULL)
+
+ifdef MOZ_GRAPHITE
+EXTRA_DSO_LDOPTS += $(MOZ_GRAPHITE_LIBS)
+endif
 
 ifdef MOZ_NATIVE_ZLIB
 EXTRA_DSO_LDOPTS += $(ZLIB_LIBS)
@@ -400,6 +399,8 @@ ifdef MOZ_NATIVE_LIBVPX
 EXTRA_DSO_LDOPTS += $(MOZ_LIBVPX_LIBS)
 endif
 
+EXTRA_DSO_LDOPTS += $(call EXPAND_LIBNAME_PATH,gkmedias,$(DIST)/lib) 
+
 ifdef MOZ_SYDNEYAUDIO
 ifeq ($(OS_ARCH),Linux)
 EXTRA_DSO_LDOPTS += $(MOZ_ALSA_LIBS)
@@ -410,7 +411,7 @@ ifdef HAVE_CLOCK_MONOTONIC
 EXTRA_DSO_LDOPTS += $(REALTIME_LIBS)
 endif
 
-ifeq (,$(filter-out cocoa android windows,$(MOZ_WIDGET_TOOLKIT)))
+ifdef MOZ_ENABLE_SKIA
 EXTRA_DSO_LDOPTS += $(MOZ_SKIA_LIBS)
 endif
 
@@ -419,7 +420,11 @@ OS_LIBS += -lGLESv2
 endif
 
 ifeq (gonk,$(MOZ_WIDGET_TOOLKIT))
-OS_LIBS += -lui
+OS_LIBS += \
+  -lui \
+  -lmedia \
+  -lhardware_legacy \
+  $(NULL)
 endif
 
 EXTRA_DEPS += \
@@ -479,7 +484,7 @@ endif
 
 ifeq ($(OS_ARCH),Darwin)
 ifdef MOZ_SYDNEYAUDIO
-EXTRA_DSO_LDOPTS += \
+OS_LIBS += \
   -framework Carbon \
   -framework CoreAudio \
   -framework AudioToolbox \
@@ -517,7 +522,7 @@ endif
 ifeq (qt,$(MOZ_WIDGET_TOOLKIT))
 EXTRA_DSO_LDOPTS += $(XLDFLAGS) $(XLIBS) $(XT_LIBS) $(MOZ_QT_LIBS) -lgthread-2.0
 EXTRA_DSO_LDOPTS += $(FT2_LIBS) $(MOZ_PANGO_LIBS)
-EXTRA_DSO_LDOPTS += $(LIBXUL_DIST)/../widget/src/qt/faststartupqt/$(LIB_PREFIX)faststartupqt.$(LIB_SUFFIX)
+EXTRA_DSO_LDOPTS += $(LIBXUL_DIST)/../widget/qt/faststartupqt/$(LIB_PREFIX)faststartupqt.$(LIB_SUFFIX)
 endif
 
 ifdef MOZ_TREE_FREETYPE
@@ -543,12 +548,22 @@ endif
 endif
 
 ifeq ($(OS_ARCH),WINNT)
-OS_LIBS += $(call EXPAND_LIBNAME,shell32 ole32 uuid version winspool comdlg32 imm32 winmm wsock32 msimg32 shlwapi psapi ws2_32 dbghelp)
+OS_LIBS += $(call EXPAND_LIBNAME,shell32 ole32 uuid version winspool comdlg32 imm32 winmm wsock32 msimg32 shlwapi psapi ws2_32 dbghelp rasapi32 rasdlg)
 ifneq (,$(MOZ_DEBUG)$(NS_TRACE_MALLOC))
 OS_LIBS += $(call EXPAND_LIBNAME,imagehlp)
 endif
 ifdef MOZ_CRASHREPORTER
 OS_LIBS += $(call EXPAND_LIBNAME,wininet)
+endif
+ifdef _MSC_VER
+OS_LIBS += $(call EXPAND_LIBNAME,delayimp)
+EXTRA_DSO_LDOPTS += \
+  -DELAYLOAD:gkmedias.dll \
+  -DELAYLOAD:rasapi32.dll \
+  -DELAYLOAD:rasdlg.dll \
+  -DELAYLOAD:comdlg32.dll \
+  -DELAYLOAD:winspool.drv \
+  $(NULL)
 endif
 endif # WINNT
 
@@ -565,11 +580,10 @@ include $(topsrcdir)/config/rules.mk
 export:: $(RDF_UTIL_SRC_CPPSRCS) $(INTL_UNICHARUTIL_UTIL_CPPSRCS)
 	$(INSTALL) $^ .
 
-# need widget/src/windows for resource.h (included from widget.rc)
+# need widget/windows for resource.h (included from widget.rc)
 LOCAL_INCLUDES += \
   -I$(topsrcdir)/config \
-  -I$(topsrcdir)/widget/src/windows \
-  -I$(topsrcdir)/widget/src/build \
+  -I$(topsrcdir)/widget/windows \
   $(NULL)
 
 OS_LIBS += $(LIBICONV)
@@ -596,4 +610,9 @@ ifdef MOZ_DEBUG
 ifdef ENABLE_TESTS
 DEFINES += -DENABLE_LAYOUTDEBUG
 endif
+endif
+
+ifeq (WINNT_1,$(OS_TARGET)_$(MOZ_PROFILE_USE))
+# Wrap linker to measure peak virtual memory usage.
+LD := $(PYTHON) $(topsrcdir)/build/link.py $(CURDIR)/linker-vsize $(LD)
 endif

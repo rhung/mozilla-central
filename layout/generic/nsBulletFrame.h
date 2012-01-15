@@ -45,6 +45,38 @@
 
 #include "imgIRequest.h"
 #include "imgIDecoderObserver.h"
+#include "nsStubImageDecoderObserver.h"
+
+#define BULLET_FRAME_IMAGE_LOADING NS_FRAME_STATE_BIT(63)
+#define BULLET_FRAME_HAS_FONT_INFLATION NS_FRAME_STATE_BIT(62)
+
+class nsBulletFrame;
+
+class nsBulletListener : public nsStubImageDecoderObserver
+{
+public:
+  nsBulletListener();
+  virtual ~nsBulletListener();
+
+  NS_DECL_ISUPPORTS
+  // imgIDecoderObserver (override nsStubImageDecoderObserver)
+  NS_IMETHOD OnStartContainer(imgIRequest *aRequest, imgIContainer *aImage);
+  NS_IMETHOD OnDataAvailable(imgIRequest *aRequest, bool aCurrentFrame,
+                             const nsIntRect *aRect);
+  NS_IMETHOD OnStopDecode(imgIRequest *aRequest, nsresult status,
+                          const PRUnichar *statusArg);
+  NS_IMETHOD OnImageIsAnimated(imgIRequest *aRequest);
+
+  // imgIContainerObserver (override nsStubImageDecoderObserver)
+  NS_IMETHOD FrameChanged(imgIRequest *aRequest,
+                          imgIContainer *aContainer,
+                          const nsIntRect *dirtyRect);
+
+  void SetFrame(nsBulletFrame *frame) { mFrame = frame; }
+
+private:
+  nsBulletFrame *mFrame;
+};
 
 /**
  * A simple class that manages the layout and rendering of html bullets.
@@ -54,7 +86,10 @@ class nsBulletFrame : public nsFrame {
 public:
   NS_DECL_FRAMEARENA_HELPERS
 
-  nsBulletFrame(nsStyleContext* aContext) : nsFrame(aContext) {}
+  nsBulletFrame(nsStyleContext* aContext)
+    : nsFrame(aContext)
+  {
+  }
   virtual ~nsBulletFrame();
 
   // nsIFrame
@@ -88,7 +123,8 @@ public:
                           nsresult aStatus,
                           const PRUnichar *aStatusArg);
   NS_IMETHOD OnImageIsAnimated(imgIRequest *aRequest);
-  NS_IMETHOD FrameChanged(imgIContainer *aContainer,
+  NS_IMETHOD FrameChanged(imgIRequest *aRequest,
+                          imgIContainer *aContainer,
                           const nsIntRect *aDirtyRect);
 
   /* get list item text, without '.' */
@@ -107,16 +143,23 @@ public:
   virtual bool IsSelfEmpty();
   virtual nscoord GetBaseline() const;
 
+  float GetFontSizeInflation() const;
+  bool HasFontSizeInflation() const {
+    return (GetStateBits() & BULLET_FRAME_HAS_FONT_INFLATION) != 0;
+  }
+  void SetFontSizeInflation(float aInflation);
+
 protected:
   void GetDesiredSize(nsPresContext* aPresContext,
                       nsRenderingContext *aRenderingContext,
-                      nsHTMLReflowMetrics& aMetrics);
+                      nsHTMLReflowMetrics& aMetrics,
+                      float aFontSizeInflation);
 
   void GetLoadGroup(nsPresContext *aPresContext, nsILoadGroup **aLoadGroup);
 
   nsMargin mPadding;
   nsCOMPtr<imgIRequest> mImageRequest;
-  nsCOMPtr<imgIDecoderObserver> mListener;
+  nsRefPtr<nsBulletListener> mListener;
 
   nsSize mIntrinsicSize;
   nsSize mComputedSize;

@@ -51,6 +51,7 @@
 #include "nsIFrame.h"
 #include "nsLayoutUtils.h"
 #include "nsIScrollableFrame.h"
+#include "DictionaryHelpers.h"
 
 nsDOMUIEvent::nsDOMUIEvent(nsPresContext* aPresContext, nsGUIEvent* aEvent)
   : nsDOMEvent(aPresContext, aEvent ?
@@ -203,6 +204,16 @@ nsDOMUIEvent::InitUIEvent(const nsAString& typeArg,
   mView = viewArg;
 
   return NS_OK;
+}
+
+nsresult
+nsDOMUIEvent::InitFromCtor(const nsAString& aType,
+                           JSContext* aCx, jsval* aVal)
+{
+  mozilla::dom::UIEventInit d;
+  nsresult rv = d.Init(aCx, aVal);
+  NS_ENSURE_SUCCESS(rv, rv);
+  return InitUIEvent(aType, d.bubbles, d.cancelable, d.view, d.detail);
 }
 
 // ---- nsDOMNSUIEvent implementation -------------------

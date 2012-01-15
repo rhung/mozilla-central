@@ -40,6 +40,7 @@
 #ifndef mozilla_dom_ContentChild_h
 #define mozilla_dom_ContentChild_h
 
+#include "mozilla/Attributes.h"
 #include "mozilla/dom/PContentChild.h"
 
 #include "nsTArray.h"
@@ -129,6 +130,9 @@ public:
             const IPC::URI& aReferrer);
     virtual bool DeallocPExternalHelperApp(PExternalHelperAppChild *aService);
 
+    virtual PSmsChild* AllocPSms();
+    virtual bool DeallocPSms(PSmsChild*);
+
     virtual PStorageChild* AllocPStorage(const StorageConstructData& aData);
     virtual bool DeallocPStorage(PStorageChild* aActor);
 
@@ -191,7 +195,7 @@ private:
      * Exit *now*.  Do not shut down XPCOM, do not pass Go, do not run
      * static destructors, do not collect $200.
      */
-    NS_NORETURN void QuickExit();
+    MOZ_NORETURN void QuickExit();
 
     InfallibleTArray<nsAutoPtr<AlertObserver> > mAlertObservers;
     nsRefPtr<ConsoleListener> mConsoleListener;

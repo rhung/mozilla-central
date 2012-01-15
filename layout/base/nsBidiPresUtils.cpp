@@ -49,7 +49,7 @@
 #include "nsFrameManager.h"
 #include "nsBidiUtils.h"
 #include "nsCSSFrameConstructor.h"
-#include "nsHTMLContainerFrame.h"
+#include "nsContainerFrame.h"
 #include "nsInlineFrame.h"
 #include "nsPlaceholderFrame.h"
 #include "nsContainerFrame.h"
@@ -80,6 +80,7 @@ struct BidiParagraphData {
   nsTArray<nsLineBox*> mLinePerFrame;
   nsDataHashtable<nsISupportsHashKey, PRInt32> mContentToFrameIndex;
   bool                mIsVisual;
+  bool                mReset;
   nsBidiLevel         mParaLevel;
   nsIContent*         mPrevContent;
   nsAutoPtr<nsBidi>   mBidiEngine;
@@ -157,10 +158,12 @@ struct BidiParagraphData {
     if (IS_DEFAULT_LEVEL(mParaLevel)) {
       mParaLevel = (mParaLevel == NSBIDI_DEFAULT_RTL) ? NSBIDI_RTL : NSBIDI_LTR;
     }                    
+    mReset = false;
   }
 
   void Reset(nsIFrame* aFrame, BidiParagraphData *aBpd)
   {
+    mReset = true;
     mLogicalFrames.Clear();
     mLinePerFrame.Clear();
     mContentToFrameIndex.Clear();
@@ -1107,11 +1110,21 @@ nsBidiPresUtils::TraverseFrames(nsBlockFrame*              aBlockFrame,
           // css "unicode-bidi: isolate" and html5 bdi: 
           //  resolve the element as a separate paragraph
           BidiParagraphData* subParagraph = aBpd->GetSubParagraph();
-          if (!frame->GetPrevContinuation()) {
+
+          /*
+           * As at the beginning of the loop, it's important to check for
+           * next-continuations before handling the frame. If we do
+           * TraverseFrames and *then* do GetNextContinuation on the original
+           * first frame, it could return a bidi continuation that had only
+           * just been created, and we would skip doing bidi resolution on the
+           * last part of the sub-paragraph.
+           */
+          bool isLastContinuation = !frame->GetNextContinuation();
+          if (!frame->GetPrevContinuation() || !subParagraph->mReset) {
             subParagraph->Reset(kid, aBpd);
           }
           TraverseFrames(aBlockFrame, aLineIter, kid, subParagraph);
-          if (!frame->GetNextContinuation()) {
+          if (isLastContinuation) {
             ResolveParagraph(aBlockFrame, subParagraph);
           }
 

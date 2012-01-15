@@ -56,7 +56,7 @@ js_GetSCOffset(JSStructuredCloneWriter* writer)
 namespace js {
 
 bool
-WriteStructuredClone(JSContext *cx, const Value &v, uint64 **bufp, size_t *nbytesp,
+WriteStructuredClone(JSContext *cx, const Value &v, uint64_t **bufp, size_t *nbytesp,
                      const JSStructuredCloneCallbacks *cb, void *cbClosure)
 {
     SCOutput out(cx);
@@ -523,9 +523,9 @@ JSStructuredCloneWriter::startWrite(const js::Value &v)
     } else if (v.isObject()) {
         JSObject *obj = &v.toObject();
         if (obj->isRegExp()) {
-            RegExpObject *reobj = obj->asRegExp();
-            return out.writePair(SCTAG_REGEXP_OBJECT, reobj->getFlags()) &&
-                   writeString(SCTAG_STRING, reobj->getSource());
+            RegExpObject &reobj = obj->asRegExp();
+            return out.writePair(SCTAG_REGEXP_OBJECT, reobj.getFlags()) &&
+                   writeString(SCTAG_STRING, reobj.getSource());
         } else if (obj->isDate()) {
             jsdouble d = js_DateGetMsecSinceEpoch(context(), obj);
             return out.writePair(SCTAG_DATE_OBJECT, 0) && out.writeDouble(d);

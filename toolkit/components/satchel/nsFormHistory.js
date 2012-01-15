@@ -359,8 +359,6 @@ FormHistory.prototype = {
     },
 
     get dbConnection() {
-        let connection;
-
         // Make sure dbConnection can't be called from now to prevent infinite loops.
         delete FormHistory.prototype.dbConnection;
 
@@ -375,7 +373,7 @@ FormHistory.prototype = {
             this.log("Initialization failed: " + e);
             // If dbInit fails...
             if (e.result == Cr.NS_ERROR_FILE_CORRUPTED) {
-                this.dbCleanup(true);
+                this.dbCleanup();
                 FormHistory.prototype.dbConnection = this.dbOpen();
                 this.dbInit();
             } else {
@@ -404,7 +402,7 @@ FormHistory.prototype = {
             this.expireOldEntries();
             break;
         case "profile-before-change":
-            this._dbFinalize();
+            this._dbClose();
             break;
         default:
             this.log("Oops! Unexpected notification: " + topic);
@@ -867,16 +865,22 @@ FormHistory.prototype = {
     },
 
     /**
-     * _dbFinalize
+     * _dbClose
      *
-     * Finalize all statements to allow closing the connection correctly.
+     * Finalize all statements and close the connection.
      */
-    _dbFinalize : function FH__dbFinalize() {
-        // FIXME (bug 696486): close the connection in here.
+    _dbClose : function FH__dbClose() {
         for each (let stmt in this.dbStmts) {
             stmt.finalize();
         }
         this.dbStmts = {};
+        if (this.dbConnection !== undefined) {
+            try {
+                this.dbConnection.close();
+            } catch (e) {
+                Components.utils.reportError(e);
+            }
+        }
     },
 
     /*
@@ -885,23 +889,16 @@ FormHistory.prototype = {
      * Called when database creation fails. Finalizes database statements,
      * closes the database connection, deletes the database file.
      */
-    dbCleanup : function (backup) {
-        this.log("Cleaning up DB file - close & remove & backup=" + backup)
+    dbCleanup : function () {
+        this.log("Cleaning up DB file - close & remove & backup")
 
         // Create backup file
-        if (backup) {
-            let storage = Cc["@mozilla.org/storage/service;1"].
-                          getService(Ci.mozIStorageService);
+        let storage = Cc["@mozilla.org/storage/service;1"].
+                      getService(Ci.mozIStorageService);
+        let backupFile = this.dbFile.leafName + ".corrupt";
+        storage.backupDatabaseFile(this.dbFile, backupFile);
 
-            let backupFile = this.dbFile.leafName + ".corrupt";
-            storage.backupDatabaseFile(this.dbFile, backupFile);
-        }
-
-        this._dbFinalize();
-
-        // Close the connection, ignore 'already closed' error
-        // FIXME (bug 696483): we should reportError in here.
-        try { this.dbConnection.close(); } catch(e) {}
+        this._dbClose();
         this.dbFile.remove(false);
     }
 };

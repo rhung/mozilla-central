@@ -410,7 +410,7 @@ nsBlockFrame::List(FILE* out, PRInt32 aIndent) const
   // Output the rect and state
   fprintf(out, " {%d,%d,%d,%d}", mRect.x, mRect.y, mRect.width, mRect.height);
   if (0 != mState) {
-    fprintf(out, " [state=%016llx]", mState);
+    fprintf(out, " [state=%016llx]", (unsigned long long)mState);
   }
   nsBlockFrame* f = const_cast<nsBlockFrame*>(this);
   if (f->HasOverflowAreas()) {
@@ -563,9 +563,11 @@ nsBlockFrame::GetCaretBaseline() const
     }
   }
   nsRefPtr<nsFontMetrics> fm;
-  nsLayoutUtils::GetFontMetricsForFrame(this, getter_AddRefs(fm));
+  nsLayoutUtils::GetFontMetricsForFrame(this, getter_AddRefs(fm),
+    nsLayoutUtils::FontSizeInflationFor(this));
   return nsLayoutUtils::GetCenteredFontBaseline(fm, nsHTMLReflowState::
-      CalcLineHeight(GetStyleContext(), contentRect.height)) +
+      CalcLineHeight(GetStyleContext(), contentRect.height,
+      nsLayoutUtils::FontSizeInflationFor(this))) +
     bp.top;
 }
 
@@ -1549,7 +1551,9 @@ nsBlockFrame::PrepareResizeReflow(nsBlockReflowState& aState)
       (NS_STYLE_TEXT_ALIGN_LEFT == styleText->mTextAlign ||
        (NS_STYLE_TEXT_ALIGN_DEFAULT == styleText->mTextAlign &&
         NS_STYLE_DIRECTION_LTR ==
-          aState.mReflowState.mStyleVisibility->mDirection) ||
+          aState.mReflowState.mStyleVisibility->mDirection &&
+        !(NS_STYLE_UNICODE_BIDI_PLAINTEXT &
+          GetStyleTextReset()->mUnicodeBidi)) ||
        (NS_STYLE_TEXT_ALIGN_END == styleText->mTextAlign &&
         NS_STYLE_DIRECTION_RTL ==
           aState.mReflowState.mStyleVisibility->mDirection)) &&
@@ -2332,7 +2336,8 @@ nsBlockFrame::ReflowDirtyLines(nsBlockReflowState& aState)
       }
 
       nsRefPtr<nsFontMetrics> fm;
-      nsLayoutUtils::GetFontMetricsForFrame(this, getter_AddRefs(fm));
+      nsLayoutUtils::GetFontMetricsForFrame(this, getter_AddRefs(fm),
+        nsLayoutUtils::FontSizeInflationFor(aState.mReflowState));
       aState.mReflowState.rendContext->SetFont(fm); // FIXME: needed?
 
       nscoord minAscent =
@@ -4102,16 +4107,15 @@ nsBlockFrame::SplitLine(nsBlockReflowState& aState,
 }
 
 bool
-nsBlockFrame::ShouldJustifyLine(nsBlockReflowState& aState,
-                                line_iterator aLine)
+nsBlockFrame::IsLastLine(nsBlockReflowState& aState,
+                         line_iterator aLine)
 {
   while (++aLine != end_lines()) {
     // There is another line
     if (0 != aLine->GetChildCount()) {
-      // If the next line is a block line then we must not justify
-      // this line because it means that this line is the last in a
+      // If the next line is a block line then this line is the last in a
       // group of inline lines.
-      return !aLine->IsBlock();
+      return aLine->IsBlock();
     }
     // The next line is empty, try the next one
   }
@@ -4126,13 +4130,13 @@ nsBlockFrame::ShouldJustifyLine(nsBlockReflowState& aState,
          ++line)
     {
       if (0 != line->GetChildCount())
-        return !line->IsBlock();
+        return line->IsBlock();
     }
     nextInFlow = (nsBlockFrame*) nextInFlow->GetNextInFlow();
   }
 
   // This is the last line - so don't allow justification
-  return false;
+  return true;
 }
 
 bool
@@ -4217,10 +4221,19 @@ nsBlockFrame::PlaceLine(nsBlockReflowState& aState,
   // inline frames "shrink-wrap" around their children (therefore
   // there is no extra horizontal space).
   const nsStyleText* styleText = GetStyleText();
-  bool allowJustify = NS_STYLE_TEXT_ALIGN_JUSTIFY == styleText->mTextAlign &&
-                        !aLineLayout.GetLineEndsInBR() &&
-                        ShouldJustifyLine(aState, aLine);
-  aLineLayout.HorizontalAlignFrames(aLine->mBounds, allowJustify);
+
+  /**
+   * text-align-last defaults to the same value as text-align when
+   * text-align-last is set to auto (unless when text-align is set to justify),
+   * so in that case we don't need to set isLastLine.
+   *
+   * In other words, isLastLine really means isLastLineAndWeCare.
+   */
+  bool isLastLine = ((NS_STYLE_TEXT_ALIGN_AUTO != styleText->mTextAlignLast ||
+                            NS_STYLE_TEXT_ALIGN_JUSTIFY == styleText->mTextAlign) &&
+                       (aLineLayout.GetLineEndsInBR() ||
+                        IsLastLine(aState, aLine)));
+  aLineLayout.HorizontalAlignFrames(aLine->mBounds, isLastLine);
   // XXX: not only bidi: right alignment can be broken after
   // RelativePositionFrames!!!
   // XXXldb Is something here considering relatively positioned frames at
@@ -7072,16 +7085,12 @@ nsBlockFrame::VerifyLines(bool aFinalCheckOK)
   // Add up the counts on each line. Also validate that IsFirstLine is
   // set properly.
   PRInt32 count = 0;
-  bool seenBlock = false;
   line_iterator line, line_end;
   for (line = begin_lines(), line_end = end_lines();
        line != line_end;
        ++line) {
     if (aFinalCheckOK) {
       NS_ABORT_IF_FALSE(line->GetChildCount(), "empty line");
-      if (line->IsBlock()) {
-        seenBlock = true;
-      }
       if (line->IsBlock()) {
         NS_ASSERTION(1 == line->GetChildCount(), "bad first line");
       }

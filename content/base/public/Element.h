@@ -88,6 +88,11 @@ namespace dom {
 
 class Link;
 
+// IID for the dom::Element interface
+#define NS_ELEMENT_IID      \
+{ 0xa1588efb, 0x5a84, 0x49cd, \
+  { 0x99, 0x1a, 0xac, 0x84, 0x9d, 0x92, 0x05, 0x0f } }
+
 class Element : public nsIContent
 {
 public:
@@ -97,6 +102,8 @@ public:
     mState(NS_EVENT_STATE_MOZ_READONLY)
   {}
 #endif // MOZILLA_INTERNAL_API
+
+  NS_DECLARE_STATIC_IID_ACCESSOR(NS_ELEMENT_IID)
 
   NS_DECL_AND_IMPL_DOM_MEMORY_REPORTER_SIZEOF(Element, nsIContent)
 
@@ -126,6 +133,15 @@ public:
    * Method to update mState with link state information.  This does not notify.
    */
   void UpdateLinkState(nsEventStates aState);
+
+  /**
+   * Returns true if this element is either a full-screen element or an
+   * ancestor of the full-screen element.
+   */
+  bool IsFullScreenAncestor() const {
+    return mState.HasAtLeastOneOfStates(NS_EVENT_STATE_FULL_SCREEN_ANCESTOR |
+                                        NS_EVENT_STATE_FULL_SCREEN);
+  }
 
 protected:
   /**
@@ -186,6 +202,8 @@ private:
 
   nsEventStates mState;
 };
+
+NS_DEFINE_STATIC_IID_ACCESSOR(Element, NS_ELEMENT_IID)
 
 } // namespace dom
 } // namespace mozilla

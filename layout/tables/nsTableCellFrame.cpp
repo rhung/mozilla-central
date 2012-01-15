@@ -71,7 +71,7 @@ using namespace mozilla;
 
 
 nsTableCellFrame::nsTableCellFrame(nsStyleContext* aContext) :
-  nsHTMLContainerFrame(aContext)
+  nsContainerFrame(aContext)
 {
   mColIndex = 0;
   mPriorAvailWidth = 0;
@@ -106,7 +106,7 @@ nsTableCellFrame::Init(nsIContent*      aContent,
                        nsIFrame*        aPrevInFlow)
 {
   // Let the base class do its initialization
-  nsresult rv = nsHTMLContainerFrame::Init(aContent, aParent, aPrevInFlow);
+  nsresult rv = nsContainerFrame::Init(aContent, aParent, aPrevInFlow);
 
   if (aPrevInFlow) {
     // Set the column index
@@ -255,8 +255,11 @@ nsTableCellFrame::DidSetStyleContext(nsStyleContext* aOldStyleContext)
     PRInt32 colIndex, rowIndex;
     GetColIndex(colIndex);
     GetRowIndex(rowIndex);
-    nsRect damageArea(colIndex, rowIndex, GetColSpan(), GetRowSpan());
-    tableFrame->SetBCDamageArea(damageArea);
+    // row span needs to be clamped as we do not create rows in the cellmap
+    // which do not have cells originating in them
+    nsRect damageArea(colIndex, rowIndex, GetColSpan(), NS_MIN(GetRowSpan(),
+                      tableFrame->GetRowCount() - rowIndex));
+    tableFrame->AddBCDamageArea(damageArea);
   }
 }
 
@@ -315,8 +318,7 @@ void
 nsTableCellFrame::DecorateForSelection(nsRenderingContext& aRenderingContext,
                                        nsPoint aPt)
 {
-  NS_ASSERTION(GetStateBits() & NS_FRAME_SELECTED_CONTENT,
-               "Should only be called for selected cells");
+  NS_ASSERTION(IsSelected(), "Should only be called for selected cells");
   PRInt16 displaySelection;
   nsPresContext* presContext = PresContext();
   displaySelection = DisplaySelection(presContext);
@@ -496,9 +498,7 @@ nsTableCellFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
     }
 
     // and display the selection border if we need to
-    bool isSelected =
-      (GetStateBits() & NS_FRAME_SELECTED_CONTENT) == NS_FRAME_SELECTED_CONTENT;
-    if (isSelected) {
+    if (IsSelected()) {
       nsresult rv = aLists.BorderBackground()->AppendNewToTop(new (aBuilder)
           nsDisplayGeneric(aBuilder, this, ::PaintTableCellSelection,
                            "TableCellSelection",
@@ -746,7 +746,7 @@ nsTableCellFrame::GetPrefWidth(nsRenderingContext *aRenderingContext)
 nsTableCellFrame::IntrinsicWidthOffsets(nsRenderingContext* aRenderingContext)
 {
   IntrinsicWidthOffsetData result =
-    nsHTMLContainerFrame::IntrinsicWidthOffsets(aRenderingContext);
+    nsContainerFrame::IntrinsicWidthOffsets(aRenderingContext);
 
   result.hMargin = 0;
   result.hPctMargin = 0;
@@ -987,7 +987,7 @@ NS_QUERYFRAME_HEAD(nsTableCellFrame)
   NS_QUERYFRAME_ENTRY(nsTableCellFrame)
   NS_QUERYFRAME_ENTRY(nsITableCellLayout)
   NS_QUERYFRAME_ENTRY(nsIPercentHeightObserver)
-NS_QUERYFRAME_TAIL_INHERITING(nsHTMLContainerFrame)
+NS_QUERYFRAME_TAIL_INHERITING(nsContainerFrame)
 
 #ifdef ACCESSIBILITY
 already_AddRefed<nsAccessible>

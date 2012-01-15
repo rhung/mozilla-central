@@ -46,7 +46,7 @@
 #include "nsIDOMDocument.h"
 #include "nsIDOMHTMLDocument.h"
 #include "nsIDOMHTMLElement.h"
-#include "nsIDOMRange.h"
+#include "nsRange.h"
 #include "nsIDOMWindow.h"
 #include "nsIDOMXULElement.h"
 #include "nsIDocShell.h"
@@ -63,12 +63,9 @@
 #include "nsIView.h"
 #include "nsLayoutUtils.h"
 
-#include "nsContentCID.h"
 #include "nsComponentManagerUtils.h"
 #include "nsIInterfaceRequestorUtils.h"
 #include "mozilla/dom/Element.h"
-
-static NS_DEFINE_IID(kRangeCID, NS_RANGE_CID);
 
 ////////////////////////////////////////////////////////////////////////////////
 // nsCoreUtils
@@ -317,9 +314,7 @@ nsCoreUtils::ScrollSubstringTo(nsIFrame *aFrame,
 
   nsPresContext *presContext = aFrame->PresContext();
 
-  nsCOMPtr<nsIDOMRange> scrollToRange = do_CreateInstance(kRangeCID);
-  NS_ENSURE_TRUE(scrollToRange, NS_ERROR_FAILURE);
-
+  nsRefPtr<nsIDOMRange> scrollToRange = new nsRange();
   nsCOMPtr<nsISelectionController> selCon;
   aFrame->GetSelectionController(presContext, getter_AddRefs(selCon));
   NS_ENSURE_TRUE(selCon, NS_ERROR_FAILURE);
@@ -656,22 +651,6 @@ nsCoreUtils::GetFirstSensibleColumn(nsITreeBoxObject *aTree)
   cols->GetFirstColumn(getter_AddRefs(column));
   if (column && IsColumnHidden(column))
     return GetNextSensibleColumn(column);
-
-  return column.forget();
-}
-
-already_AddRefed<nsITreeColumn>
-nsCoreUtils::GetLastSensibleColumn(nsITreeBoxObject *aTree)
-{
-  nsCOMPtr<nsITreeColumns> cols;
-  aTree->GetColumns(getter_AddRefs(cols));
-  if (!cols)
-    return nsnull;
-
-  nsCOMPtr<nsITreeColumn> column;
-  cols->GetLastColumn(getter_AddRefs(column));
-  if (column && IsColumnHidden(column))
-    return GetPreviousSensibleColumn(column);
 
   return column.forget();
 }

@@ -1079,7 +1079,7 @@ HttpChannelChild::AsyncOpen(nsIStreamListener *listener, nsISupports *aContext)
                 mPriority, mRedirectionLimit, mAllowPipelining,
                 mForceAllowThirdPartyCookie, mSendResumeAt,
                 mStartPos, mEntityID, mChooseApplicationCache, 
-                appCacheClientId);
+                appCacheClientId, mAllowSpdy);
 
   return NS_OK;
 }
@@ -1217,7 +1217,7 @@ HttpChannelChild::ResumeAt(PRUint64 startPos, const nsACString& entityID)
 NS_IMETHODIMP
 HttpChannelChild::SetPriority(PRInt32 aPriority)
 {
-  PRInt16 newValue = CLAMP(aPriority, PR_INT16_MIN, PR_INT16_MAX);
+  PRInt16 newValue = clamped(aPriority, PR_INT16_MIN, PR_INT16_MAX);
   if (mPriority == newValue)
     return NS_OK;
   mPriority = newValue;

@@ -41,7 +41,7 @@
 #ifndef String_h_
 #define String_h_
 
-#include "mozilla/Util.h"
+#include "mozilla/Attributes.h"
 
 #include "jsapi.h"
 #include "jscell.h"
@@ -153,7 +153,7 @@ js_AtomizeString(JSContext *cx, JSString *str, js::InternBehavior ib = js::DoNot
  *  |       \      |
  *  |       JSShortAtom         - / atomized JSShortString
  *  |
- * js::PropertyName             - / chars don't contain an index (uint32)
+ * js::PropertyName             - / chars don't contain an index (uint32_t)
  *
  * Classes marked with (abstract) above are not literally C++ Abstract Base
  * Classes (since there are no virtual functions, pure or not, in this
@@ -403,11 +403,11 @@ class JSString : public js::gc::Cell
 
     /* Only called by the GC for strings with the FINALIZE_STRING kind. */
 
-    inline void finalize(JSContext *cx);
+    inline void finalize(JSContext *cx, bool background);
 
     /* Gets the number of bytes that the chars take on the heap. */
 
-    JS_FRIEND_API(size_t) charsHeapSize(JSUsableSizeFun usf);
+    JS_FRIEND_API(size_t) charsHeapSize(JSMallocSizeOfFun mallocSizeOf);
 
     /* Offsets for direct field from jit code. */
 
@@ -422,11 +422,13 @@ class JSString : public js::gc::Cell
     static inline void writeBarrierPre(JSString *str);
     static inline void writeBarrierPost(JSString *str, void *addr);
     static inline bool needWriteBarrierPre(JSCompartment *comp);
+
+    static inline js::ThingRootKind rootKind() { return js::THING_ROOT_STRING; }
 };
 
 class JSRope : public JSString
 {
-    enum UsingBarrier { WithBarrier, NoBarrier };
+    enum UsingBarrier { WithIncrementalBarrier, NoBarrier };
     template<UsingBarrier b>
     JSFlatString *flattenInternal(JSContext *cx);
 
@@ -462,8 +464,6 @@ class JSLinearString : public JSString
     JSLinearString &asLinear() const MOZ_DELETE;
 
   public:
-    void mark(JSTracer *trc);
-
     JS_ALWAYS_INLINE
     const jschar *chars() const {
         JS_ASSERT(JSString::isLinear());
@@ -522,7 +522,7 @@ class JSFlatString : public JSLinearString
      * calling isIndex returns true, js::IndexToString(cx, *indexp) will be a
      * string equal to this string.)
      */
-    bool isIndex(uint32 *indexp) const;
+    bool isIndex(uint32_t *indexp) const;
 
     /*
      * Returns a property name represented by this string, or null on failure.
@@ -628,7 +628,7 @@ class JSShortString : public JSInlineString
 
     /* Only called by the GC for strings with the FINALIZE_EXTERNAL_STRING kind. */
 
-    JS_ALWAYS_INLINE void finalize(JSContext *cx);
+    JS_ALWAYS_INLINE void finalize(JSContext *cx, bool background);
 };
 
 JS_STATIC_ASSERT(sizeof(JSShortString) == 2 * sizeof(JSString));
@@ -680,7 +680,7 @@ class JSExternalString : public JSFixedString
 
     /* Only called by the GC for strings with the FINALIZE_EXTERNAL_STRING kind. */
 
-    void finalize(JSContext *cx);
+    void finalize(JSContext *cx, bool background);
     void finalize();
 };
 
@@ -747,10 +747,10 @@ class StaticStrings
     bool init(JSContext *cx);
     void trace(JSTracer *trc);
 
-    static inline bool hasUint(uint32 u);
-    inline JSAtom *getUint(uint32 u);
+    static inline bool hasUint(uint32_t u);
+    inline JSAtom *getUint(uint32_t u);
 
-    static inline bool hasInt(int32 i);
+    static inline bool hasInt(int32_t i);
     inline JSAtom *getInt(jsint i);
 
     static inline bool hasUnit(jschar c);
@@ -765,7 +765,7 @@ class StaticStrings
     inline JSAtom *lookup(const jschar *chars, size_t length);
 
   private:
-    typedef uint8 SmallChar;
+    typedef uint8_t SmallChar;
     static const SmallChar INVALID_SMALL_CHAR = -1;
 
     static inline bool fitsInSmallChar(jschar c);
@@ -773,7 +773,7 @@ class StaticStrings
     static const SmallChar toSmallChar[];
 
     JSAtom *getLength2(jschar c1, jschar c2);
-    JSAtom *getLength2(uint32 i);
+    JSAtom *getLength2(uint32_t u);
 };
 
 /*
@@ -785,8 +785,8 @@ class StaticStrings
  * is used to partition, in a type-safe manner, the ways to refer to a
  * property, as follows:
  *
- *   - uint32 indexes,
- *   - PropertyName strings which don't encode uint32 indexes, and
+ *   - uint32_t indexes,
+ *   - PropertyName strings which don't encode uint32_t indexes, and
  *   - jsspecial special properties (non-ES5 properties like object-valued
  *     jsids, JSID_EMPTY, JSID_VOID, E4X's default XML namespace, and maybe in
  *     the future Harmony-proposed private names).
@@ -852,7 +852,7 @@ inline js::PropertyName *
 JSAtom::asPropertyName()
 {
 #ifdef DEBUG
-    uint32 dummy;
+    uint32_t dummy;
     JS_ASSERT(!isIndex(&dummy));
 #endif
     return static_cast<js::PropertyName *>(this);

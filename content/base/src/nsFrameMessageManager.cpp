@@ -38,7 +38,6 @@
 
 #include "ContentChild.h"
 #include "ContentParent.h"
-#include "jscntxt.h"
 #include "nsFrameMessageManager.h"
 #include "nsContentUtils.h"
 #include "nsIXPConnect.h"
@@ -51,6 +50,9 @@
 #include "nsIScriptError.h"
 #include "nsIConsoleService.h"
 #include "nsIProtocolHandler.h"
+#include "nsIScriptSecurityManager.h"
+#include "nsIJSRuntimeService.h"
+#include "xpcpublic.h"
 
 #ifdef ANDROID
 #include <android/log.h>
@@ -343,6 +345,28 @@ nsFrameMessageManager::Atob(const nsAString& aAsciiString,
   return NS_OK;
 }
 
+class MMListenerRemover
+{
+public:
+  MMListenerRemover(nsFrameMessageManager* aMM)
+  : mMM(aMM), mWasHandlingMessage(aMM->mHandlingMessage)
+  {
+    mMM->mHandlingMessage = true;
+  }
+  ~MMListenerRemover()
+  {
+    if (!mWasHandlingMessage) {
+      mMM->mHandlingMessage = false;
+      if (mMM->mDisconnected) {
+        mMM->mListeners.Clear();
+      }
+    }
+  }
+
+  bool mWasHandlingMessage;
+  nsRefPtr<nsFrameMessageManager> mMM;
+};
+
 nsresult
 nsFrameMessageManager::ReceiveMessage(nsISupports* aTarget,
                                       const nsAString& aMessage,
@@ -357,7 +381,7 @@ nsFrameMessageManager::ReceiveMessage(nsISupports* aTarget,
   }
   if (mListeners.Length()) {
     nsCOMPtr<nsIAtom> name = do_GetAtom(aMessage);
-    nsRefPtr<nsFrameMessageManager> kungfuDeathGrip(this);
+    MMListenerRemover lr(this);
 
     for (PRUint32 i = 0; i < mListeners.Length(); ++i) {
       if (mListeners[i].mMessage == name) {
@@ -400,7 +424,7 @@ nsFrameMessageManager::ReceiveMessage(nsISupports* aTarget,
           }
         }
 
-        js::AutoValueRooter objectsv(ctx);
+        JS::AutoValueRooter objectsv(ctx);
         objectsv.set(OBJECT_TO_JSVAL(aObjectsArray));
         if (!JS_WrapValue(ctx, objectsv.jsval_addr()))
             return NS_ERROR_UNEXPECTED;
@@ -456,7 +480,7 @@ nsFrameMessageManager::ReceiveMessage(nsISupports* aTarget,
 
         jsval rval = JSVAL_VOID;
 
-        js::AutoValueRooter argv(ctx);
+        JS::AutoValueRooter argv(ctx);
         argv.set(OBJECT_TO_JSVAL(param));
 
         {
@@ -528,14 +552,29 @@ nsFrameMessageManager::SetCallbackData(void* aData, bool aLoadScripts)
 }
 
 void
-nsFrameMessageManager::Disconnect(bool aRemoveFromParent)
+nsFrameMessageManager::RemoveFromParent()
 {
-  if (mParentManager && aRemoveFromParent) {
+  if (mParentManager) {
     mParentManager->RemoveChildManager(this);
   }
   mParentManager = nsnull;
   mCallbackData = nsnull;
   mContext = nsnull;
+}
+
+void
+nsFrameMessageManager::Disconnect(bool aRemoveFromParent)
+{
+  if (mParentManager && aRemoveFromParent) {
+    mParentManager->RemoveChildManager(this);
+  }
+  mDisconnected = true;
+  mParentManager = nsnull;
+  mCallbackData = nsnull;
+  mContext = nsnull;
+  if (!mHandlingMessage) {
+    mListeners.Clear();
+  }
 }
 
 nsresult
@@ -806,6 +845,58 @@ nsFrameScriptExecutor::LoadFrameScriptInternal(const nsAString& aURL)
     JSContext* unused;
     nsContentUtils::ThreadJSContextStack()->Pop(&unused);
   }
+}
+
+bool
+nsFrameScriptExecutor::InitTabChildGlobalInternal(nsISupports* aScope)
+{
+  
+  nsCOMPtr<nsIJSRuntimeService> runtimeSvc = 
+    do_GetService("@mozilla.org/js/xpc/RuntimeService;1");
+  NS_ENSURE_TRUE(runtimeSvc, false);
+
+  JSRuntime* rt = nsnull;
+  runtimeSvc->GetRuntime(&rt);
+  NS_ENSURE_TRUE(rt, false);
+
+  JSContext* cx = JS_NewContext(rt, 8192);
+  NS_ENSURE_TRUE(cx, false);
+
+  mCx = cx;
+
+  nsContentUtils::GetSecurityManager()->GetSystemPrincipal(getter_AddRefs(mPrincipal));
+
+  JS_SetNativeStackQuota(cx, 128 * sizeof(size_t) * 1024);
+
+  JS_SetOptions(cx, JS_GetOptions(cx) | JSOPTION_PRIVATE_IS_NSISUPPORTS);
+  JS_SetVersion(cx, JSVERSION_LATEST);
+  JS_SetErrorReporter(cx, ContentScriptErrorReporter);
+
+  xpc_LocalizeContext(cx);
+
+  JSAutoRequest ar(cx);
+  nsIXPConnect* xpc = nsContentUtils::XPConnect();
+  const PRUint32 flags = nsIXPConnect::INIT_JS_STANDARD_CLASSES |
+                         nsIXPConnect::FLAG_SYSTEM_GLOBAL_OBJECT;
+
+  
+  JS_SetContextPrivate(cx, aScope);
+
+  nsresult rv =
+    xpc->InitClassesWithNewWrappedGlobal(cx, aScope,
+                                         NS_GET_IID(nsISupports),
+                                         mPrincipal, nsnull,
+                                         flags, getter_AddRefs(mGlobal));
+  NS_ENSURE_SUCCESS(rv, false);
+
+    
+  JSObject* global = nsnull;
+  rv = mGlobal->GetJSObject(&global);
+  NS_ENSURE_SUCCESS(rv, false);
+
+  JS_SetGlobalObject(cx, global);
+  DidCreateCx();
+  return true;
 }
 
 // static

@@ -41,7 +41,7 @@
 #include "nsBulletFrame.h"
 #include "nsGkAtoms.h"
 #include "nsHTMLParts.h"
-#include "nsHTMLContainerFrame.h"
+#include "nsContainerFrame.h"
 #include "nsGenericHTMLElement.h"
 #include "nsPresContext.h"
 #include "nsIPresShell.h"
@@ -55,7 +55,6 @@
 
 #include "imgILoader.h"
 #include "imgIContainer.h"
-#include "nsStubImageDecoderObserver.h"
 
 #include "nsIServiceManager.h"
 #include "nsIComponentManager.h"
@@ -65,32 +64,9 @@
 #include "nsAccessibilityService.h"
 #endif
 
-#define BULLET_FRAME_IMAGE_LOADING NS_FRAME_STATE_BIT(63)
+using namespace mozilla;
 
-class nsBulletListener : public nsStubImageDecoderObserver
-{
-public:
-  nsBulletListener();
-  virtual ~nsBulletListener();
-
-  NS_DECL_ISUPPORTS
-  // imgIDecoderObserver (override nsStubImageDecoderObserver)
-  NS_IMETHOD OnStartContainer(imgIRequest *aRequest, imgIContainer *aImage);
-  NS_IMETHOD OnDataAvailable(imgIRequest *aRequest, bool aCurrentFrame,
-                             const nsIntRect *aRect);
-  NS_IMETHOD OnStopDecode(imgIRequest *aRequest, nsresult status,
-                          const PRUnichar *statusArg);
-  NS_IMETHOD OnImageIsAnimated(imgIRequest *aRequest);
-
-  // imgIContainerObserver (override nsStubImageDecoderObserver)
-  NS_IMETHOD FrameChanged(imgIContainer *aContainer,
-                          const nsIntRect *dirtyRect);
-
-  void SetFrame(nsBulletFrame *frame) { mFrame = frame; }
-
-private:
-  nsBulletFrame *mFrame;
-};
+NS_DECLARE_FRAME_PROPERTY(FontSizeInflationProperty, nsnull)
 
 NS_IMPL_FRAMEARENA_HELPERS(nsBulletFrame)
 
@@ -111,8 +87,9 @@ nsBulletFrame::DestroyFrom(nsIFrame* aDestructRoot)
     mImageRequest = nsnull;
   }
 
-  if (mListener)
-    reinterpret_cast<nsBulletListener*>(mListener.get())->SetFrame(nsnull);
+  if (mListener) {
+    mListener->SetFrame(nsnull);
+  }
 
   // Let base class do the rest
   nsFrame::DestroyFrom(aDestructRoot);
@@ -154,12 +131,8 @@ nsBulletFrame::DidSetStyleContext(nsStyleContext* aOldStyleContext)
   if (newRequest) {
 
     if (!mListener) {
-      nsBulletListener *listener = new nsBulletListener();
-      NS_ADDREF(listener);
-      listener->SetFrame(this);
-      listener->QueryInterface(NS_GET_IID(imgIDecoderObserver), getter_AddRefs(mListener));
-      NS_ASSERTION(mListener, "queryinterface for the listener failed");
-      NS_RELEASE(listener);
+      mListener = new nsBulletListener();
+      mListener->SetFrame(this);
     }
 
     bool needNewRequest = true;
@@ -396,7 +369,8 @@ nsBulletFrame::PaintBullet(nsRenderingContext& aRenderingContext, nsPoint aPt,
   case NS_STYLE_LIST_STYLE_MOZ_ETHIOPIC_HALEHAME_AM:
   case NS_STYLE_LIST_STYLE_MOZ_ETHIOPIC_HALEHAME_TI_ER:
   case NS_STYLE_LIST_STYLE_MOZ_ETHIOPIC_HALEHAME_TI_ET:
-    nsLayoutUtils::GetFontMetricsForFrame(this, getter_AddRefs(fm));
+    nsLayoutUtils::GetFontMetricsForFrame(this, getter_AddRefs(fm),
+                                          GetFontSizeInflation());
     GetListItemText(*myList, text);
     aRenderingContext.SetFont(fm);
     nscoord ascent = fm->MaxAscent();
@@ -1316,7 +1290,8 @@ nsBulletFrame::GetListItemText(const nsStyleList& aListStyle,
 void
 nsBulletFrame::GetDesiredSize(nsPresContext*  aCX,
                               nsRenderingContext *aRenderingContext,
-                              nsHTMLReflowMetrics& aMetrics)
+                              nsHTMLReflowMetrics& aMetrics,
+                              float aFontSizeInflation)
 {
   // Reset our padding.  If we need it, we'll set it below.
   mPadding.SizeTo(0, 0, 0, 0);
@@ -1353,7 +1328,8 @@ nsBulletFrame::GetDesiredSize(nsPresContext*  aCX,
   mIntrinsicSize.SizeTo(0, 0);
 
   nsRefPtr<nsFontMetrics> fm;
-  nsLayoutUtils::GetFontMetricsForFrame(this, getter_AddRefs(fm));
+  nsLayoutUtils::GetFontMetricsForFrame(this, getter_AddRefs(fm),
+                                        aFontSizeInflation);
   nscoord bulletSize;
 
   nsAutoString text;
@@ -1442,8 +1418,11 @@ nsBulletFrame::Reflow(nsPresContext* aPresContext,
   DO_GLOBAL_REFLOW_COUNT("nsBulletFrame");
   DISPLAY_REFLOW(aPresContext, this, aReflowState, aMetrics, aStatus);
 
+  float inflation = nsLayoutUtils::FontSizeInflationFor(aReflowState);
+  SetFontSizeInflation(inflation);
+
   // Get the base size
-  GetDesiredSize(aPresContext, aReflowState.rendContext, aMetrics);
+  GetDesiredSize(aPresContext, aReflowState.rendContext, aMetrics, inflation);
 
   // Add in the border and padding; split the top/bottom between the
   // ascent and descent to make things look nice
@@ -1468,7 +1447,7 @@ nsBulletFrame::GetMinWidth(nsRenderingContext *aRenderingContext)
 {
   nsHTMLReflowMetrics metrics;
   DISPLAY_MIN_WIDTH(this, metrics.width);
-  GetDesiredSize(PresContext(), aRenderingContext, metrics);
+  GetDesiredSize(PresContext(), aRenderingContext, metrics, 1.0f);
   return metrics.width;
 }
 
@@ -1477,7 +1456,7 @@ nsBulletFrame::GetPrefWidth(nsRenderingContext *aRenderingContext)
 {
   nsHTMLReflowMetrics metrics;
   DISPLAY_PREF_WIDTH(this, metrics.width);
-  GetDesiredSize(PresContext(), aRenderingContext, metrics);
+  GetDesiredSize(PresContext(), aRenderingContext, metrics, 1.0f);
   return metrics.width;
 }
 
@@ -1568,7 +1547,8 @@ NS_IMETHODIMP nsBulletFrame::OnImageIsAnimated(imgIRequest* aRequest)
   return NS_OK;
 }
 
-NS_IMETHODIMP nsBulletFrame::FrameChanged(imgIContainer *aContainer,
+NS_IMETHODIMP nsBulletFrame::FrameChanged(imgIRequest *aRequest,
+                                          imgIContainer *aContainer,
                                           const nsIntRect *aDirtyRect)
 {
   // Invalidate the entire content area. Maybe it's not optimal but it's simple and
@@ -1598,6 +1578,41 @@ nsBulletFrame::GetLoadGroup(nsPresContext *aPresContext, nsILoadGroup **aLoadGro
   *aLoadGroup = doc->GetDocumentLoadGroup().get();  // already_AddRefed
 }
 
+union VoidPtrOrFloat {
+  VoidPtrOrFloat() : p(nsnull) {}
+
+  void *p;
+  float f;
+};
+
+float
+nsBulletFrame::GetFontSizeInflation() const
+{
+  if (!HasFontSizeInflation()) {
+    return 1.0f;
+  }
+  VoidPtrOrFloat u;
+  u.p = Properties().Get(FontSizeInflationProperty());
+  return u.f;
+}
+
+void
+nsBulletFrame::SetFontSizeInflation(float aInflation)
+{
+  if (aInflation == 1.0f) {
+    if (HasFontSizeInflation()) {
+      RemoveStateBits(BULLET_FRAME_HAS_FONT_INFLATION);
+      Properties().Delete(FontSizeInflationProperty());
+    }
+    return;
+  }
+
+  AddStateBits(BULLET_FRAME_HAS_FONT_INFLATION);
+  VoidPtrOrFloat u;
+  u.f = aInflation;
+  Properties().Set(FontSizeInflationProperty(), u.p);
+}
+
 nscoord
 nsBulletFrame::GetBaseline() const
 {
@@ -1606,7 +1621,8 @@ nsBulletFrame::GetBaseline() const
     ascent = GetRect().height;
   } else {
     nsRefPtr<nsFontMetrics> fm;
-    nsLayoutUtils::GetFontMetricsForFrame(this, getter_AddRefs(fm));
+    nsLayoutUtils::GetFontMetricsForFrame(this, getter_AddRefs(fm),
+                                          GetFontSizeInflation());
     const nsStyleList* myList = GetStyleList();
     switch (myList->mListStyleType) {
       case NS_STYLE_LIST_STYLE_NONE:
@@ -1685,11 +1701,12 @@ NS_IMETHODIMP nsBulletListener::OnImageIsAnimated(imgIRequest *aRequest)
   return mFrame->OnImageIsAnimated(aRequest);
 }
 
-NS_IMETHODIMP nsBulletListener::FrameChanged(imgIContainer *aContainer,
+NS_IMETHODIMP nsBulletListener::FrameChanged(imgIRequest *aRequest,
+                                             imgIContainer *aContainer,
                                              const nsIntRect *aDirtyRect)
 {
   if (!mFrame)
     return NS_OK;
 
-  return mFrame->FrameChanged(aContainer, aDirtyRect);
+  return mFrame->FrameChanged(aRequest, aContainer, aDirtyRect);
 }

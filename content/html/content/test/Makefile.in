@@ -282,6 +282,7 @@ _TEST_FILES = \
 		test_bug677658.html \
 		test_bug677463.html \
 		test_bug682886.html \
+		test_bug717819.html \
 		file_fullscreen-api.html \
 		file_fullscreen-api-keys.html \
 		test_fullscreen-api.html \
@@ -292,6 +293,7 @@ _TEST_FILES = \
 		file_fullscreen-navigation.html \
 		file_fullscreen-esc-exit.html \
 		file_fullscreen-esc-exit-inner.html \
+		file_fullscreen-rollback.html \
 		test_li_attributes_reflection.html \
 		test_ol_attributes_reflection.html \
 		test_bug651956.html \

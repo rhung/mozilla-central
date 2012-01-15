@@ -48,8 +48,10 @@
 
 namespace js {
 
+class TempAllocPolicy;
+
 /* Integral types for all hash functions. */
-typedef uint32 HashNumber;
+typedef uint32_t HashNumber;
 
 /*****************************************************************************/
 
@@ -157,9 +159,9 @@ class HashTable : private AllocPolicy
         friend class HashTable;
         HashNumber keyHash;
 #ifdef DEBUG
-        uint64 mutationCount;
+        uint64_t mutationCount;
 
-        AddPtr(Entry &entry, HashNumber hn, uint64 mutationCount)
+        AddPtr(Entry &entry, HashNumber hn, uint64_t mutationCount)
             : Ptr(entry), keyHash(hn), mutationCount(mutationCount) {}
 #else
         AddPtr(Entry &entry, HashNumber hn) : Ptr(entry), keyHash(hn) {}
@@ -181,7 +183,7 @@ class HashTable : private AllocPolicy
         friend class HashTable;
 
         Range(Entry *c, Entry *e) : cur(c), end(e) {
-            while (cur != end && !cur->isLive())
+            while (cur < end && !cur->isLive())
                 ++cur;
         }
 
@@ -201,7 +203,8 @@ class HashTable : private AllocPolicy
 
         void popFront() {
             JS_ASSERT(!empty());
-            while (++cur != end && !cur->isLive());
+            while (++cur < end && !cur->isLive())
+                continue;
         }
     };
 
@@ -259,10 +262,10 @@ class HashTable : private AllocPolicy
     };
 
   private:
-    uint32      hashShift;      /* multiplicative hash shift */
-    uint32      entryCount;     /* number of entries in table */
-    uint32      gen;            /* entry storage generation number */
-    uint32      removedCount;   /* removed entry sentinels in table */
+    uint32_t    hashShift;      /* multiplicative hash shift */
+    uint32_t    entryCount;     /* number of entries in table */
+    uint32_t    gen;            /* entry storage generation number */
+    uint32_t    removedCount;   /* removed entry sentinels in table */
     Entry       *table;         /* entry storage */
 
     void setTableSizeLog2(unsigned sizeLog2) {
@@ -271,16 +274,16 @@ class HashTable : private AllocPolicy
 
 #ifdef DEBUG
     mutable struct Stats {
-        uint32          searches;       /* total number of table searches */
-        uint32          steps;          /* hash chain links traversed */
-        uint32          hits;           /* searches that found key */
-        uint32          misses;         /* searches that didn't find key */
-        uint32          addOverRemoved; /* adds that recycled a removed entry */
-        uint32          removes;        /* calls to remove */
-        uint32          removeFrees;    /* calls to remove that freed the entry */
-        uint32          grows;          /* table expansions */
-        uint32          shrinks;        /* table contractions */
-        uint32          compresses;     /* table compressions */
+        uint32_t        searches;       /* total number of table searches */
+        uint32_t        steps;          /* hash chain links traversed */
+        uint32_t        hits;           /* searches that found key */
+        uint32_t        misses;         /* searches that didn't find key */
+        uint32_t        addOverRemoved; /* adds that recycled a removed entry */
+        uint32_t        removes;        /* calls to remove */
+        uint32_t        removeFrees;    /* calls to remove that freed the entry */
+        uint32_t        grows;          /* table expansions */
+        uint32_t        shrinks;        /* table contractions */
+        uint32_t        compresses;     /* table compressions */
     } stats;
 #   define METER(x) x
 #else
@@ -290,7 +293,7 @@ class HashTable : private AllocPolicy
 #ifdef DEBUG
     friend class js::ReentrancyGuard;
     mutable bool entered;
-    uint64       mutationCount;
+    uint64_t     mutationCount;
 #endif
 
     /* The default initial capacity is 16, but you can ask for as small as 4. */
@@ -303,9 +306,9 @@ class HashTable : private AllocPolicy
     static const unsigned sMaxInit      = JS_BIT(23);
     static const unsigned sMaxCapacity  = JS_BIT(24);
     static const unsigned sHashBits     = tl::BitSize<HashNumber>::result;
-    static const uint8    sMinAlphaFrac = 64;  /* (0x100 * .25) taken from jsdhash.h */
-    static const uint8    sMaxAlphaFrac = 192; /* (0x100 * .75) taken from jsdhash.h */
-    static const uint8    sInvMaxAlpha  = 171; /* (ceil(0x100 / .75) >> 1) */
+    static const uint8_t  sMinAlphaFrac = 64;  /* (0x100 * .25) taken from jsdhash.h */
+    static const uint8_t  sMaxAlphaFrac = 192; /* (0x100 * .75) taken from jsdhash.h */
+    static const uint8_t  sInvMaxAlpha  = 171; /* (ceil(0x100 / .75) >> 1) */
     static const HashNumber sGoldenRatio  = 0x9E3779B9U;       /* taken from jsdhash.h */
     static const HashNumber sFreeKey = Entry::sFreeKey;
     static const HashNumber sRemovedKey = Entry::sRemovedKey;
@@ -337,19 +340,19 @@ class HashTable : private AllocPolicy
         return keyHash & ~sCollisionBit;
     }
 
-    static Entry *createTable(AllocPolicy &alloc, uint32 capacity)
+    static Entry *createTable(AllocPolicy &alloc, uint32_t capacity)
     {
         Entry *newTable = (Entry *)alloc.malloc_(capacity * sizeof(Entry));
         if (!newTable)
             return NULL;
-        for (Entry *e = newTable, *end = e + capacity; e != end; ++e)
+        for (Entry *e = newTable, *end = e + capacity; e < end; ++e)
             new(e) Entry();
         return newTable;
     }
 
-    static void destroyTable(AllocPolicy &alloc, Entry *oldTable, uint32 capacity)
+    static void destroyTable(AllocPolicy &alloc, Entry *oldTable, uint32_t capacity)
     {
-        for (Entry *e = oldTable, *end = e + capacity; e != end; ++e)
+        for (Entry *e = oldTable, *end = e + capacity; e < end; ++e)
             e->~Entry();
         alloc.free_(oldTable);
     }
@@ -357,6 +360,7 @@ class HashTable : private AllocPolicy
   public:
     HashTable(AllocPolicy ap)
       : AllocPolicy(ap),
+        hashShift(sHashBits),
         entryCount(0),
         gen(0),
         removedCount(0),
@@ -367,7 +371,7 @@ class HashTable : private AllocPolicy
 #endif
     {}
 
-    bool init(uint32 length)
+    bool init(uint32_t length)
     {
         /* Make sure that init isn't called twice. */
         JS_ASSERT(table == NULL);
@@ -380,13 +384,13 @@ class HashTable : private AllocPolicy
             this->reportAllocOverflow();
             return false;
         }
-        uint32 capacity = (length * sInvMaxAlpha) >> 7;
+        uint32_t capacity = (length * sInvMaxAlpha) >> 7;
 
         if (capacity < sMinSize)
             capacity = sMinSize;
 
         /* FIXME: use JS_CEILING_LOG2 when PGO stops crashing (bug 543034). */
-        uint32 roundUp = sMinSize, roundUpLog2 = sMinSizeLog2;
+        uint32_t roundUp = sMinSize, roundUpLog2 = sMinSizeLog2;
         while (roundUp < capacity) {
             roundUp <<= 1;
             ++roundUpLog2;
@@ -416,11 +420,11 @@ class HashTable : private AllocPolicy
     }
 
   private:
-    static HashNumber hash1(HashNumber hash0, uint32 shift) {
+    static HashNumber hash1(HashNumber hash0, uint32_t shift) {
         return hash0 >> shift;
     }
 
-    static HashNumber hash2(HashNumber hash0, uint32 log2, uint32 shift) {
+    static HashNumber hash2(HashNumber hash0, uint32_t log2, uint32_t shift) {
         return ((hash0 << log2) >> shift) | 1;
     }
 
@@ -429,7 +433,7 @@ class HashTable : private AllocPolicy
     }
 
     bool underloaded() {
-        uint32 tableCapacity = capacity();
+        uint32_t tableCapacity = capacity();
         return tableCapacity > sMinSize &&
                entryCount <= ((sMinAlphaFrac * tableCapacity) >> 8);
     }
@@ -545,9 +549,9 @@ class HashTable : private AllocPolicy
     {
         /* Look, but don't touch, until we succeed in getting new entry store. */
         Entry *oldTable = table;
-        uint32 oldCap = capacity();
-        uint32 newLog2 = sHashBits - hashShift + deltaLog2;
-        uint32 newCapacity = JS_BIT(newLog2);
+        uint32_t oldCap = capacity();
+        uint32_t newLog2 = sHashBits - hashShift + deltaLog2;
+        uint32_t newCapacity = JS_BIT(newLog2);
         if (newCapacity > sMaxCapacity) {
             this->reportAllocOverflow();
             return false;
@@ -564,7 +568,7 @@ class HashTable : private AllocPolicy
         table = newTable;
 
         /* Copy only live entries, leaving removed ones behind. */
-        for (Entry *src = oldTable, *end = src + oldCap; src != end; ++src) {
+        for (Entry *src = oldTable, *end = src + oldCap; src < end; ++src) {
             if (src->isLive()) {
                 src->unsetCollision();
                 findFreeEntry(src->getKeyHash()) = Move(*src);
@@ -605,8 +609,8 @@ class HashTable : private AllocPolicy
         if (tl::IsPodType<Entry>::result) {
             memset(table, 0, sizeof(*table) * capacity());
         } else {
-            uint32 tableCapacity = capacity();
-            for (Entry *e = table, *end = table + tableCapacity; e != end; ++e)
+            uint32_t tableCapacity = capacity();
+            for (Entry *e = table, *end = table + tableCapacity; e < end; ++e)
                 *e = Move(Entry());
         }
         removedCount = 0;
@@ -641,26 +645,24 @@ class HashTable : private AllocPolicy
         return !entryCount;
     }
 
-    uint32 count() const {
+    uint32_t count() const {
         return entryCount;
     }
 
-    uint32 capacity() const {
+    uint32_t capacity() const {
         return JS_BIT(sHashBits - hashShift);
     }
 
-    uint32 generation() const {
+    uint32_t generation() const {
         return gen;
     }
 
-    /*
-     * This counts the HashTable's |table| array.  If |countMe| is true it also
-     * counts the HashTable object itself.
-     */
-    size_t sizeOf(JSUsableSizeFun usf, bool countMe) const {
-        size_t usable = usf(table) + (countMe ? usf((void*)this) : 0);
-        return usable ? usable
-                      : (capacity() * sizeof(Entry)) + (countMe ? sizeof(HashTable) : 0);
+    size_t sizeOfExcludingThis(JSMallocSizeOfFun mallocSizeOf) const {
+        return mallocSizeOf(table, capacity() * sizeof(Entry));
+    }
+
+    size_t sizeOfIncludingThis(JSMallocSizeOfFun mallocSizeOf) const {
+        return mallocSizeOf(this, sizeof(HashTable)) + sizeOfExcludingThis(mallocSizeOf);
     }
 
     Ptr lookup(const Lookup &l) const {
@@ -958,7 +960,10 @@ struct IsPodType<HashMapEntry<K, V> >
  *      called by HashMap must not call back into the same HashMap object.
  * N.B: Due to the lack of exception handling, the user must call |init()|.
  */
-template <class Key, class Value, class HashPolicy, class AllocPolicy>
+template <class Key,
+          class Value,
+          class HashPolicy = DefaultHasher<Key>,
+          class AllocPolicy = TempAllocPolicy>
 class HashMap
 {
   public:
@@ -989,7 +994,7 @@ class HashMap
      * init after constructing a HashMap and check the return value.
      */
     HashMap(AllocPolicy a = AllocPolicy()) : impl(a) {}
-    bool init(uint32 len = Impl::sDefaultInitSize)    { return impl.init(len); }
+    bool init(uint32_t len = Impl::sDefaultInitSize)  { return impl.init(len); }
     bool initialized() const                          { return impl.initialized(); }
 
     /*
@@ -1097,7 +1102,16 @@ class HashMap
     Range all() const                                 { return impl.all(); }
     size_t count() const                              { return impl.count(); }
     size_t capacity() const                           { return impl.capacity(); }
-    size_t sizeOf(JSUsableSizeFun usf, bool cm) const { return impl.sizeOf(usf, cm); }
+    size_t sizeOfExcludingThis(JSMallocSizeOfFun mallocSizeOf) const {
+        return impl.sizeOfExcludingThis(mallocSizeOf);
+    }
+    size_t sizeOfIncludingThis(JSMallocSizeOfFun mallocSizeOf) const {
+        /* 
+         * Don't just call |impl.sizeOfExcludingThis()| because there's no
+         * guarantee that |impl| is the first field in HashMap.
+         */
+        return mallocSizeOf(this, sizeof(*this)) + impl.sizeOfExcludingThis(mallocSizeOf);
+    }
 
     /*
      * Typedef for the enumeration class. An Enum may be used to examine and
@@ -1191,7 +1205,7 @@ class HashMap
  *      HashSet must not call back into the same HashSet object.
  * N.B: Due to the lack of exception handling, the user must call |init()|.
  */
-template <class T, class HashPolicy, class AllocPolicy>
+template <class T, class HashPolicy = DefaultHasher<T>, class AllocPolicy = TempAllocPolicy>
 class HashSet
 {
     typedef typename HashPolicy::Lookup Lookup;
@@ -1217,7 +1231,7 @@ class HashSet
      * init after constructing a HashSet and check the return value.
      */
     HashSet(AllocPolicy a = AllocPolicy()) : impl(a) {}
-    bool init(uint32 len = Impl::sDefaultInitSize)    { return impl.init(len); }
+    bool init(uint32_t len = Impl::sDefaultInitSize)  { return impl.init(len); }
     bool initialized() const                          { return impl.initialized(); }
 
     /*
@@ -1298,7 +1312,16 @@ class HashSet
     Range all() const                                 { return impl.all(); }
     size_t count() const                              { return impl.count(); }
     size_t capacity() const                           { return impl.capacity(); }
-    size_t sizeOf(JSUsableSizeFun usf, bool cm) const { return impl.sizeOf(usf, cm); }
+    size_t sizeOfExcludingThis(JSMallocSizeOfFun mallocSizeOf) const {
+        return impl.sizeOfExcludingThis(mallocSizeOf);
+    }
+    size_t sizeOfIncludingThis(JSMallocSizeOfFun mallocSizeOf) const {
+        /* 
+         * Don't just call |impl.sizeOfExcludingThis()| because there's no
+         * guarantee that |impl| is the first field in HashSet.
+         */
+        return mallocSizeOf(this, sizeof(*this)) + impl.sizeOfExcludingThis(mallocSizeOf);
+    }
 
     /*
      * Typedef for the enumeration class. An Enum may be used to examine and
@@ -1351,6 +1374,12 @@ class HashSet
     /* Like put, but assert that the given key is not already present. */
     bool putNew(const T &t) {
         AddPtr p = lookupForAdd(t);
+        JS_ASSERT(!p);
+        return add(p, t);
+    }
+
+    bool putNew(const Lookup &l, const T &t) {
+        AddPtr p = lookupForAdd(l);
         JS_ASSERT(!p);
         return add(p, t);
     }

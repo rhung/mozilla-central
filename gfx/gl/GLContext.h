@@ -78,7 +78,7 @@ namespace mozilla {
   namespace layers {
     class LayerManagerOGL;
     class ColorTextureLayerProgram;
-  };
+  }
 
 namespace gl {
 class GLContext;
@@ -527,12 +527,13 @@ struct THEBES_API ContextFormat
 class GLContext
     : public LibrarySymbolLoader
 {
-    THEBES_INLINE_DECL_THREADSAFE_REFCOUNTING(GLContext)
+    NS_INLINE_DECL_THREADSAFE_REFCOUNTING(GLContext)
 public:
     GLContext(const ContextFormat& aFormat,
               bool aIsOffscreen = false,
               GLContext *aSharedContext = nsnull)
-      : mOffscreenFBOsDirty(false),
+      : mFlushGuaranteesResolve(false),
+        mOffscreenFBOsDirty(false),
         mInitialized(false),
         mIsOffscreen(aIsOffscreen),
 #ifdef USE_GLES2
@@ -542,6 +543,7 @@ public:
 #endif
         mIsGlobalSharedContext(false),
         mHasRobustness(false),
+        mContextLost(false),
         mVendor(-1),
         mDebugMode(0),
         mCreationFormat(aFormat),
@@ -594,6 +596,8 @@ public:
 #endif
         return MakeCurrentImpl(aForce);
     }
+
+    bool IsContextLost() { return mContextLost; }
 
     virtual bool SetupLookupFunction() = 0;
 
@@ -660,6 +664,14 @@ public:
      */
     bool HasES2Compatibility() {
         return mIsGLES2 || IsExtensionSupported(ARB_ES2_compatibility);
+    }
+
+    /**
+     * Returns true if the context is using ANGLE. This should only be overridden for an ANGLE
+     * implementation.
+     */
+    virtual bool IsANGLE() {
+        return false;
     }
 
     /**
@@ -730,13 +742,13 @@ public:
           return false;
         }
 
-        if (!aOffscreen->mOffscreenDrawFBO && !aOffscreen->mOffscreenReadFBO) {
-            return false;
-        }
-
         if (!aOffscreen->mSharedContext ||
             aOffscreen->mSharedContext != mSharedContext)
         {
+            return false;
+        }
+
+        if (!aOffscreen->mOffscreenTexture) {
             return false;
         }
 
@@ -749,6 +761,24 @@ public:
 
     bool IsOffscreen() {
         return mIsOffscreen;
+    }
+
+protected:
+    bool mFlushGuaranteesResolve;
+
+public:
+    void SetFlushGuaranteesResolve(bool aFlushGuaranteesResolve) {
+        mFlushGuaranteesResolve = aFlushGuaranteesResolve;
+    }
+    
+    // Before reads from offscreen texture
+    void GuaranteeResolve() {
+        if (mFlushGuaranteesResolve) {
+            BlitDirtyFBOs();
+            fFlush();
+        } else {
+            fFinish();
+        }
     }
 
     /*
@@ -869,6 +899,28 @@ private:
     GLuint mPrevDrawFBOBinding;
     GLuint mPrevReadFBOBinding;
     bool mOffscreenFBOsDirty;
+
+    void GetShaderPrecisionFormatNonES2(GLenum shadertype, GLenum precisiontype, GLint* range, GLint* precision) {
+        switch (precisiontype) {
+            case LOCAL_GL_LOW_FLOAT:
+            case LOCAL_GL_MEDIUM_FLOAT:
+            case LOCAL_GL_HIGH_FLOAT:
+                // Assume IEEE 754 precision
+                range[0] = 127;
+                range[1] = 127;
+                *precision = 0;
+                break;
+            case LOCAL_GL_LOW_INT:
+            case LOCAL_GL_MEDIUM_INT:
+            case LOCAL_GL_HIGH_INT:
+                // Some (most) hardware only supports single-precision floating-point numbers,
+                // which can accurately represent integers up to +/-16777216
+                range[0] = 24;
+                range[1] = 24;
+                *precision = 0;
+                break;
+        }
+    }
 
     void BeforeGLDrawCall() {
         // Record and rebind if necessary
@@ -1002,7 +1054,6 @@ public:
         BindReadFBO(read);
     }
 
-    // Before reads from offscreen texture
     void fFinish() {
         BeforeGLReadCall();
         raw_fFinish();
@@ -1267,6 +1318,7 @@ public:
         ANGLE_framebuffer_multisample,
         OES_rgb8_rgba8,
         ARB_robustness,
+        EXT_robustness,
         Extensions_Max
     };
 
@@ -1313,7 +1365,7 @@ public:
         CONTEXT_NO_ERROR = 0,
         CONTEXT_GUILTY_CONTEXT_RESET_ARB = 0x8253,
         CONTEXT_INNOCENT_CONTEXT_RESET_ARB = 0x8254,
-        CONTEXT_UNKNOWN_CONTEXT_RESET_ARB = 0x8255,
+        CONTEXT_UNKNOWN_CONTEXT_RESET_ARB = 0x8255
     };
 
     bool HasRobustness() {
@@ -1326,6 +1378,7 @@ protected:
     bool mIsGLES2;
     bool mIsGlobalSharedContext;
     bool mHasRobustness;
+    bool mContextLost;
 
     PRInt32 mVendor;
 
@@ -1336,6 +1389,14 @@ protected:
     };
 
     PRUint32 mDebugMode;
+
+    inline PRUint32 DebugMode() {
+#ifdef DEBUG
+        return mDebugMode;
+#else
+        return 0;
+#endif
+    }
 
     ContextFormat mCreationFormat;
     nsRefPtr<GLContext> mSharedContext;
@@ -1362,8 +1423,9 @@ protected:
     void UseBlitProgram();
     void SetBlitFramebufferForDestTexture(GLuint aTexture);
 
-    // helper to create/resize an offscreen FBO,
+    // Helper to create/resize an offscreen FBO,
     // for offscreen implementations that use FBOs.
+    // Note that it does -not- clear the resized buffers.
     bool ResizeOffscreenFBO(const gfxIntSize& aSize, const bool aUseReadFBO, const bool aDisableAA);
     bool ResizeOffscreenFBO(const gfxIntSize& aSize, const bool aUseReadFBO) {
         if (ResizeOffscreenFBO(aSize, aUseReadFBO, false))
@@ -1372,7 +1434,7 @@ protected:
         if (!mCreationFormat.samples)
             return false;
 
-        if (mDebugMode) {
+        if (DebugMode()) {
             printf_stderr("Requested level of multisampling is unavailable, continuing without multisampling\n");
         }
 
@@ -1390,7 +1452,10 @@ protected:
     // Clear to transparent black, with 0 depth and stencil,
     // while preserving current ClearColor etc. values.
     // Useful for resizing offscreen buffers.
+public:
     void ClearSafely();
+
+protected:
 
     nsDataHashtable<nsVoidPtrHashKey, void*> mUserData;
 
@@ -1464,7 +1529,7 @@ protected:
 public:
 
     void BeforeGLCall(const char* glFunction) {
-        if (mDebugMode) {
+        if (DebugMode()) {
             // since the static member variable sCurrentGLContext is not thread-local as it should,
             // we have to assert that we're in the main thread. Note that sCurrentGLContext is only used
             // for the OpenGL debug mode.
@@ -1474,7 +1539,7 @@ public:
                          "It needs to be patched by making GLContext::sCurrentGLContext be thread-local.\n");
                 NS_ABORT();
             }
-            if (mDebugMode & DebugTrace)
+            if (DebugMode() & DebugTrace)
                 printf_stderr("[gl:%p] > %s\n", this, glFunction);
             if (this != sCurrentGLContext) {
                 printf_stderr("Fatal: %s called on non-current context %p. "
@@ -1486,20 +1551,20 @@ public:
     }
 
     void AfterGLCall(const char* glFunction) {
-        if (mDebugMode) {
+        if (DebugMode()) {
             // calling fFinish() immediately after every GL call makes sure that if this GL command crashes,
             // the stack trace will actually point to it. Otherwise, OpenGL being an asynchronous API, stack traces
             // tend to be meaningless
             mSymbols.fFinish();
             mGLError = mSymbols.fGetError();
-            if (mDebugMode & DebugTrace)
+            if (DebugMode() & DebugTrace)
                 printf_stderr("[gl:%p] < %s [0x%04x]\n", this, glFunction, mGLError);
             if (mGLError != LOCAL_GL_NO_ERROR) {
                 printf_stderr("GL ERROR: %s generated GL error %s(0x%04x)\n", 
                               glFunction,
                               GLErrorToString(mGLError),
                               mGLError);
-                if (mDebugMode & DebugAbortOnError)
+                if (DebugMode() & DebugAbortOnError)
                     NS_ABORT();
             }
         }
@@ -1549,7 +1614,7 @@ public:
     GLenum fGetError() {
 #ifdef DEBUG
         // debug mode ends up eating the error in AFTER_GL_CALL
-        if (mDebugMode) {
+        if (DebugMode()) {
             GLenum err = mGLError;
             mGLError = LOCAL_GL_NO_ERROR;
             return err;
@@ -2315,6 +2380,17 @@ public:
     void fGetShaderInfoLog(GLuint shader, GLsizei bufSize, GLsizei* length, GLchar* infoLog) {
         BEFORE_GL_CALL;
         mSymbols.fGetShaderInfoLog(shader, bufSize, length, infoLog);
+        AFTER_GL_CALL;
+    }
+
+    void fGetShaderPrecisionFormat(GLenum shadertype, GLenum precisiontype, GLint* range, GLint* precision) {
+        BEFORE_GL_CALL;
+        if (mIsGLES2) {
+            mSymbols.fGetShaderPrecisionFormat(shadertype, precisiontype, range, precision);
+        } else {
+            // Fall back to automatic values because almost all desktop hardware supports the OpenGL standard precisions.
+            GetShaderPrecisionFormatNonES2(shadertype, precisiontype, range, precision);
+        }
         AFTER_GL_CALL;
     }
 

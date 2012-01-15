@@ -48,11 +48,6 @@
 #include "vm/RegExpObject-inl.h"
 #include "vm/RegExpStatics-inl.h"
 
-#ifdef JS_TRACER
-#include "jstracer.h"
-using namespace nanojit;
-#endif
-
 using namespace js;
 using js::detail::RegExpPrivate;
 using js::detail::RegExpPrivateCode;
@@ -61,6 +56,34 @@ JS_STATIC_ASSERT(IgnoreCaseFlag == JSREG_FOLD);
 JS_STATIC_ASSERT(GlobalFlag == JSREG_GLOB);
 JS_STATIC_ASSERT(MultilineFlag == JSREG_MULTILINE);
 JS_STATIC_ASSERT(StickyFlag == JSREG_STICKY);
+
+/* RegExpMatcher */
+
+bool
+RegExpMatcher::resetWithTestOptimized(RegExpObject *reobj)
+{
+    JS_ASSERT(reobj->startsWithAtomizedGreedyStar());
+
+    JSAtom *source = &reobj->getSource()->asAtom();
+    AlreadyIncRefed<RegExpPrivate> priv =
+        RegExpPrivate::createTestOptimized(cx, source, reobj->getFlags());
+    if (!priv)
+        return false;
+
+    /*
+     * Create a dummy RegExpObject to persist this RegExpPrivate until the next GC.
+     * Note that we give the ref we have to this new object.
+     */
+    RegExpObjectBuilder builder(cx);
+    RegExpObject *dummy = builder.build(priv);
+    if (!dummy) {
+        priv->decref(cx);
+        return false;
+    }
+
+    arc.reset(NeedsIncRef<RegExpPrivate>(priv.get()));
+    return true;
+}
 
 /* RegExpObjectBuilder */
 
@@ -75,7 +98,7 @@ RegExpObjectBuilder::getOrCreate()
         return false;
     obj->setPrivate(NULL);
 
-    reobj_ = obj->asRegExp();
+    reobj_ = &obj->asRegExp();
     return true;
 }
 
@@ -84,12 +107,12 @@ RegExpObjectBuilder::getOrCreateClone(RegExpObject *proto)
 {
     JS_ASSERT(!reobj_);
 
-    JSObject *clone = NewNativeClassInstance(cx, &RegExpClass, proto, proto->getParent());
+    JSObject *clone = NewObjectWithGivenProto(cx, &RegExpClass, proto, proto->getParent());
     if (!clone)
         return false;
     clone->setPrivate(NULL);
 
-    reobj_ = clone->asRegExp();
+    reobj_ = &clone->asRegExp();
     return true;
 }
 
@@ -255,10 +278,9 @@ RegExpObject::execute(JSContext *cx, const jschar *chars, size_t length, size_t 
     return getPrivate()->execute(cx, chars, length, lastIndex, allocScope, output);
 }
 
-const Shape *
+Shape *
 RegExpObject::assignInitialShape(JSContext *cx)
 {
-    JS_ASSERT(!cx->compartment->initialRegExpShape);
     JS_ASSERT(isRegExp());
     JS_ASSERT(nativeEmpty());
 
@@ -301,13 +323,13 @@ JSBool
 js_XDRRegExpObject(JSXDRState *xdr, JSObject **objp)
 {
     JSString *source = 0;
-    uint32 flagsword = 0;
+    uint32_t flagsword = 0;
 
     if (xdr->mode == JSXDR_ENCODE) {
         JS_ASSERT(objp);
-        RegExpObject *reobj = (*objp)->asRegExp();
-        source = reobj->getSource();
-        flagsword = reobj->getFlags();
+        RegExpObject &reobj = (*objp)->asRegExp();
+        source = reobj.getSource();
+        flagsword = reobj.getFlags();
     }
     if (!JS_XDRString(xdr, &source) || !JS_XDRUint32(xdr, &flagsword))
         return false;
@@ -320,8 +342,10 @@ js_XDRRegExpObject(JSXDRState *xdr, JSObject **objp)
         if (!reobj)
             return false;
 
-        reobj->clearParent();
-        reobj->clearType();
+        if (!reobj->clearParent(xdr->cx))
+            return false;
+        if (!reobj->clearType(xdr->cx))
+            return false;
         *objp = reobj;
     }
     return true;
@@ -336,14 +360,14 @@ js_XDRRegExpObject(JSXDRState *xdr, JSObject **objp)
 static void
 regexp_finalize(JSContext *cx, JSObject *obj)
 {
-    obj->asRegExp()->finalize(cx);
+    obj->asRegExp().finalize(cx);
 }
 
 static void
 regexp_trace(JSTracer *trc, JSObject *obj)
 {
-    if (IS_GC_MARKING_TRACER(trc))
-        obj->asRegExp()->purge(trc->context);
+    if (trc->runtime->gcRunning)
+        obj->asRegExp().purge(trc->context);
 }
 
 Class js::RegExpClass = {
@@ -473,7 +497,7 @@ js::ParseRegExpFlags(JSContext *cx, JSString *flagStr, RegExpFlag *flagsOut)
     return true;
 }
 
-/* static */ RegExpPrivate *
+RegExpPrivate *
 RegExpPrivate::createUncached(JSContext *cx, JSLinearString *source, RegExpFlag flags,
                               TokenStream *tokenStream)
 {
@@ -487,6 +511,38 @@ RegExpPrivate::createUncached(JSContext *cx, JSLinearString *source, RegExpFlag 
     }
 
     return priv;
+}
+
+AlreadyIncRefed<RegExpPrivate>
+RegExpPrivate::createTestOptimized(JSContext *cx, JSAtom *cacheKey, RegExpFlag flags)
+{
+    typedef AlreadyIncRefed<RegExpPrivate> RetType;
+
+    RetType cached;
+    if (!cacheLookup(cx, cacheKey, flags, RegExpPrivateCache_TestOptimized, &cached))
+        return RetType(NULL);
+
+    if (cached)
+        return cached;
+
+    /* Strip off the greedy star characters, create a new RegExpPrivate, and cache. */
+    JS_ASSERT(cacheKey->length() > JS_ARRAY_LENGTH(GreedyStarChars));
+    JSDependentString *stripped =
+      JSDependentString::new_(cx, cacheKey, cacheKey->chars() + JS_ARRAY_LENGTH(GreedyStarChars),
+                              cacheKey->length() - JS_ARRAY_LENGTH(GreedyStarChars));
+    if (!stripped)
+        return RetType(NULL);
+
+    RegExpPrivate *priv = createUncached(cx, cacheKey, flags, NULL);
+    if (!priv)
+        return RetType(NULL);
+
+    if (!cacheInsert(cx, cacheKey, RegExpPrivateCache_TestOptimized, priv)) {
+        priv->decref(cx);
+        return RetType(NULL);
+    }
+
+    return RetType(priv);
 }
 
 AlreadyIncRefed<RegExpPrivate>
@@ -509,13 +565,8 @@ js_CloneRegExpObject(JSContext *cx, JSObject *obj, JSObject *proto)
     JS_ASSERT(proto->isRegExp());
 
     RegExpObjectBuilder builder(cx);
-    return builder.clone(obj->asRegExp(), proto->asRegExp());
+    return builder.clone(&obj->asRegExp(), &proto->asRegExp());
 }
-
-#ifdef JS_TRACER
-JS_DEFINE_CALLINFO_3(extern, OBJECT, js_CloneRegExpObject, CONTEXT, OBJECT, OBJECT, 0,
-                     ACCSET_STORE_ANY)
-#endif
 
 JSFlatString *
 RegExpObject::toString(JSContext *cx) const

@@ -40,7 +40,7 @@
 #include "Logging.h"
 #include "assembler/jit/ExecutableAllocator.h"
 #include "assembler/assembler/RepatchBuffer.h"
-#include "jstracer.h"
+#include "js/MemoryMetrics.h"
 #include "jsgcmark.h"
 #include "BaseAssembler.h"
 #include "Compiler.h"
@@ -137,30 +137,26 @@ StackFrame::methodjitStaticAsserts()
 
 #ifdef JS_METHODJIT_PROFILE_STUBS
 static const size_t STUB_CALLS_FOR_OP_COUNT = 255;
-static uint32 StubCallsForOp[STUB_CALLS_FOR_OP_COUNT];
+static uint32_t StubCallsForOp[STUB_CALLS_FOR_OP_COUNT];
 #endif
 
+// Called from JaegerTrampoline only
 extern "C" void JS_FASTCALL
 PushActiveVMFrame(VMFrame &f)
 {
+    f.oldregs = &f.cx->stack.regs();
+    f.cx->stack.repointRegs(&f.regs);
     f.entryfp->script()->compartment()->jaegerCompartment()->pushActiveFrame(&f);
     f.entryfp->setNativeReturnAddress(JS_FUNC_TO_DATA_PTR(void*, JaegerTrampolineReturn));
     f.regs.clearInlined();
 }
 
+// Called from JaegerTrampolineReturn, JaegerThrowpoline, JaegerInterpoline
 extern "C" void JS_FASTCALL
 PopActiveVMFrame(VMFrame &f)
 {
     f.entryfp->script()->compartment()->jaegerCompartment()->popActiveFrame();
-}
-
-extern "C" void JS_FASTCALL
-SetVMFrameRegs(VMFrame &f)
-{
-    f.oldregs = &f.cx->stack.regs();
-
-    /* Restored on exit from EnterMethodJIT. */
-    f.cx->stack.repointRegs(&f.regs);
+    f.cx->stack.repointRegs(f.oldregs);
 }
 
 #if defined(__APPLE__) || (defined(XP_WIN) && !defined(JS_CPU_X64)) || defined(XP_OS2)
@@ -257,7 +253,7 @@ JS_STATIC_ASSERT(offsetof(FrameRegs, sp) == 0);
 #if defined(__GNUC__) && !defined(_WIN64)
 
 /* If this assert fails, you need to realign VMFrame to 16 bytes. */
-#ifdef JS_CPU_ARM
+#if defined(JS_CPU_ARM) || defined(JS_CPU_MIPS)
 JS_STATIC_ASSERT(sizeof(VMFrame) % 8 == 0);
 #else
 JS_STATIC_ASSERT(sizeof(VMFrame) % 16 == 0);
@@ -327,8 +323,6 @@ SYMBOL_STRING(JaegerTrampoline) ":"       "\n"
 
     /* Set cx->regs and set the active frame. Save rdx and align frame in one. */
     "pushq %rdx"                         "\n"
-    "movq  %rsp, %rdi"                   "\n"
-    "call " SYMBOL_STRING_VMFRAME(SetVMFrameRegs) "\n"
     "movq  %rsp, %rdi"                   "\n"
     "call " SYMBOL_STRING_VMFRAME(PushActiveVMFrame) "\n"
 
@@ -513,8 +507,6 @@ SYMBOL_STRING(JaegerTrampoline) ":"       "\n"
     "subl $0x1C, %esp"                   "\n"
 
     /* Jump into the JIT'd code. */
-    "movl  %esp, %ecx"                   "\n"
-    "call " SYMBOL_STRING_VMFRAME(SetVMFrameRegs) "\n"
     "movl  %esp, %ecx"                   "\n"
     "call " SYMBOL_STRING_VMFRAME(PushActiveVMFrame) "\n"
 
@@ -731,8 +723,6 @@ SYMBOL_STRING(JaegerTrampoline) ":"         "\n"
 "   mov     r10, r1"                            "\n"
 
 "   mov     r0, sp"                             "\n"
-"   blx  " SYMBOL_STRING_VMFRAME(SetVMFrameRegs)   "\n"
-"   mov     r0, sp"                             "\n"
 "   blx  " SYMBOL_STRING_VMFRAME(PushActiveVMFrame)"\n"
 
     /* Call the compiled JavaScript function. */
@@ -832,6 +822,7 @@ SYMBOL_STRING(JaegerStubVeneer) ":"         "\n"
 );
 
 # elif defined(JS_CPU_SPARC)
+# elif defined(JS_CPU_MIPS)
 # else
 #  error "Unsupported CPU!"
 # endif
@@ -876,8 +867,6 @@ extern "C" {
             sub  esp, 0x1C;
 
             /* Jump into into the JIT'd code. */
-            mov  ecx, esp;
-            call SetVMFrameRegs;
             mov  ecx, esp;
             call PushActiveVMFrame;
 
@@ -1055,7 +1044,6 @@ mjit::EnterMethodJIT(JSContext *cx, StackFrame *fp, void *code, Value *stackLimi
 #endif
 
     JS_ASSERT(cx->fp() == fp);
-    FrameRegs &oldRegs = cx->regs();
 
     JSBool ok;
     {
@@ -1068,9 +1056,6 @@ mjit::EnterMethodJIT(JSContext *cx, StackFrame *fp, void *code, Value *stackLimi
     prof.stop();
     JaegerSpew(JSpew_Prof, "script run took %d ms\n", prof.time_ms());
 #endif
-
-    /* Undo repointRegs in SetVMFrameRegs. */
-    cx->stack.repointRegs(&oldRegs);
 
     JaegerStatus status = cx->compartment->jaegerCompartment()->lastUnfinished();
     if (status) {
@@ -1106,7 +1091,7 @@ mjit::EnterMethodJIT(JSContext *cx, StackFrame *fp, void *code, Value *stackLimi
 
     /* See comment in mjit::Compiler::emitReturn. */
     if (fp->isFunctionFrame())
-        fp->markFunctionEpilogueDone();
+        fp->updateEpilogueFlags();
 
     return ok ? Jaeger_Returned : Jaeger_Throwing;
 }
@@ -1132,11 +1117,6 @@ mjit::JaegerShot(JSContext *cx, bool partial)
     JSScript *script = fp->script();
     JITScript *jit = script->getJIT(fp->isConstructing());
 
-#ifdef JS_TRACER
-    if (TRACE_RECORDER(cx))
-        AbortRecording(cx, "attempt to enter method JIT while recording");
-#endif
-
     JS_ASSERT(cx->regs().pc == script->code);
 
     return CheckStackAndEnterMethodJIT(cx, cx->fp(), jit->invokeEntry, partial);
@@ -1145,10 +1125,6 @@ mjit::JaegerShot(JSContext *cx, bool partial)
 JaegerStatus
 js::mjit::JaegerShotAtSafePoint(JSContext *cx, void *safePoint, bool partial)
 {
-#ifdef JS_TRACER
-    JS_ASSERT(!TRACE_RECORDER(cx));
-#endif
-
     return CheckStackAndEnterMethodJIT(cx, cx->fp(), safePoint, partial);
 }
 
@@ -1264,11 +1240,11 @@ mjit::JITScript::~JITScript()
     ic::GetElementIC *getElems_ = getElems();
     ic::SetElementIC *setElems_ = setElems();
     ic::PICInfo *pics_ = pics();
-    for (uint32 i = 0; i < nGetElems; i++)
+    for (uint32_t i = 0; i < nGetElems; i++)
         Destroy(getElems_[i]);
-    for (uint32 i = 0; i < nSetElems; i++)
+    for (uint32_t i = 0; i < nSetElems; i++)
         Destroy(setElems_[i]);
-    for (uint32 i = 0; i < nPICs; i++)
+    for (uint32_t i = 0; i < nPICs; i++)
         Destroy(pics_[i]);
 #endif
 
@@ -1290,7 +1266,7 @@ mjit::JITScript::~JITScript()
     }
 
     ic::CallICInfo *callICs_ = callICs();
-    for (uint32 i = 0; i < nCallICs; i++) {
+    for (uint32_t i = 0; i < nCallICs; i++) {
         callICs_[i].releasePools();
         if (callICs_[i].fastGuardedObject)
             callICs_[i].purgeGuardedObject();
@@ -1301,7 +1277,7 @@ mjit::JITScript::~JITScript()
         JS_STATIC_ASSERT(offsetof(ic::CallICInfo, links) == 0);
         ic::CallICInfo *ic = (ic::CallICInfo *) callers.next;
 
-        uint8 *start = (uint8 *)ic->funGuard.executableAddress();
+        uint8_t *start = (uint8_t *)ic->funGuard.executableAddress();
         JSC::RepatchBuffer repatch(JSC::JITCode(start - 32, 64));
 
         repatch.repatch(ic->funGuard, NULL);
@@ -1312,22 +1288,21 @@ mjit::JITScript::~JITScript()
 }
 
 size_t
-JSScript::jitDataSize(JSUsableSizeFun usf)
+JSScript::jitDataSize(JSMallocSizeOfFun mallocSizeOf)
 {
     size_t n = 0;
     if (jitNormal)
-        n += jitNormal->scriptDataSize(usf); 
+        n += jitNormal->scriptDataSize(mallocSizeOf); 
     if (jitCtor)
-        n += jitCtor->scriptDataSize(usf); 
+        n += jitCtor->scriptDataSize(mallocSizeOf); 
     return n;
 }
 
 /* Please keep in sync with Compiler::finishThisUp! */
 size_t
-mjit::JITScript::scriptDataSize(JSUsableSizeFun usf)
+mjit::JITScript::scriptDataSize(JSMallocSizeOfFun mallocSizeOf)
 {
-    size_t usable = usf ? usf(this) : 0;
-    return usable ? usable :
+    size_t computedSize =
         sizeof(JITScript) +
         sizeof(NativeMapEntry) * nNmapPairs +
         sizeof(InlineFrame) * nInlineFrames +
@@ -1344,6 +1319,8 @@ mjit::JITScript::scriptDataSize(JSUsableSizeFun usf)
         sizeof(ic::SetElementIC) * nSetElems +
 #endif
         0;
+    /* |mallocSizeOf| can be null here. */
+    return mallocSizeOf ? mallocSizeOf(this, computedSize) : computedSize;
 }
 
 void
@@ -1380,9 +1357,6 @@ PICPCComparator(const void *key, const void *entry)
 {
     const jsbytecode *pc = (const jsbytecode *)key;
     const ic::PICInfo *pic = (const ic::PICInfo *)entry;
-
-    if (ic::PICInfo::CALL != pic->kind)
-        return ic::PICInfo::CALL - pic->kind;
 
     /*
      * We can't just return |pc - pic->pc| because the pointers may be
@@ -1449,9 +1423,9 @@ JITScript::nativeToPC(void *returnAddress, CallSite **pinline) const
     }
 
     js::mjit::ic::CallICInfo &ic = callICs_[low];
-    JS_ASSERT((uint8*)ic.funGuard.executableAddress() + ic.joinPointOffset == returnAddress);
+    JS_ASSERT((uint8_t*)ic.funGuard.executableAddress() + ic.joinPointOffset == returnAddress);
 
-    if (ic.call->inlineIndex != uint32(-1)) {
+    if (ic.call->inlineIndex != UINT32_MAX) {
         if (pinline)
             *pinline = ic.call;
         InlineFrame *frame = &inlineFrames()[ic.call->inlineIndex];

@@ -43,7 +43,6 @@
 #include "jsgcstats.h"
 #include "jsgc.h"
 #include "jsxml.h"
-#include "jsbuiltins.h"
 #include "jscompartment.h"
 
 #include "jsgcinlines.h"
@@ -133,6 +132,10 @@ GCMarker::dumpConservativeRoots()
           }
           case JSTRACE_SHAPE: {
             fprintf(fp, "shape");
+            break;
+          }
+          case JSTRACE_BASE_SHAPE: {
+            fprintf(fp, "base_shape");
             break;
           }
           case JSTRACE_TYPE_OBJECT: {

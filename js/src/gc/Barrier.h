@@ -52,7 +52,7 @@
  * traced through by the GC to change. This includes:
  *   - writes to object properties
  *   - writes to array slots
- *   - writes to fields like JSObject::lastProp that we trace through
+ *   - writes to fields like JSObject::shape_ that we trace through
  *   - writes to fields in private data, like JSGenerator::obj
  *   - writes to non-markable fields like JSObject::private that point to
  *     markable data
@@ -186,6 +186,7 @@ class HeapPtr
 
     /* Use this to install a ptr into a newly allocated object. */
     void init(T *v) {
+        JS_ASSERT(!IsPoisonedPtr<T>(v));
         value = v;
         post();
     }
@@ -210,6 +211,7 @@ class HeapPtr
 
     HeapPtr<T, Unioned> &operator=(T *v) {
         pre();
+        JS_ASSERT(!IsPoisonedPtr<T>(v));
         value = v;
         post();
         return *this;
@@ -217,6 +219,7 @@ class HeapPtr
 
     HeapPtr<T, Unioned> &operator=(const HeapPtr<T> &v) {
         pre();
+        JS_ASSERT(!IsPoisonedPtr<T>(v.value));
         value = v.value;
         post();
         return *this;
@@ -271,7 +274,8 @@ typedef HeapPtr<JSFunction> HeapPtrFunction;
 typedef HeapPtr<JSString> HeapPtrString;
 typedef HeapPtr<JSScript> HeapPtrScript;
 typedef HeapPtr<Shape> HeapPtrShape;
-typedef HeapPtr<const Shape> HeapPtrConstShape;
+typedef HeapPtr<BaseShape> HeapPtrBaseShape;
+typedef HeapPtr<types::TypeObject> HeapPtrTypeObject;
 typedef HeapPtr<JSXML> HeapPtrXML;
 
 /* Useful for hashtables with a HeapPtr as key. */
@@ -301,6 +305,7 @@ class HeapValue
     inline ~HeapValue();
 
     inline void init(const Value &v);
+    inline void init(JSCompartment *comp, const Value &v);
 
     inline HeapValue &operator=(const Value &v);
     inline HeapValue &operator=(const HeapValue &v);
@@ -330,16 +335,12 @@ class HeapValue
     JSObject *toObjectOrNull() const { return value.toObjectOrNull(); }
     void *toGCThing() const { return value.toGCThing(); }
     double toDouble() const { return value.toDouble(); }
-    int32 toInt32() const { return value.toInt32(); }
+    int32_t toInt32() const { return value.toInt32(); }
     JSString *toString() const { return value.toString(); }
     bool toBoolean() const { return value.toBoolean(); }
     double toNumber() const { return value.toNumber(); }
 
-    unsigned gcKind() const { return value.gcKind(); }
-
-    inline void boxNonDoubleFrom(JSValueType type, uint64 *out);
-
-    uint64 asRawBits() const { return value.asRawBits(); }
+    JSGCTraceKind gcKind() const { return value.gcKind(); }
 
 #ifdef DEBUG
     JSWhyMagic whyMagic() const { return value.whyMagic(); }
@@ -377,7 +378,7 @@ class HeapValueArray
     operator HeapValue *() const { return array; }
 
     HeapValueArray operator +(int offset) const { return HeapValueArray(array + offset); }
-    HeapValueArray operator +(uint32 offset) const { return HeapValueArray(array + offset); }
+    HeapValueArray operator +(uint32_t offset) const { return HeapValueArray(array + offset); }
 };
 
 class HeapId
@@ -424,6 +425,7 @@ class ReadBarriered
     T *value;
 
   public:
+    ReadBarriered() : value(NULL) {}
     ReadBarriered(T *value) : value(value) {}
 
     T *get() const {
@@ -434,6 +436,9 @@ class ReadBarriered
     }
 
     operator T*() const { return get(); }
+
+    T &operator*() const { return *get(); }
+    T *operator->() const { return get(); }
 
     T *unsafeGet() { return value; }
 

@@ -363,7 +363,7 @@ ImageDocument::SetScriptGlobalObject(nsIScriptGlobalObject* aScriptGlobalObject)
 
   // Set the script global object on the superclass before doing
   // anything that might require it....
-  nsHTMLDocument::SetScriptGlobalObject(aScriptGlobalObject);
+  MediaDocument::SetScriptGlobalObject(aScriptGlobalObject);
 
   if (aScriptGlobalObject) {
     if (!GetRootElement()) {
@@ -381,6 +381,10 @@ ImageDocument::SetScriptGlobalObject(nsIScriptGlobalObject* aScriptGlobalObject)
     target = do_QueryInterface(aScriptGlobalObject);
     target->AddEventListener(NS_LITERAL_STRING("resize"), this, false);
     target->AddEventListener(NS_LITERAL_STRING("keypress"), this, false);
+
+    if (!nsContentUtils::IsChildOfSameType(this)) {
+      LinkStylesheet(NS_LITERAL_STRING("resource://gre/res/TopLevelImageDocument.css"));
+    }
   }
 }
 
@@ -665,8 +669,6 @@ ImageDocument::CreateSyntheticDocument()
 
     styleContent->SetTextContent(NS_LITERAL_STRING("img { display: block; }"));
     head->AppendChildTo(styleContent, false);
-  } else {
-    LinkStylesheet(NS_LITERAL_STRING("resource://gre/res/TopLevelImageDocument.css"));
   }
 
   // Add the image element

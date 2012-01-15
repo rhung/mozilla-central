@@ -73,6 +73,7 @@ class FrameRegsIter;
 class AllFramesIter;
 
 class ArgumentsObject;
+class StaticBlockObject;
 
 #ifdef JS_METHODJIT
 typedef js::mjit::CallSite JSInlinedSite;
@@ -338,22 +339,22 @@ class StackFrame
         UNDERFLOW_ARGS     =     0x1000,  /* numActualArgs < numFormalArgs */
 
         /* Lazy frame initialization */
-        HAS_IMACRO_PC      =     0x2000,  /* frame has imacpc value available */
-        HAS_CALL_OBJ       =     0x4000,  /* frame has a callobj reachable from scopeChain_ */
-        HAS_ARGS_OBJ       =     0x8000,  /* frame has an argsobj in StackFrame::args */
-        HAS_HOOK_DATA      =    0x10000,  /* frame has hookData_ set */
-        HAS_ANNOTATION     =    0x20000,  /* frame has annotation_ set */
-        HAS_RVAL           =    0x40000,  /* frame has rval_ set */
-        HAS_SCOPECHAIN     =    0x80000,  /* frame has scopeChain_ set */
-        HAS_PREVPC         =   0x100000,  /* frame has prevpc_ and prevInline_ set */
+        HAS_CALL_OBJ       =     0x2000,  /* frame has a callobj reachable from scopeChain_ */
+        HAS_ARGS_OBJ       =     0x4000,  /* frame has an argsobj in StackFrame::args */
+        HAS_HOOK_DATA      =     0x8000,  /* frame has hookData_ set */
+        HAS_ANNOTATION     =    0x10000,  /* frame has annotation_ set */
+        HAS_RVAL           =    0x20000,  /* frame has rval_ set */
+        HAS_SCOPECHAIN     =    0x40000,  /* frame has scopeChain_ set */
+        HAS_PREVPC         =    0x80000,  /* frame has prevpc_ and prevInline_ set */
+        HAS_BLOCKCHAIN     =   0x100000,  /* frame has blockChain_ set */
 
         /* Method JIT state */
-        DOWN_FRAMES_EXPANDED = 0x200000,  /* inlining in down frames has been expanded */
-        LOWERED_CALL_APPLY   = 0x400000   /* Pushed by a lowered call/apply */
+        DOWN_FRAMES_EXPANDED = 0x400000,  /* inlining in down frames has been expanded */
+        LOWERED_CALL_APPLY   = 0x800000   /* Pushed by a lowered call/apply */
     };
 
   private:
-    mutable uint32      flags_;         /* bits described by Flags */
+    mutable uint32_t    flags_;         /* bits described by Flags */
     union {                             /* describes what code is executing in a */
         JSScript        *script;        /*   global frame */
         JSFunction      *fun;           /*   function frame, pre GetScopeChain */
@@ -369,9 +370,9 @@ class StackFrame
 
     /* Lazily initialized */
     Value               rval_;          /* return value of the frame */
+    StaticBlockObject   *blockChain_;   /* innermost let block */
     jsbytecode          *prevpc_;       /* pc of previous frame*/
     JSInlinedSite       *prevInline_;   /* inlined site in previous frame */
-    jsbytecode          *imacropc_;     /* pc of macro caller */
     void                *hookData_;     /* closure returned by call hook */
     void                *annotation_;   /* perhaps remove with bug 546848 */
     JSRejoinState       rejoin_;        /* If rejoining into the interpreter
@@ -395,15 +396,15 @@ class StackFrame
      */
 
     /* Used for Invoke, Interpret, trace-jit LeaveTree, and method-jit stubs. */
-    void initCallFrame(JSContext *cx, JSObject &callee, JSFunction *fun,
-                       JSScript *script, uint32 nactual, StackFrame::Flags flags);
+    void initCallFrame(JSContext *cx, JSFunction &callee,
+                       JSScript *script, uint32_t nactual, StackFrame::Flags flags);
 
     /* Used for SessionInvoke. */
     void resetCallFrame(JSScript *script);
 
     /* Called by jit stubs and serve as a specification for jit-code. */
     void initJitFrameCallerHalf(StackFrame *prev, StackFrame::Flags flags, void *ncode);
-    void initJitFrameEarlyPrologue(JSFunction *fun, uint32 nactual);
+    void initJitFrameEarlyPrologue(JSFunction *fun, uint32_t nactual);
     bool initJitFrameLatePrologue(JSContext *cx, Value **limit);
 
     /* Used for eval. */
@@ -611,7 +612,10 @@ class StackFrame
     /*
      * Function
      *
-     * All function frames have an associated interpreted JSFunction.
+     * All function frames have an associated interpreted JSFunction. The
+     * function returned by fun() and maybeFun() is not necessarily the
+     * original canonical function which the frame's script was compiled
+     * against. To get this function, use maybeScriptFunction().
      */
 
     JSFunction* fun() const {
@@ -621,6 +625,15 @@ class StackFrame
 
     JSFunction* maybeFun() const {
         return isFunctionFrame() ? fun() : NULL;
+    }
+
+    JSFunction* maybeScriptFunction() const {
+        if (!isFunctionFrame())
+            return NULL;
+        const StackFrame *fp = this;
+        while (fp->isEvalFrame())
+            fp = fp->prev();
+        return fp->script()->function();
     }
 
     /*
@@ -768,10 +781,7 @@ class StackFrame
      * only be changed to something that is equivalent to the current callee in
      * terms of numFormalArgs etc. Prefer overwriteCallee since it checks.
      */
-    void overwriteCallee(JSObject &newCallee) {
-        JS_ASSERT(callee().getFunctionPrivate() == newCallee.getFunctionPrivate());
-        mutableCalleev().setObject(newCallee);
-    }
+    inline void overwriteCallee(JSObject &newCallee);
 
     Value &mutableCalleev() const {
         JS_ASSERT(isFunctionFrame());
@@ -821,14 +831,7 @@ class StackFrame
      *   !fp->hasCall() && fp->scopeChain().isCall()
      */
 
-    JSObject &scopeChain() const {
-        JS_ASSERT_IF(!(flags_ & HAS_SCOPECHAIN), isFunctionFrame());
-        if (!(flags_ & HAS_SCOPECHAIN)) {
-            scopeChain_ = callee().getParent();
-            flags_ |= HAS_SCOPECHAIN;
-        }
-        return *scopeChain_;
-    }
+    inline JSObject &scopeChain() const;
 
     bool hasCallObj() const {
         bool ret = !!(flags_ & HAS_CALL_OBJ);
@@ -840,6 +843,26 @@ class StackFrame
     inline void setScopeChainNoCallObj(JSObject &obj);
     inline void setScopeChainWithOwnCallObj(CallObject &obj);
 
+    /* Block chain */
+
+    bool hasBlockChain() const {
+        return (flags_ & HAS_BLOCKCHAIN) && blockChain_;
+    }
+
+    StaticBlockObject *maybeBlockChain() {
+        return (flags_ & HAS_BLOCKCHAIN) ? blockChain_ : NULL;
+    }
+
+    StaticBlockObject &blockChain() const {
+        JS_ASSERT(hasBlockChain());
+        return *blockChain_;
+    }
+
+    void setBlockChain(StaticBlockObject *obj) {
+        flags_ |= HAS_BLOCKCHAIN;
+        blockChain_ = obj;
+    }
+
     /*
      * Prologue for function frames: make a call object for heavyweight
      * functions, and maintain type nesting invariants.
@@ -850,15 +873,15 @@ class StackFrame
      * Epilogue for function frames: put any args or call object for the frame
      * which may still be live, and maintain type nesting invariants. Note:
      * this does not mark the epilogue as having been completed, since the
-     * frame is about to be popped. Use markFunctionEpilogueDone for this.
+     * frame is about to be popped. Use updateEpilogueFlags for this.
      */
     inline void functionEpilogue();
 
     /*
-     * Mark any work needed in the function's epilogue as done. This call must
-     * be followed by a later functionEpilogue.
+     * If callObj() or argsObj() have already been put, update our flags
+     * accordingly. This call must be followed by a later functionEpilogue.
      */
-    inline void markFunctionEpilogueDone();
+    inline void updateEpilogueFlags();
 
     inline bool maintainNestingState() const;
 
@@ -877,12 +900,7 @@ class StackFrame
      * variables object to collect and discard the script's global variables.
      */
 
-    JSObject &varObj() {
-        JSObject *obj = &scopeChain();
-        while (!obj->isVarObj())
-            obj = obj->getParent();
-        return *obj;
-    }
+    inline JSObject &varObj();
 
     /*
      * Frame compartment
@@ -891,42 +909,7 @@ class StackFrame
      * compartment when the frame was pushed.
      */
 
-    JSCompartment *compartment() const {
-        JS_ASSERT_IF(isScriptFrame(), scopeChain().compartment() == script()->compartment());
-        return scopeChain().compartment();
-    }
-
-    /*
-     * Imacropc
-     *
-     * A frame's IMacro pc is the bytecode address when an imacro started
-     * executing (guaranteed non-null). An imacro does not push a frame, so
-     * when the imacro finishes, the frame's IMacro pc becomes the current pc.
-     */
-
-    bool hasImacropc() const {
-        return flags_ & HAS_IMACRO_PC;
-    }
-
-    jsbytecode *imacropc() const {
-        JS_ASSERT(hasImacropc());
-        return imacropc_;
-    }
-
-    jsbytecode *maybeImacropc() const {
-        return hasImacropc() ? imacropc() : NULL;
-    }
-
-    void clearImacropc() {
-        flags_ &= ~HAS_IMACRO_PC;
-    }
-
-    void setImacropc(jsbytecode *pc) {
-        JS_ASSERT(pc);
-        JS_ASSERT(!(flags_ & HAS_IMACRO_PC));
-        imacropc_ = pc;
-        flags_ |= HAS_IMACRO_PC;
-    }
+    inline JSCompartment *compartment() const;
 
     /* Annotation (will be removed after bug 546848) */
 
@@ -1064,7 +1047,7 @@ class StackFrame
         JS_STATIC_ASSERT((int)INITIAL_NONE == 0);
         JS_STATIC_ASSERT((int)INITIAL_CONSTRUCT == (int)CONSTRUCTING);
         JS_STATIC_ASSERT((int)INITIAL_LOWERED == (int)LOWERED_CALL_APPLY);
-        uint32 mask = CONSTRUCTING | LOWERED_CALL_APPLY;
+        uint32_t mask = CONSTRUCTING | LOWERED_CALL_APPLY;
         JS_ASSERT((flags_ & mask) != mask);
         return InitialFrameFlags(flags_ & mask);
     }

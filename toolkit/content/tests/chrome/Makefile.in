@@ -144,6 +144,7 @@ _TEST_FILES +=  \
 		test_textbox_emptytext.xul \
 		test_textbox_number.xul \
 		test_textbox_search.xul \
+		test_textbox_dictionary.xul\
 		test_toolbar.xul \
 		xul_selectcontrol.js \
 		test_popupincontent.xul \
@@ -193,7 +194,7 @@ _TEST_FILES += test_panel_focus.xul \
                test_chromemargin.xul \
                window_chromemargin.xul
 else
-_TEST_FILES += test_autocomplete.xul
+_TEST_FILES += test_autocomplete_mac_caret.xul
 endif
 
 ifeq ($(MOZ_WIDGET_TOOLKIT),windows)

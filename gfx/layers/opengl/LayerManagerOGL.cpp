@@ -319,6 +319,12 @@ LayerManagerOGL::Initialize(nsRefPtr<GLContext> aContext)
       return false;
   }
 
+  // If we're double-buffered, we don't need this fbo anymore.
+  if (mGLContext->IsDoubleBuffered()) {
+    mGLContext->fDeleteFramebuffers(1, &mBackBufferFBO);
+    mBackBufferFBO = 0;
+  }
+
   // back to default framebuffer, to avoid confusion
   mGLContext->fBindFramebuffer(LOCAL_GL_FRAMEBUFFER, 0);
 
@@ -819,6 +825,7 @@ LayerManagerOGL::Render()
 
   if (mGLContext->IsDoubleBuffered()) {
     mGLContext->SwapBuffers();
+    LayerManager::PostPresent();
     mGLContext->fBindBuffer(LOCAL_GL_ARRAY_BUFFER, 0);
     return;
   }
@@ -1000,9 +1007,12 @@ LayerManagerOGL::SetupBackBuffer(int aWidth, int aHeight)
                                     mBackBufferTexture,
                                     0);
 
-  if (mGLContext->fCheckFramebufferStatus(LOCAL_GL_FRAMEBUFFER) !=
-      LOCAL_GL_FRAMEBUFFER_COMPLETE) {
-    NS_RUNTIMEABORT("Error setting up framebuffer --- framebuffer not complete");
+  GLenum result = mGLContext->fCheckFramebufferStatus(LOCAL_GL_FRAMEBUFFER);
+  if (result != LOCAL_GL_FRAMEBUFFER_COMPLETE) {
+    nsCAutoString msg;
+    msg.Append("Framebuffer not complete -- error 0x");
+    msg.AppendInt(result, 16);
+    NS_RUNTIMEABORT(msg.get());
   }
 
   mBackBufferSize.width = aWidth;
@@ -1052,8 +1062,6 @@ LayerManagerOGL::CopyToTarget()
   if (currentPackAlignment != 4) {
     mGLContext->fPixelStorei(LOCAL_GL_PACK_ALIGNMENT, 4);
   }
-
-  mGLContext->fFinish();
 
   mGLContext->fReadPixels(0, 0,
                           width, height,
@@ -1163,9 +1171,18 @@ LayerManagerOGL::CreateFBOWithTexture(const nsIntRect& aRect, InitMode aInit,
 
   // Making this call to fCheckFramebufferStatus prevents a crash on
   // PowerVR. See bug 695246.
-  if (mGLContext->fCheckFramebufferStatus(LOCAL_GL_FRAMEBUFFER) !=
-      LOCAL_GL_FRAMEBUFFER_COMPLETE) {
-    NS_RUNTIMEABORT("Error setting up framebuffer --- framebuffer not complete");
+  GLenum result = mGLContext->fCheckFramebufferStatus(LOCAL_GL_FRAMEBUFFER);
+  if (result != LOCAL_GL_FRAMEBUFFER_COMPLETE) {
+    nsCAutoString msg;
+    msg.Append("Framebuffer not complete -- error 0x");
+    msg.AppendInt(result, 16);
+    msg.Append(", mFBOTextureTarget 0x");
+    msg.AppendInt(mFBOTextureTarget, 16);
+    msg.Append(", aRect.width ");
+    msg.AppendInt(aRect.width);
+    msg.Append(", aRect.height ");
+    msg.AppendInt(aRect.height);
+    NS_RUNTIMEABORT(msg.get());
   }
 
   SetupPipeline(aRect.width, aRect.height, DontApplyWorldTransform);

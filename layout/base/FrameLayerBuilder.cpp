@@ -50,6 +50,7 @@
 #include "nsRenderingContext.h"
 
 #include "mozilla/Preferences.h"
+#include "sampler.h"
 
 #ifdef DEBUG
 #include <stdio.h>
@@ -231,12 +232,14 @@ protected:
      * next ThebesLayerData currently in the stack, if any. Note that not
      * all ThebesLayers for the container are in the ThebesLayerData stack.
      * Same coordinate system as mVisibleRegion.
+     * This is a conservative approximation: it contains the true region.
      */
     nsIntRegion  mVisibleAboveRegion;
     /**
      * The region containing the bounds of all display items in the layer,
      * regardless of visbility.
      * Same coordinate system as mVisibleRegion.
+     * This is a conservative approximation: it contains the true region.
      */
     nsIntRegion  mDrawRegion;
     /**
@@ -791,7 +794,7 @@ static nsIntPoint
 GetTranslationForThebesLayer(ThebesLayer* aLayer)
 {
   gfxMatrix transform;
-  if (!aLayer->GetTransform().Is2D(&transform) &&
+  if (!aLayer->GetTransform().Is2D(&transform) ||
       transform.HasNonIntegerTranslation()) {
     NS_ERROR("ThebesLayers should have integer translations only");
     return nsIntPoint(0, 0);
@@ -1104,10 +1107,12 @@ ContainerState::PopThebesLayerData()
                                      data->mVisibleAboveRegion);
     nextData->mVisibleAboveRegion.Or(nextData->mVisibleAboveRegion,
                                      data->mVisibleRegion);
+    nextData->mVisibleAboveRegion.SimplifyOutward(4);
     nextData->mDrawAboveRegion.Or(nextData->mDrawAboveRegion,
                                      data->mDrawAboveRegion);
     nextData->mDrawAboveRegion.Or(nextData->mDrawAboveRegion,
                                      data->mDrawRegion);
+    nextData->mDrawAboveRegion.SimplifyOutward(4);
   }
 
   mThebesLayerDataStack.RemoveElementAt(lastIndex);
@@ -1219,16 +1224,24 @@ ContainerState::ThebesLayerData::Accumulate(ContainerState* aState,
       }
     }
   }
-  nsRect componentAlpha = aItem->GetComponentAlphaBounds(aState->mBuilder);
-  componentAlpha.IntersectRect(componentAlpha, aItem->GetVisibleRect());
-  if (!componentAlpha.IsEmpty()) {
-    nscoord appUnitsPerDevPixel = AppUnitsPerDevPixel(aItem);
-    if (!mOpaqueRegion.Contains(componentAlpha.ScaleToOutsidePixels(
-        aState->mParameters.mXScale, aState->mParameters.mYScale, appUnitsPerDevPixel))) {
-      if (SuppressComponentAlpha(aState->mBuilder, aItem, componentAlpha)) {
-        aItem->DisableComponentAlpha();
-      } else {
-        mNeedComponentAlpha = true;
+  if (aState->mParameters.mDisableSubpixelAntialiasingInDescendants) {
+    // Disable component alpha. This is cheaper than calling GetComponentAlphaBounds since for
+    // most items this is a single virtual call that does nothing.
+    // Note that the transform (if any) on the ThebesLayer is always an integer translation so
+    // we don't have to factor that in here.
+    aItem->DisableComponentAlpha();
+  } else {
+    nsRect componentAlpha = aItem->GetComponentAlphaBounds(aState->mBuilder);
+    componentAlpha.IntersectRect(componentAlpha, aItem->GetVisibleRect());
+    if (!componentAlpha.IsEmpty()) {
+      nscoord appUnitsPerDevPixel = AppUnitsPerDevPixel(aItem);
+      if (!mOpaqueRegion.Contains(componentAlpha.ScaleToOutsidePixels(
+          aState->mParameters.mXScale, aState->mParameters.mYScale, appUnitsPerDevPixel))) {
+        if (SuppressComponentAlpha(aState->mBuilder, aItem, componentAlpha)) {
+          aItem->DisableComponentAlpha();
+        } else {
+          mNeedComponentAlpha = true;
+        }
       }
     }
   }
@@ -1376,10 +1389,11 @@ ContainerState::ProcessDisplayItems(const nsDisplayList& aList,
     // Assign the item to a layer
     if (layerState == LAYER_ACTIVE_FORCE ||
         layerState == LAYER_ACTIVE_EMPTY ||
-        layerState == LAYER_ACTIVE && (aClip.mRoundedClipRects.IsEmpty() ||
-        // We can use the visible rect here only because the item has its own
-        // layer, like the comment below.
-        !aClip.IsRectClippedByRoundedCorner(item->GetVisibleRect()))) {
+        (layerState == LAYER_ACTIVE &&
+         (aClip.mRoundedClipRects.IsEmpty() ||
+          // We can use the visible rect here only because the item has its own
+          // layer, like the comment below.
+          !aClip.IsRectClippedByRoundedCorner(item->GetVisibleRect())))) {
 
       // LAYER_ACTIVE_EMPTY means the layer is created just for its metadata.
       // We should never see an empty layer with any visible content!
@@ -1430,11 +1444,13 @@ ContainerState::ProcessDisplayItems(const nsDisplayList& aList,
       ThebesLayerData* data = GetTopThebesLayerData();
       if (data) {
         data->mVisibleAboveRegion.Or(data->mVisibleAboveRegion, itemVisibleRect);
+        data->mVisibleAboveRegion.SimplifyOutward(4);
         // Add the entire bounds rect to the mDrawAboveRegion.
         // The visible region may be excluding opaque content above the
         // item, and we need to ensure that that content is not placed
         // in a ThebesLayer below the item!
         data->mDrawAboveRegion.Or(data->mDrawAboveRegion, itemDrawRect);
+        data->mDrawAboveRegion.SimplifyOutward(4);
       }
       RestrictVisibleRegionForLayer(ownLayer, itemVisibleRect);
       ContainerLayer* oldContainer = ownLayer->GetParent();
@@ -1682,11 +1698,13 @@ ChooseScaleAndSetTransform(FrameLayerBuilder* aLayerBuilder,
   }
 
   gfxMatrix transform2d;
+  bool is2D = transform.Is2D(&transform2d);
   gfxSize scale;
+  bool isRetained = aLayerBuilder->GetRetainingLayerManager() == aLayer->Manager();
   // Only fiddle with scale factors for the retaining layer manager, since
   // it only matters for retained layers
-  if (aLayerBuilder->GetRetainingLayerManager() == aLayer->Manager() &&
-      transform.Is2D(&transform2d)) {
+  // XXX Should we do something for 3D transforms?
+  if (is2D && isRetained) {
     //Scale factors are normalized to a power of 2 to reduce the number of resolution changes
     scale = transform2d.ScaleFactors(true);
     // For frames with a changing transform that's not just a translation,
@@ -1699,8 +1717,19 @@ ChooseScaleAndSetTransform(FrameLayerBuilder* aLayerBuilder,
     if (aContainerFrame->AreLayersMarkedActive(nsChangeHint_UpdateTransformLayer) &&
         aTransform &&
         (!aTransform->Is2D(&frameTransform) || frameTransform.HasNonTranslationOrFlip())) {
-      scale.width = gfxUtils::ClampToScaleFactor(scale.width);
-      scale.height = gfxUtils::ClampToScaleFactor(scale.height);
+      // Don't clamp the scale factor when the new desired scale factor matches the old one
+      // or it was previously unscaled.
+      bool clamp = true;
+      gfxMatrix oldFrameTransform2d;
+      if (aLayer->GetTransform().Is2D(&oldFrameTransform2d)) {
+        gfxSize oldScale = oldFrameTransform2d.ScaleFactors(true);
+        if (oldScale == scale || oldScale == gfxSize(1.0, 1.0))
+          clamp = false;
+      }
+      if (clamp) {
+        scale.width = gfxUtils::ClampToScaleFactor(scale.width);
+        scale.height = gfxUtils::ClampToScaleFactor(scale.height);
+      }
     } else {
       // XXX Do we need to move nearly-integer values to integers here?
     }
@@ -1724,6 +1753,9 @@ ChooseScaleAndSetTransform(FrameLayerBuilder* aLayerBuilder,
     if (aContainerFrame->AreLayersMarkedActive(nsChangeHint_UpdateTransformLayer)) {
       result.mInActiveTransformedSubtree = true;
     }
+  }
+  if (isRetained && (!is2D || transform2d.HasNonIntegerTranslation())) {
+    result.mDisableSubpixelAntialiasingInDescendants = true;
   }
   return result;
 }
@@ -2003,6 +2035,8 @@ FrameLayerBuilder::DrawThebesLayer(ThebesLayer* aLayer,
                                    const nsIntRegion& aRegionToInvalidate,
                                    void* aCallbackData)
 {
+  SAMPLE_LABEL("gfx", "DrawThebesLayer");
+
   nsDisplayListBuilder* builder = static_cast<nsDisplayListBuilder*>
     (aCallbackData);
 

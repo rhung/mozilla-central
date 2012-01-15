@@ -114,7 +114,6 @@
 
 #include "mozAutoDocUpdate.h"
 #include "nsContentCreatorFunctions.h"
-#include "nsCharSeparatedTokenizer.h"
 #include "nsContentUtils.h"
 #include "nsRadioVisitor.h"
 
@@ -941,7 +940,7 @@ nsHTMLInputElement::GetValueInternal(nsAString& aValue) const
       return NS_OK;
 
     case VALUE_MODE_FILENAME:
-      if (nsContentUtils::IsCallerTrustedForCapability("UniversalFileRead")) {
+      if (nsContentUtils::CallerHasUniversalXPConnect()) {
         if (mFiles.Count()) {
           return mFiles[0]->GetMozFullPath(aValue);
         }
@@ -990,9 +989,9 @@ nsHTMLInputElement::SetValue(const nsAString& aValue)
   // OK and gives pages a way to clear a file input if necessary.
   if (mType == NS_FORM_INPUT_FILE) {
     if (!aValue.IsEmpty()) {
-      if (!nsContentUtils::IsCallerTrustedForCapability("UniversalFileRead")) {
+      if (!nsContentUtils::CallerHasUniversalXPConnect()) {
         // setting the value of a "FILE" input widget requires the
-        // UniversalFileRead privilege
+        // UniversalXPConnect privilege
         return NS_ERROR_DOM_SECURITY_ERR;
       }
       const PRUnichar *name = PromiseFlatString(aValue).get();
@@ -1037,7 +1036,7 @@ nsHTMLInputElement::GetList(nsIDOMHTMLElement** aValue)
 NS_IMETHODIMP 
 nsHTMLInputElement::MozGetFileNameArray(PRUint32 *aLength, PRUnichar ***aFileNames)
 {
-  if (!nsContentUtils::IsCallerTrustedForCapability("UniversalFileRead")) {
+  if (!nsContentUtils::CallerHasUniversalXPConnect()) {
     // Since this function returns full paths it's important that normal pages
     // can't call it.
     return NS_ERROR_DOM_SECURITY_ERR;
@@ -1064,9 +1063,9 @@ nsHTMLInputElement::MozGetFileNameArray(PRUint32 *aLength, PRUnichar ***aFileNam
 NS_IMETHODIMP 
 nsHTMLInputElement::MozSetFileNameArray(const PRUnichar **aFileNames, PRUint32 aLength)
 {
-  if (!nsContentUtils::IsCallerTrustedForCapability("UniversalFileRead")) {
+  if (!nsContentUtils::CallerHasUniversalXPConnect()) {
     // setting the value of a "FILE" input widget requires the
-    // UniversalFileRead privilege
+    // UniversalXPConnect privilege
     return NS_ERROR_DOM_SECURITY_ERR;
   }
 
@@ -2008,13 +2007,16 @@ nsHTMLInputElement::PostHandleEvent(nsEventChainPostVisitor& aVisitor)
       // if it was cancelled and a radio button, then set the old
       // selected btn to TRUE. if it is a checkbox then set it to its
       // original value
-      nsCOMPtr<nsIDOMHTMLInputElement> selectedRadioButton =
-        do_QueryInterface(aVisitor.mItemData);
-      if (selectedRadioButton) {
-        selectedRadioButton->SetChecked(true);
-        // If this one is no longer a radio button we must reset it back to
-        // false to cancel the action.  See how the web of hack grows?
-        if (mType != NS_FORM_INPUT_RADIO) {
+      if (oldType == NS_FORM_INPUT_RADIO) {
+        nsCOMPtr<nsIDOMHTMLInputElement> selectedRadioButton =
+          do_QueryInterface(aVisitor.mItemData);
+        if (selectedRadioButton) {
+          selectedRadioButton->SetChecked(true);
+        }
+        // If there was no checked radio button or this one is no longer a
+        // radio button we must reset it back to false to cancel the action.
+        // See how the web of hack grows?
+        if (!selectedRadioButton || mType != NS_FORM_INPUT_RADIO) {
           DoSetChecked(false, true, true);
         }
       } else if (oldType == NS_FORM_INPUT_CHECKBOX) {
@@ -2590,7 +2592,7 @@ nsHTMLInputElement::IsAttributeMapped(const nsIAtom* aAttribute) const
     sImageBorderAttributeMap,
   };
 
-  return FindAttributeDependence(aAttribute, map, ArrayLength(map));
+  return FindAttributeDependence(aAttribute, map);
 }
 
 nsMapRuleToAttributesFunc
@@ -2619,6 +2621,12 @@ nsHTMLInputElement::GetControllers(nsIControllers** aResult)
       nsCOMPtr<nsIController>
         controller(do_CreateInstance("@mozilla.org/editor/editorcontroller;1",
                                      &rv));
+      NS_ENSURE_SUCCESS(rv, rv);
+
+      mControllers->AppendController(controller);
+
+      controller = do_CreateInstance("@mozilla.org/editor/editingcontroller;1",
+                                     &rv);
       NS_ENSURE_SUCCESS(rv, rv);
 
       mControllers->AppendController(controller);
@@ -3895,8 +3903,7 @@ nsHTMLInputElement::GetValidationMessage(nsAString& aValidationMessage,
 bool
 nsHTMLInputElement::IsValidEmailAddressList(const nsAString& aValue)
 {
-  nsCharSeparatedTokenizerTemplate<nsContentUtils::IsHTMLWhitespace>
-    tokenizer(aValue, ',');
+  HTMLSplitOnSpacesTokenizer tokenizer(aValue, ',');
 
   while (tokenizer.hasMoreTokens()) {
     if (!IsValidEmailAddress(tokenizer.nextToken())) {
@@ -4115,8 +4122,7 @@ nsHTMLInputElement::GetFilterFromAccept()
   nsAutoString accept;
   GetAttr(kNameSpaceID_None, nsGkAtoms::accept, accept);
 
-  nsCharSeparatedTokenizerTemplate<nsContentUtils::IsHTMLWhitespace>
-    tokenizer(accept, ',');
+  HTMLSplitOnSpacesTokenizer tokenizer(accept, ',');
 
   while (tokenizer.hasMoreTokens()) {
     const nsDependentSubstring token = tokenizer.nextToken();

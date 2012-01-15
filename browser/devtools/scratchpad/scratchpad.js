@@ -24,6 +24,7 @@
  *   Erik Vold <erikvvold@gmail.com>
  *   David Dahl <ddahl@mozilla.com>
  *   Mihai Sucan <mihai.sucan@gmail.com>
+ *   Kenny Heaton <kennyheaton@gmail.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -66,6 +67,9 @@ const SCRATCHPAD_CONTEXT_CONTENT = 1;
 const SCRATCHPAD_CONTEXT_BROWSER = 2;
 const SCRATCHPAD_L10N = "chrome://browser/locale/devtools/scratchpad.properties";
 const DEVTOOLS_CHROME_ENABLED = "devtools.chrome.enabled";
+const BUTTON_POSITION_SAVE = 0;
+const BUTTON_POSITION_CANCEL = 1;
+const BUTTON_POSITION_DONT_SAVE = 2;
 
 /**
  * The scratchpad object handles the Scratchpad window functionality.
@@ -82,6 +86,13 @@ var Scratchpad = {
    *   currently active chrome window object.
    */
   executionContext: SCRATCHPAD_CONTEXT_CONTENT,
+
+  /**
+   * Tells if this Scratchpad is initialized and ready for use.
+   * @boolean
+   * @see addObserver
+   */
+  initialized: false,
 
   /**
    * Retrieve the xul:notificationbox DOM element. It notifies the user when
@@ -321,21 +332,7 @@ var Scratchpad = {
                                 "Scratchpad", 1);
     }
     catch (ex) {
-      this.openWebConsole();
-
-      let contentWindow = this.gBrowser.selectedBrowser.contentWindow;
-
-      let scriptError = Cc["@mozilla.org/scripterror;1"].
-                        createInstance(Ci.nsIScriptError2);
-
-      scriptError.initWithWindowID(ex.message + "\n" + ex.stack, ex.fileName,
-                                   "", ex.lineNumber, 0, scriptError.errorFlag,
-                                   "content javascript",
-                                   this.getInnerWindowId(contentWindow));
-
-      Services.console.logMessage(scriptError);
-
-      error = true;
+      error = ex;
     }
 
     return [error, result];
@@ -357,11 +354,7 @@ var Scratchpad = {
                                 "Scratchpad", 1);
     }
     catch (ex) {
-      Cu.reportError(ex);
-      Cu.reportError(ex.stack);
-      this.openErrorConsole();
-
-      error = true;
+      error = ex;
     }
 
     return [error, result];
@@ -386,12 +379,30 @@ var Scratchpad = {
   /**
    * Execute the selected text (if any) or the entire editor content in the
    * current context.
+   * @return mixed
+   *         The script evaluation result.
    */
-  run: function SP_run()
+  execute: function SP_execute()
   {
     let selection = this.selectedText || this.getText();
     let [error, result] = this.evalForContext(selection);
-    this.deselect();
+    return [selection, error, result];
+  },
+
+  /**
+   * Execute the selected text (if any) or the entire editor content in the
+   * current context.
+   */
+  run: function SP_run()
+  {
+    let [selection, error, result] = this.execute();
+
+    if (!error) {
+      this.deselect();
+    } else {
+      this.writeAsErrorComment(error);
+    }
+
     return [selection, error, result];
   },
 
@@ -402,10 +413,13 @@ var Scratchpad = {
    */
   inspect: function SP_inspect()
   {
-    let [selection, error, result] = this.run();
+    let [selection, error, result] = this.execute();
 
     if (!error) {
+      this.deselect();
       this.openPropertyPanel(selection, result);
+    } else {
+      this.writeAsErrorComment(error);
     }
   },
 
@@ -417,22 +431,45 @@ var Scratchpad = {
    */
   display: function SP_display()
   {
+    let [selectedText, error, result] = this.execute();
+
+    if (!error) {
+      this.writeAsComment(result);
+    } else {
+      this.writeAsErrorComment(error);
+    }
+  },
+
+  /**
+   * Write out a value at the current insertion point as a block comment
+   * @param object aValue
+   *        The Object to write out as a string
+   */
+  writeAsComment: function SP_writeAsComment(aValue)
+  {
     let selection = this.getSelectionRange();
     let insertionPoint = selection.start != selection.end ?
                          selection.end : // after selected text
                          this.editor.getCharCount(); // after text end
-
-    let [selectedText, error, result] = this.run();
-    if (error) {
-      return;
-    }
-
-    let newComment = "/*\n" + result + "\n*/";
-
+                         
+    let newComment = "/*\n" + aValue + "\n*/";
+    
     this.setText(newComment, insertionPoint, insertionPoint);
 
     // Select the new comment.
     this.selectRange(insertionPoint, insertionPoint + newComment.length);
+  },
+
+  /**
+   * Write out an error at the current insertion point as a block comment
+   * @param object aValue
+   *        The Error object to write out the message and stack trace
+   */
+  writeAsErrorComment: function SP_writeAsErrorComment(aError)
+  {
+    let newComment = "Exception: " + aError.message + "\n" + aError.stack.substring(0, aError.stack.length - 1);
+    
+    this.writeAsComment(newComment);
   },
 
   /**
@@ -570,9 +607,14 @@ var Scratchpad = {
       let content = null;
 
       if (Components.isSuccessCode(aStatus)) {
+        let converter = Cc["@mozilla.org/intl/scriptableunicodeconverter"].
+                        createInstance(Ci.nsIScriptableUnicodeConverter);
+        converter.charset = "UTF-8";
         content = NetUtil.readInputStreamToString(aInputStream,
                                                   aInputStream.available());
+        content = converter.ConvertToUnicode(content);
         self.setText(content);
+        self.editor.resetUndo();
       }
       else if (!aSilentError) {
         window.alert(self.strings.GetStringFromName("openFile.failed"));
@@ -601,22 +643,34 @@ var Scratchpad = {
 
   /**
    * Save the textbox content to the currently open file.
+   *
+   * @param function aCallback
+   *        Optional function you want to call when file is saved
    */
-  saveFile: function SP_saveFile()
+  saveFile: function SP_saveFile(aCallback)
   {
     if (!this.filename) {
-      return this.saveFileAs();
+      return this.saveFileAs(aCallback);
     }
 
     let file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsILocalFile);
     file.initWithPath(this.filename);
-    this.exportToFile(file, true, false, this.onTextSaved.bind(this));
+
+    this.exportToFile(file, true, false, function(aStatus) {
+      this.onTextSaved();
+      if (aCallback) {
+        aCallback(aStatus);
+      }
+    });
   },
 
   /**
    * Save the textbox content to a new file.
+   *
+   * @param function aCallback
+   *        Optional function you want to call when file is saved
    */
-  saveFileAs: function SP_saveFileAs()
+  saveFileAs: function SP_saveFileAs(aCallback)
   {
     let fp = Cc["@mozilla.org/filepicker;1"].createInstance(Ci.nsIFilePicker);
     fp.init(window, this.strings.GetStringFromName("saveFileAs"),
@@ -624,7 +678,13 @@ var Scratchpad = {
     fp.defaultString = "scratchpad.js";
     if (fp.show() != Ci.nsIFilePicker.returnCancel) {
       this.setFilename(fp.file.path);
-      this.exportToFile(fp.file, true, false, this.onTextSaved.bind(this));
+
+      this.exportToFile(fp.file, true, false, function(aStatus) {
+        this.onTextSaved();
+        if (aCallback) {
+          aCallback(aStatus);
+        }
+      });
     }
   },
 
@@ -712,7 +772,7 @@ var Scratchpad = {
   },
 
   /**
-   * The Scratchpad window DOMContentLoaded event handler. This method
+   * The Scratchpad window load event handler. This method
    * initializes the Scratchpad window and source editor.
    *
    * @param nsIDOMEvent aEvent
@@ -763,7 +823,9 @@ var Scratchpad = {
                                  this.onContextMenu);
     this.editor.focus();
     this.editor.setCaretOffset(this.editor.getCharCount());
-    
+
+    this.initialized = true;
+
     if (this.filename && !this.saved) {
       this.onTextChanged();
     }
@@ -845,6 +907,9 @@ var Scratchpad = {
     if (aStatus && !Components.isSuccessCode(aStatus)) {
       return;
     }
+    if (!document || !this.initialized) {
+      return;  // file saved to disk after window has closed
+    }
     document.title = document.title.replace(/^\*/, "");
     this.saved = true;
     this.editor.addEventListener(SourceEditor.EVENTS.TEXT_CHANGED,
@@ -880,6 +945,67 @@ var Scratchpad = {
                                     this.onContextMenu);
     this.editor.destroy();
     this.editor = null;
+    this.initialized = false;
+  },
+
+  /**
+   * Prompt to save scratchpad if it has unsaved changes.
+   *
+   * @param function aCallback
+   *        Optional function you want to call when file is saved
+   * @return boolean
+   *         Whether the window should be closed
+   */
+  promptSave: function SP_promptSave(aCallback)
+  {
+    if (this.filename && !this.saved) {
+      let ps = Services.prompt;
+      let flags = ps.BUTTON_POS_0 * ps.BUTTON_TITLE_SAVE +
+                  ps.BUTTON_POS_1 * ps.BUTTON_TITLE_CANCEL +
+                  ps.BUTTON_POS_2 * ps.BUTTON_TITLE_DONT_SAVE;
+
+      let button = ps.confirmEx(window,
+                          this.strings.GetStringFromName("confirmClose.title"),
+                          this.strings.GetStringFromName("confirmClose"),
+                          flags, null, null, null, null, {});
+
+      if (button == BUTTON_POSITION_CANCEL) {
+        return false;
+      }
+      if (button == BUTTON_POSITION_SAVE) {
+        this.saveFile(aCallback);
+      }
+    }
+    return true;
+  },
+
+  /**
+   * Handler for window close event. Prompts to save scratchpad if
+   * there are unsaved changes.
+   *
+   * @param nsIDOMEvent aEvent
+   */
+  onClose: function SP_onClose(aEvent)
+  {
+    let toClose = this.promptSave();
+    if (!toClose) {
+      aEvent.preventDefault();
+    }
+  },
+
+  /**
+   * Close the scratchpad window. Prompts before closing if the scratchpad
+   * has unsaved changes.
+   *
+   * @param function aCallback
+   *        Optional function you want to call when file is saved
+   */
+  close: function SP_close(aCallback)
+  {
+    let toClose = this.promptSave(aCallback);
+    if (toClose) {
+      window.close();
+    }
   },
 
   _observers: [],
@@ -949,5 +1075,6 @@ XPCOMUtils.defineLazyGetter(Scratchpad, "strings", function () {
   return Services.strings.createBundle(SCRATCHPAD_L10N);
 });
 
-addEventListener("DOMContentLoaded", Scratchpad.onLoad.bind(Scratchpad), false);
+addEventListener("load", Scratchpad.onLoad.bind(Scratchpad), false);
 addEventListener("unload", Scratchpad.onUnload.bind(Scratchpad), false);
+addEventListener("close", Scratchpad.onClose.bind(Scratchpad), false);

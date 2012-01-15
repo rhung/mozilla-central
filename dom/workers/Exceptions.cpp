@@ -42,7 +42,6 @@
 #include "Exceptions.h"
 
 #include "jsapi.h"
-#include "jscntxt.h"
 #include "jsfriendapi.h"
 #include "jsprf.h"
 
@@ -122,6 +121,9 @@ private:
   ToString(JSContext* aCx, uintN aArgc, jsval* aVp)
   {
     JSObject* obj = JS_THIS_OBJECT(aCx, aVp);
+    if (!obj) {
+      return false;
+    }
 
     JSClass* classPtr;
     if (!obj || ((classPtr = JS_GET_CLASS(aCx, obj)) != &sClass)) {
