@@ -70,6 +70,7 @@ protected:
   // Internal helper functions
   nsIntPoint GetClientPoint();
   nsIntPoint GetScreenPoint();
+  nsIntPoint GetMovementPoint();
   nsIntPoint GetLayerPoint();
   nsIntPoint GetPagePoint();
 
@@ -88,6 +89,13 @@ protected:
   // Screenpoint is mEvent->refPoint.
   nsIntPoint mLayerPoint;
   nsIntPoint mPagePoint;
+  nsIntPoint mMovement;
+  static nsIntPoint sLastScreenPoint;
+  static nsIntPoint sLastClientPoint;
+
+private:
+  bool IsPointerLocked();
+  nsIntPoint ScreenPointInternal();
 };
 
 #define NS_FORWARD_TO_NSDOMUIEVENT \

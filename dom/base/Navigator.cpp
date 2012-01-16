@@ -69,6 +69,8 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/Telemetry.h"
 #include "BatteryManager.h"
+#include "nsIDOMMozPointerLock.h"
+#include "nsDOMMozPointerLock.h"
 #include "SmsManager.h"
 #include "nsISmsService.h"
 #include "mozilla/Hal.h"
@@ -130,6 +132,7 @@ NS_INTERFACE_MAP_BEGIN(Navigator)
 #ifdef MOZ_B2G_RIL
   NS_INTERFACE_MAP_ENTRY(nsIDOMNavigatorTelephony)
 #endif
+  NS_INTERFACE_MAP_ENTRY(nsIDOMMozNavigatorPointerLock)
   NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(Navigator)
 NS_INTERFACE_MAP_END
 
@@ -933,6 +936,34 @@ Navigator::GetMozBattery(nsIDOMMozBatteryManager** aBattery)
 }
 
 //*****************************************************************************
+//    Navigator::nsIDOMMozNavigatorPointerLock
+//*****************************************************************************
+
+NS_IMETHODIMP
+Navigator::GetMozPointer(nsIDOMMozPointerLock** aPointer)
+{
+  NS_ENSURE_ARG_POINTER(aPointer);
+
+  if (!mPointer) {
+    mPointer = new nsDOMMozPointerLock();
+  }
+
+  nsCOMPtr<nsIDOMWindow> domWin(do_QueryReferent(mWindow));
+  if (!domWin) {
+    return NS_ERROR_FAILURE;
+  }
+
+  if (NS_FAILED(mPointer->Init(domWin))) {
+    mPointer = nsnull;
+    return NS_ERROR_FAILURE;
+  }
+
+  NS_ADDREF(*aPointer = mPointer);
+
+  return NS_OK;
+}
+
+//*****************************************************************************
 //    Navigator::nsIDOMNavigatorSms
 //*****************************************************************************
 
@@ -1198,3 +1229,4 @@ NS_GetNavigatorAppName(nsAString& aAppName)
   aAppName.AssignLiteral("Netscape");
   return NS_OK;
 }
+

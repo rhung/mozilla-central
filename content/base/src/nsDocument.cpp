@@ -207,6 +207,10 @@
 #include "imgILoader.h"
 #include "nsWrapperCacheInlines.h"
 
+#include "nsDOMMozPointerLock.h"
+#include "nsIDOMMozNavigatorPointerLock.h"
+#include "Navigator.h"
+
 using namespace mozilla;
 using namespace mozilla::dom;
 
@@ -8530,6 +8534,35 @@ ResetFullScreen(nsIDocument* aDocument, void* aData) {
 
 /* static */
 void
+nsDocument::MaybeUnlockMouse(nsIDocument* aDocument)
+{
+  if (!aDocument) {
+    return;
+  }
+
+  // When exiting fullscreen, if the pointer is also locked to the fullscreen element,
+  // we'll need to unlock it as we the document exits fullscreen.
+  nsCOMPtr<nsIDOMWindow> window = aDocument->GetWindow();
+  if (window) {
+    nsCOMPtr<nsIDOMNavigator> navigator;
+    window->GetNavigator(getter_AddRefs(navigator));
+    if (navigator) {
+      nsCOMPtr<nsIDOMMozNavigatorPointerLock> navigatorPointerLock =
+        do_QueryInterface(navigator);
+      if (navigatorPointerLock) {
+        nsCOMPtr<nsIDOMMozPointerLock> pointer;
+        navigatorPointerLock->GetMozPointer(getter_AddRefs(pointer));
+        if (pointer) {
+          // Unlock will bail early if not really locked
+          pointer->Unlock();
+        }
+      }
+    }
+  }
+}
+
+/* static */
+void
 nsDocument::ExitFullScreen()
 {
   // Clear full-screen stacks in all descendant documents.
@@ -8547,6 +8580,12 @@ nsDocument::ExitFullScreen()
   // root-to-leaf order, so we save references to the documents we must
   // dispatch to so that we dispatch in the specified order.
   nsAutoTArray<nsIDocument*, 8> changed;
+
+  // We may also need to unlock the mouse pointer, if it's locked.
+  nsCOMPtr<nsIDocument> fullScreenDoc(do_QueryReferent(sFullScreenDoc));
+  if (fullScreenDoc) {
+    MaybeUnlockMouse(fullScreenDoc);
+  }
 
   // Walk the tree of full-screen documents, and reset their full-screen state.
   ResetFullScreen(root, static_cast<void*>(&changed));
@@ -8584,6 +8623,7 @@ nsDocument::RestorePreviousFullScreenState()
   while (doc != this) {
     NS_ASSERTION(doc->IsFullScreenDoc(), "Should be full-screen doc");
     static_cast<nsDocument*>(doc)->ClearFullScreenStack();
+    MaybeUnlockMouse(doc);
     DispatchFullScreenChange(doc);
     doc = doc->GetParentDocument();
   }
@@ -8592,6 +8632,7 @@ nsDocument::RestorePreviousFullScreenState()
   NS_ASSERTION(doc == this, "Must have reached this doc.");
   while (doc != nsnull) {
     static_cast<nsDocument*>(doc)->FullScreenStackPop();
+    MaybeUnlockMouse(doc);
     DispatchFullScreenChange(doc);
     if (static_cast<nsDocument*>(doc)->mFullScreenStack.IsEmpty()) {
       // Full-screen stack in document is empty. Go back up to the parent
@@ -8868,6 +8909,13 @@ nsDocument::RequestFullScreen(Element* aElement, bool aWasCallerChrome)
   // Remember the root document, so that if a full-screen document is hidden
   // we can reset full-screen state in the remaining visible full-screen documents.
   sFullScreenRootDoc = do_GetWeakReference(nsContentUtils::GetRootDocument(this));
+
+  // If a document is already in fullscreen, then unlock the mouse pointer
+  // before setting a new document to fullscreen
+  nsCOMPtr<nsIDocument> fullScreenDoc(do_QueryReferent(sFullScreenDoc));
+  if (fullScreenDoc) {
+    MaybeUnlockMouse(fullScreenDoc);
+  }
 
   // Set the full-screen element. This sets the full-screen style on the
   // element, and the full-screen-ancestor styles on ancestors of the element

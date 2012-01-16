@@ -469,6 +469,7 @@
 #include "nsIDOMDesktopNotification.h"
 #include "nsIDOMNavigatorDesktopNotification.h"
 #include "nsIDOMNavigatorGeolocation.h"
+#include "nsIDOMMozNavigatorPointerLock.h"
 #include "Navigator.h"
 
 #include "nsPluginArray.h"
@@ -511,6 +512,7 @@
 
 #include "nsIDOMBatteryManager.h"
 #include "BatteryManager.h"
+#include "nsIDOMMozPointerLock.h"
 #include "nsIDOMSmsManager.h"
 #include "nsIDOMSmsMessage.h"
 #include "nsIDOMSmsEvent.h"
@@ -1400,6 +1402,9 @@ static nsDOMClassInfoData sClassInfoData[] = {
                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
 
   NS_DEFINE_CLASSINFO_DATA(MozBatteryManager, nsDOMGenericSH,
+                           DOM_DEFAULT_SCRIPTABLE_FLAGS)
+
+  NS_DEFINE_CLASSINFO_DATA(MozPointerLock, nsDOMGenericSH,
                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
 
   NS_DEFINE_CLASSINFO_DATA(MozSmsManager, nsDOMGenericSH,
@@ -2359,6 +2364,11 @@ nsDOMClassInfo::Init()
 #ifdef MOZ_B2G_RIL
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMNavigatorTelephony)
 #endif
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMMozNavigatorPointerLock)
+  DOM_CLASSINFO_MAP_END
+
+  DOM_CLASSINFO_MAP_BEGIN(MozPointerLock, nsIDOMMozPointerLock)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMMozPointerLock)
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(Plugin, nsIDOMPlugin)
