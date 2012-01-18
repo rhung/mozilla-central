@@ -43,8 +43,21 @@
 #include "nsXULAppAPI.h"
 #include "nsThreadUtils.h"
 #include "prenv.h"
+#include "shared-libraries.h"
+#include "mozilla/StringBuilder.h"
+
+// we eventually want to make this runtime switchable
+#if defined(XP_MACOSX) || defined(XP_UNIX)
+ #ifndef ANDROID
+  #define USE_BACKTRACE
+ #endif
+#endif
+#ifdef USE_BACKTRACE
+ #include <execinfo.h>
+#endif
 
 using std::string;
+using namespace mozilla;
 
 #ifdef XP_WIN
 #include <windows.h>
@@ -70,6 +83,7 @@ using std::string;
 #if _MSC_VER
 #define snprintf _snprintf
 #endif
+
 
 mozilla::tls::key pkey_stack;
 mozilla::tls::key pkey_ticker;
@@ -106,19 +120,26 @@ public:
     , mTagName(aTagName)
   { }
 
-  ProfileEntry(char aTagName, float aTagFloat)
+  ProfileEntry(char aTagName, double aTagFloat)
     : mTagFloat(aTagFloat)
     , mLeafAddress(0)
     , mTagName(aTagName)
   { }
 
+  ProfileEntry(char aTagName, uintptr_t aTagOffset)
+    : mTagOffset(aTagOffset)
+    , mLeafAddress(0)
+    , mTagName(aTagName)
+  { }
+
   string TagToString(Profile *profile);
-  void WriteTag(Profile *profile, FILE* stream);
 
 private:
   union {
     const char* mTagData;
-    float mTagFloat;
+    double mTagFloat;
+    Address mTagAddress;
+    uintptr_t mTagOffset;
   };
   Address mLeafAddress;
   char mTagName;
@@ -134,6 +155,7 @@ public:
     , mEntrySize(aEntrySize)
   {
     mEntries = new ProfileEntry[mEntrySize];
+    mNeedsSharedLibraryInfo = true;
   }
 
   ~Profile()
@@ -153,18 +175,17 @@ public:
     }
   }
 
-  void ToString(string* profile)
+  void ToString(StringBuilder &profile)
   {
-    // Can't be called from signal because
-    // get_maps calls non reentrant functions.
-#ifdef ENABLE_SPS_LEAF_DATA
-    mMaps = getmaps(getpid());
-#endif
+    if (mNeedsSharedLibraryInfo) {
+      // Can't be called from signal because
+      // getting the shared library information can call non-reentrant functions.
+      mSharedLibraryInfo = SharedLibraryInfo::GetInfoForSelf();
+    }
 
-    *profile = "";
     int oldReadPos = mReadPos;
     while (mReadPos != mWritePos) {
-      *profile += mEntries[mReadPos].TagToString(this);
+      profile.Append(mEntries[mReadPos].TagToString(this).c_str());
       mReadPos = (mReadPos + 1) % mEntrySize;
     }
     mReadPos = oldReadPos;
@@ -172,26 +193,25 @@ public:
 
   void WriteProfile(FILE* stream)
   {
-    // Can't be called from signal because
-    // get_maps calls non reentrant functions.
-#ifdef ENABLE_SPS_LEAF_DATA
-    mMaps = getmaps(getpid());
-#endif
+    if (mNeedsSharedLibraryInfo) {
+      // Can't be called from signal because
+      // getting the shared library information can call non-reentrant functions.
+      mSharedLibraryInfo = SharedLibraryInfo::GetInfoForSelf();
+    }
 
     int oldReadPos = mReadPos;
     while (mReadPos != mWritePos) {
-      mEntries[mReadPos].WriteTag(this, stream);
+      string tag = mEntries[mReadPos].TagToString(this);
+      fwrite(tag.data(), 1, tag.length(), stream);
       mReadPos = (mReadPos + 1) % mEntrySize;
     }
     mReadPos = oldReadPos;
   }
 
-#ifdef ENABLE_SPS_LEAF_DATA
-  MapInfo& getMap()
+  SharedLibraryInfo& getSharedLibraryInfo()
   {
-    return mMaps;
+    return mSharedLibraryInfo;
   }
-#endif
 private:
   // Circular buffer 'Keep One Slot Open' implementation
   // for simplicity
@@ -199,22 +219,33 @@ private:
   int mWritePos; // points to the next entry we will write to
   int mReadPos;  // points to the next entry we will read to
   int mEntrySize;
-#ifdef ENABLE_SPS_LEAF_DATA
-  MapInfo mMaps;
-#endif
+  bool mNeedsSharedLibraryInfo;
+  SharedLibraryInfo mSharedLibraryInfo;
 };
 
 class SaveProfileTask;
 
+static bool
+hasFeature(const char** aFeatures, uint32_t aFeatureCount, const char* aFeature) {
+  for(size_t i = 0; i < aFeatureCount; i++) {
+    if (strcmp(aFeatures[i], aFeature) == 0)
+      return true;
+  }
+  return false;
+}
+
 class TableTicker: public Sampler {
  public:
-  explicit TableTicker(int aInterval, int aEntrySize, Stack *aStack)
+  TableTicker(int aInterval, int aEntrySize, Stack *aStack,
+              const char** aFeatures, uint32_t aFeatureCount)
     : Sampler(aInterval, true)
     , mProfile(aEntrySize)
     , mStack(aStack)
     , mSaveRequested(false)
   {
+    mUseStackWalk = hasFeature(aFeatures, aFeatureCount, "stackwalk");
     mProfile.addTag(ProfileEntry('m', "Start"));
+    mJankOnly = hasFeature(aFeatures, aFeatureCount, "jank");
   }
 
   ~TableTicker() { if (IsActive()) Stop(); }
@@ -245,6 +276,8 @@ class TableTicker: public Sampler {
   Profile mProfile;
   Stack *mStack;
   bool mSaveRequested;
+  bool mUseStackWalk;
+  bool mJankOnly;
 };
 
 /**
@@ -303,6 +336,40 @@ void TableTicker::HandleSaveRequest()
   NS_DispatchToMainThread(runnable);
 }
 
+#ifdef USE_BACKTRACE
+static
+void doBacktrace(Profile &aProfile)
+{
+  void *array[100];
+  int count = backtrace (array, 100);
+
+  aProfile.addTag(ProfileEntry('s', "XRE_Main", 0));
+
+  for (int i = 0; i < count; i++) {
+    if( (intptr_t)array[i] == -1 ) break;
+    aProfile.addTag(ProfileEntry('l', (const char*)array[i]));
+  }
+}
+#endif
+
+static
+void doSampleStackTrace(Stack *aStack, Profile &aProfile, TickSample *sample)
+{
+  // Sample
+  // 's' tag denotes the start of a sample block
+  // followed by 0 or more 'c' tags.
+  for (int i = 0; i < aStack->mStackPointer; i++) {
+    if (i == 0) {
+      Address pc = 0;
+      if (sample) {
+        pc = sample->pc;
+      }
+      aProfile.addTag(ProfileEntry('s', aStack->mStack[i], pc));
+    } else {
+      aProfile.addTag(ProfileEntry('c', aStack->mStack[i]));
+    }
+  }
+}
 
 void TableTicker::Tick(TickSample* sample)
 {
@@ -315,23 +382,32 @@ void TableTicker::Tick(TickSample* sample)
   }
   mStack->mQueueClearMarker = true;
 
-  // Sample
-  // 's' tag denotes the start of a sample block
-  // followed by 0 or more 'c' tags.
-  for (int i = 0; i < mStack->mStackPointer; i++) {
-    if (i == 0) {
-      Address pc = 0;
-      if (sample) {
-        pc = sample->pc;
+  bool recordSample = true;
+  if (mJankOnly) {
+    recordSample = false;
+    // only record the events when we have a we haven't seen a tracer event for 100ms
+    if (!sLastTracerEvent.IsNull()) {
+      TimeDuration delta = sample->timestamp - sLastTracerEvent;
+      if (delta.ToMilliseconds() > 100.0) {
+          recordSample = true;
       }
-      mProfile.addTag(ProfileEntry('s', mStack->mStack[i], pc));
-    } else {
-      mProfile.addTag(ProfileEntry('c', mStack->mStack[i]));
     }
   }
 
-  if (!sLastTracerEvent.IsNull()) {
-    TimeDuration delta = TimeStamp::Now() - sLastTracerEvent;
+  if (recordSample) {
+#ifdef USE_BACKTRACE
+    if (mUseStackWalk) {
+      doBacktrace(mProfile);
+    } else {
+      doSampleStackTrace(mStack, mProfile, sample);
+    }
+#else
+    doSampleStackTrace(mStack, mProfile, sample);
+#endif
+  }
+
+  if (!mJankOnly && !sLastTracerEvent.IsNull() && sample) {
+    TimeDuration delta = sample->timestamp - sLastTracerEvent;
     mProfile.addTag(ProfileEntry('r', delta.ToMilliseconds()));
   }
 }
@@ -343,6 +419,29 @@ string ProfileEntry::TagToString(Profile *profile)
     char buff[50];
     snprintf(buff, 50, "%-40f", mTagFloat);
     tag += string(1, mTagName) + string("-") + string(buff) + string("\n");
+  } else if (mTagName == 'l') {
+    bool found = false;
+    char tagBuff[1024];
+    SharedLibraryInfo& shlibInfo = profile->getSharedLibraryInfo();
+    Address pc = mTagAddress;
+    // TODO Use binary sort (STL)
+    for (size_t i = 0; i < shlibInfo.GetSize(); i++) {
+      SharedLibrary &e = shlibInfo.GetEntry(i);
+      if (pc > (Address)e.GetStart() && pc < (Address)e.GetEnd()) {
+        if (e.GetName()) {
+          found = true;
+
+          snprintf(tagBuff, 1024, "l-%s@%p\n", e.GetName(), pc - e.GetStart());
+          tag += string(tagBuff);
+
+          break;
+        }
+      }
+    }
+    if (!found) {
+      snprintf(tagBuff, 1024, "l-???@%p\n", pc);
+      tag += string(tagBuff);
+    }
   } else {
     tag += string(1, mTagName) + string("-") + string(mTagData) + string("\n");
   }
@@ -351,11 +450,11 @@ string ProfileEntry::TagToString(Profile *profile)
   if (mLeafAddress) {
     bool found = false;
     char tagBuff[1024];
-    MapInfo& maps = profile->getMap();
+    SharedLibraryInfo& shlibInfo = profile->getSharedLibraryInfo();
     unsigned long pc = (unsigned long)mLeafAddress;
     // TODO Use binary sort (STL)
-    for (size_t i = 0; i < maps.GetSize(); i++) {
-      MapEntry &e = maps.GetEntry(i);
+    for (size_t i = 0; i < shlibInfo.GetSize(); i++) {
+      SharedLibrary &e = shlibInfo.GetEntry(i);
       if (pc > e.GetStart() && pc < e.GetEnd()) {
         if (e.GetName()) {
           found = true;
@@ -374,35 +473,10 @@ string ProfileEntry::TagToString(Profile *profile)
   return tag;
 }
 
-void ProfileEntry::WriteTag(Profile *profile, FILE *stream)
-{
-  fprintf(stream, "%c-%s\n", mTagName, mTagData);
-
-#ifdef ENABLE_SPS_LEAF_DATA
-  if (mLeafAddress) {
-    bool found = false;
-    MapInfo& maps = profile->getMap();
-    unsigned long pc = (unsigned long)mLeafAddress;
-    // TODO Use binary sort (STL)
-    for (size_t i = 0; i < maps.GetSize(); i++) {
-      MapEntry &e = maps.GetEntry(i);
-      if (pc > e.GetStart() && pc < e.GetEnd()) {
-        if (e.GetName()) {
-          found = true;
-          fprintf(stream, "l-%s@%li\n", e.GetName(), pc - e.GetStart());
-          break;
-        }
-      }
-    }
-    if (!found) {
-      fprintf(stream, "l-???@%li\n", pc);
-    }
-  }
-#endif
-}
-
 #define PROFILE_DEFAULT_ENTRY 100000
 #define PROFILE_DEFAULT_INTERVAL 10
+#define PROFILE_DEFAULT_FEATURES NULL
+#define PROFILE_DEFAULT_FEATURE_COUNT 0
 
 void mozilla_sampler_init()
 {
@@ -425,7 +499,8 @@ void mozilla_sampler_init()
     return;
   }
 
-  mozilla_sampler_start(PROFILE_DEFAULT_ENTRY, PROFILE_DEFAULT_INTERVAL);
+  mozilla_sampler_start(PROFILE_DEFAULT_ENTRY, PROFILE_DEFAULT_INTERVAL,
+                        PROFILE_DEFAULT_FEATURES, PROFILE_DEFAULT_FEATURE_COUNT);
 }
 
 void mozilla_sampler_deinit()
@@ -436,7 +511,8 @@ void mozilla_sampler_deinit()
   // TODO Need to find a safe time to delete Stack
 }
 
-void mozilla_sampler_save() {
+void mozilla_sampler_save()
+{
   TableTicker *t = mozilla::tls::get<TableTicker>(pkey_ticker);
   if (!t) {
     return;
@@ -448,22 +524,36 @@ void mozilla_sampler_save() {
   t->HandleSaveRequest();
 }
 
-char* mozilla_sampler_get_profile() {
+char* mozilla_sampler_get_profile()
+{
   TableTicker *t = mozilla::tls::get<TableTicker>(pkey_ticker);
   if (!t) {
     return NULL;
   }
 
-  string profile;
-  t->GetProfile()->ToString(&profile);
+  StringBuilder profile;
+  t->GetProfile()->ToString(profile);
 
-  char *rtn = (char*)malloc( (strlen(profile.c_str())+1) * sizeof(char) );
-  strcpy(rtn, profile.c_str());
+  char *rtn = (char*)malloc( (profile.Length()+1) * sizeof(char) );
+  strcpy(rtn, profile.Buffer());
   return rtn;
 }
 
+const char** mozilla_sampler_get_features()
+{
+  static const char* features[] = {
+#ifdef MOZ_PROFILING && USE_BACKTRACE
+    "stackwalk",
+#endif
+    NULL
+  };
+
+  return features;
+}
+
 // Values are only honored on the first start
-void mozilla_sampler_start(int aProfileEntries, int aInterval)
+void mozilla_sampler_start(int aProfileEntries, int aInterval,
+                           const char** aFeatures, uint32_t aFeatureCount)
 {
   Stack *stack = mozilla::tls::get<Stack>(pkey_stack);
   if (!stack) {
@@ -473,7 +563,8 @@ void mozilla_sampler_start(int aProfileEntries, int aInterval)
 
   mozilla_sampler_stop();
 
-  TableTicker *t = new TableTicker(aInterval, aProfileEntries, stack);
+  TableTicker *t = new TableTicker(aInterval, aProfileEntries, stack,
+                                   aFeatures, aFeatureCount);
   mozilla::tls::set(pkey_ticker, t);
   t->Start();
 }
@@ -499,8 +590,8 @@ bool mozilla_sampler_is_active()
   return t->IsActive();
 }
 
-float sResponsivenessTimes[100];
-float sCurrResponsiveness = 0.f;
+double sResponsivenessTimes[100];
+double sCurrResponsiveness = 0.f;
 unsigned int sResponsivenessLoc = 0;
 void mozilla_sampler_responsiveness(TimeStamp aTime)
 {
@@ -522,7 +613,7 @@ void mozilla_sampler_responsiveness(TimeStamp aTime)
   sLastTracerEvent = aTime;
 }
 
-const float* mozilla_sampler_get_responsiveness()
+const double* mozilla_sampler_get_responsiveness()
 {
   return sResponsivenessTimes;
 }

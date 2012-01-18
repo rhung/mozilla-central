@@ -106,6 +106,7 @@ public class GeckoAppShell
     static public final int WPL_STATE_START = 0x00000001;
     static public final int WPL_STATE_STOP = 0x00000010;
     static public final int WPL_STATE_IS_DOCUMENT = 0x00020000;
+    static public final int WPL_STATE_IS_NETWORK = 0x00040000;
 
     static private File sCacheFile = null;
     static private int sFreeSpace = -1;
@@ -131,7 +132,9 @@ public class GeckoAppShell
     public static native void loadLibs(String apkName, boolean shouldExtract);
     public static native void onChangeNetworkLinkStatus(String status);
     public static native void reportJavaCrash(String stack);
-    public static native void notifyUriVisited(String uri);
+    public static void notifyUriVisited(String uri) {
+        sendEventToGecko(new GeckoEvent(GeckoEvent.VISTITED, uri));
+    }
 
     public static native void processNextNativeEvent();
 
@@ -140,6 +143,8 @@ public class GeckoAppShell
     public static native void notifySmsReceived(String aSender, String aBody, long aTimestamp);
     public static native ByteBuffer allocateDirectBuffer(long size);
     public static native void freeDirectBuffer(ByteBuffer buf);
+    public static native void bindWidgetTexture();
+    public static native boolean testDirectTexture();
 
     // A looper thread, accessed by GeckoAppShell.getHandler
     private static class LooperThread extends Thread {
@@ -299,17 +304,19 @@ public class GeckoAppShell
         // libxul will depend on.  Not ideal.
         GeckoApp geckoApp = GeckoApp.mAppContext;
         String homeDir;
+        sHomeDir = GeckoDirProvider.getFilesDir(geckoApp);
+        homeDir = sHomeDir.getPath();
+
+        // handle the application being moved to phone from sdcard
+        File profileDir = new File(homeDir, "mozilla");
+        File oldHome = new File("/data/data/" + 
+                    GeckoApp.mAppContext.getPackageName() + "/mozilla");
+        if (oldHome.exists())
+            moveDir(oldHome, profileDir);
+
         if (Build.VERSION.SDK_INT < 8 ||
             geckoApp.getApplication().getPackageResourcePath().startsWith("/data") ||
             geckoApp.getApplication().getPackageResourcePath().startsWith("/system")) {
-            sHomeDir = geckoApp.getFilesDir();
-            homeDir = sHomeDir.getPath();
-            // handle the application being moved to phone from sdcard
-            File profileDir = new File(homeDir, "mozilla");
-            File oldHome = new File("/data/data/" + 
-                        GeckoApp.mAppContext.getPackageName() + "/mozilla");
-            if (oldHome.exists())
-                moveDir(oldHome, profileDir);
             if (Build.VERSION.SDK_INT >= 8) {
                 File extHome =  geckoApp.getExternalFilesDir(null);
                 File extProf = new File (extHome, "mozilla");
@@ -317,15 +324,6 @@ public class GeckoAppShell
                     moveDir(extProf, profileDir);
             }
         } else {
-            sHomeDir = geckoApp.getExternalFilesDir(null);
-            homeDir = sHomeDir.getPath();
-            // handle the application being moved to phone from sdcard
-            File profileDir = new File(homeDir, "mozilla");
-            File oldHome = new File("/data/data/" + 
-                        GeckoApp.mAppContext.getPackageName() + "/mozilla");
-            if (oldHome.exists())
-                moveDir(oldHome, profileDir);
-
             File intHome =  geckoApp.getFilesDir();
             File intProf = new File(intHome, "mozilla");
             if (intHome != null && intProf != null && intProf.exists())
@@ -421,11 +419,19 @@ public class GeckoAppShell
         }
     }
 
-    public static void runGecko(String apkPath, String args, String url) {
+    public static void runGecko(String apkPath, String args, String url, boolean restoreSession) {
         // run gecko -- it will spawn its own thread
         GeckoAppShell.nativeInit();
 
         Log.i(LOGTAG, "post native init");
+
+        // If we have direct texture available, use it
+        if (GeckoAppShell.testDirectTexture()) {
+            Log.i(LOGTAG, "Using direct texture for widget layer");
+            GeckoApp.mAppContext.getSoftwareLayerClient().installWidgetLayer();
+        } else {
+            Log.i(LOGTAG, "Falling back to traditional texture upload");
+        }
 
         // Tell Gecko where the target byte buffer is for rendering
         GeckoAppShell.setSoftwareLayerClient(GeckoApp.mAppContext.getSoftwareLayerClient());
@@ -438,6 +444,8 @@ public class GeckoAppShell
             combinedArgs += " " + args;
         if (url != null)
             combinedArgs += " -remote " + url;
+        if (restoreSession)
+            combinedArgs += " -restoresession";
 
         GeckoApp.mAppContext.runOnUiThread(new Runnable() {
                 public void run() {
@@ -494,16 +502,19 @@ public class GeckoAppShell
      *  The Gecko-side API: API methods that Gecko calls
      */
     public static void notifyIME(int type, int state) {
-        mInputConnection.notifyIME(type, state);
+        if (mInputConnection != null)
+            mInputConnection.notifyIME(type, state);
     }
 
     public static void notifyIMEEnabled(int state, String typeHint,
                                         String actionHint, boolean landscapeFS) {
-        mInputConnection.notifyIMEEnabled(state, typeHint, actionHint, landscapeFS);
+        if (mInputConnection != null)
+            mInputConnection.notifyIMEEnabled(state, typeHint, actionHint, landscapeFS);
     }
 
     public static void notifyIMEChange(String text, int start, int end, int newEnd) {
-        mInputConnection.notifyIMEChange(text, start, end, newEnd);
+        if (mInputConnection != null)
+            mInputConnection.notifyIMEChange(text, start, end, newEnd);
     }
 
     private static CountDownLatch sGeckoPendingAcks = null;
@@ -562,9 +573,8 @@ public class GeckoAppShell
                         GeckoApp.mAppContext.getSystemService(Context.LOCATION_SERVICE);
 
                     if (enable) {
-                        Criteria crit = new Criteria();
-                        crit.setAccuracy(Criteria.ACCURACY_FINE);
-                        String provider = lm.getBestProvider(crit, true);
+                        Criteria criteria = new Criteria();
+                        String provider = lm.getBestProvider(criteria, true);
                         if (provider == null)
                             return;
 
@@ -646,12 +656,24 @@ public class GeckoAppShell
     }
 
     static private Bitmap getLauncherIcon(Bitmap aSource) {
-        // The background images are 72px, but Android will resize as needed.
-        // Bigger is better than too small.
-        final int kIconSize = 72;
-        final int kOverlaySize = 32;
         final int kOffset = 6;
         final int kRadius = 5;
+        int kIconSize;
+        int kOverlaySize;
+        switch (getDpi()) {
+            case DisplayMetrics.DENSITY_MEDIUM:
+                kIconSize = 48;
+                kOverlaySize = 32;
+                break;
+            case DisplayMetrics.DENSITY_XHIGH:
+                kIconSize = 96;
+                kOverlaySize = 48;
+                break;
+            case DisplayMetrics.DENSITY_HIGH:
+            default:
+                kIconSize = 72;
+                kOverlaySize = 32;
+        }
 
         Bitmap bitmap = Bitmap.createBitmap(kIconSize, kIconSize, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
@@ -676,7 +698,7 @@ public class GeckoAppShell
 
         // draw the overlay
         Bitmap overlay = BitmapFactory.decodeResource(GeckoApp.mAppContext.getResources(), R.drawable.home_bg);
-        canvas.drawBitmap(overlay, null, new Rect(0,0,kIconSize, kIconSize), null);
+        canvas.drawBitmap(overlay, null, new Rect(0, 0, kIconSize, kIconSize), null);
 
         // draw the bitmap
         if (aSource == null)
@@ -861,7 +883,7 @@ public class GeckoAppShell
             }});
         try {
             String ret = sClipboardQueue.take();
-            return (ret == EMPTY_STRING ? null : ret);
+            return (EMPTY_STRING.equals(ret) ? null : ret);
         } catch (InterruptedException ie) {}
         return null;
     }

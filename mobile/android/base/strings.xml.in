@@ -35,9 +35,7 @@
   <string name="awesomebar_default_text">&awesomebar_default_text;</string>
 
   <string name="quit">&quit;</string>
-  <string name="bookmarks_title">&bookmarks_title;</string>
-  <string name="bookmark_add">&bookmark_add;</string>
-  <string name="bookmark_remove">&bookmark_remove;</string>
+  <string name="bookmark">&bookmark;</string>
   <string name="bookmark_added">&bookmark_added;</string>
   <string name="bookmark_removed">&bookmark_removed;</string>
 
@@ -48,8 +46,6 @@
 
   <string name="share">&share;</string>
   <string name="save_as_pdf">&save_as_pdf;</string>
-  <string name="agent_request_desktop">&agent_request_desktop;</string>
-  <string name="agent_request_mobile">&agent_request_mobile;</string>
 
   <string name="settings">&settings;</string>
   <string name="settings_title">&settings_title;</string>
@@ -59,10 +55,6 @@
   <string name="pref_about_firefox">&pref_about_firefox;</string>
   <string name="pref_do_not_track">&pref_do_not_track;</string>
   <string name="pref_telemetry">&pref_telemetry;</string>
-  <string name="pref_homepage">&pref_homepage;</string>
-  <string name="pref_homepage_start">&pref_homepage_start;</string>
-  <string name="pref_homepage_blank">&pref_homepage_blank;</string>
-  <string name="pref_homepage_current">&pref_homepage_current;</string>
   <string name="pref_remember_signons">&pref_remember_signons;</string>
   <string name="pref_cookies">&pref_cookies;</string>
   <string name="pref_char_encoding">&pref_char_encoding;</string>
@@ -70,10 +62,10 @@
   <string name="pref_clear_history_confirm">&pref_clear_history_confirm;</string>
   <string name="pref_clear_private_data">&pref_clear_private_data;</string>
   <string name="pref_clear_private_data_confirm">&pref_clear_private_data_confirm;</string>
-  <string name="pref_enable_plugins">&pref_enable_plugins;</string>
-  <string name="pref_enable_plugins_yes">&pref_enable_plugins_yes;</string>
-  <string name="pref_enable_plugins_tap_to_play">&pref_enable_plugins_tap_to_play;</string>
-  <string name="pref_enable_plugins_no">&pref_enable_plugins_no;</string>
+  <string name="pref_plugins">&pref_plugins;</string>
+  <string name="pref_plugins_enabled">&pref_plugins_enabled;</string>
+  <string name="pref_plugins_tap_to_play">&pref_plugins_tap_to_play;</string>
+  <string name="pref_plugins_disabled">&pref_plugins_disabled;</string>
   <string name="pref_font_size">&pref_font_size;</string>
   <string name="pref_font_size_small">&pref_font_size_small;</string>
   <string name="pref_font_size_medium">&pref_font_size_medium;</string>
@@ -84,6 +76,7 @@
   <string name="forward">&forward;</string>
   <string name="new_tab">&new_tab;</string>
   <string name="addons">&addons;</string>
+  <string name="downloads">&downloads;</string>
 
   <string name="site_settings_title">&site_settings_title;</string>
   <string name="site_settings_cancel">&site_settings_cancel;</string>
@@ -91,6 +84,16 @@
   <string name="site_settings_no_settings">&site_settings_no_settings;</string>
 
   <string name="contextmenu_open_new_tab">&contextmenu_open_new_tab;</string>
+  <string name="contextmenu_remove_bookmark">&contextmenu_remove_bookmark;</string>
   <string name="contextmenu_add_to_launcher">&contextmenu_add_to_launcher;</string>
   <string name="contextmenu_share">&contextmenu_share;</string>
+
+  <string name="pref_use_master_password">&pref_use_master_password;</string>
+  <string name="masterpassword_create_title">&masterpassword_create_title;</string>
+  <string name="masterpassword_remove_title">&masterpassword_remove_title;</string>
+  <string name="masterpassword_password">&masterpassword_password;</string>
+  <string name="masterpassword_confirm">&masterpassword_confirm;</string>
+
+  <string name="button_ok">&button_ok;</string>
+  <string name="button_cancel">&button_cancel;</string>
 </resources>

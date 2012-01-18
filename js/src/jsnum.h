@@ -65,6 +65,16 @@
 #endif
 #endif
 
+/* Low-level floating-point predicates. See bug 640494. */
+#define JSDOUBLE_HI32_SIGNBIT   0x80000000
+#define JSDOUBLE_HI32_EXPMASK   0x7ff00000
+#define JSDOUBLE_HI32_MANTMASK  0x000fffff
+#define JSDOUBLE_HI32_NAN       0x7ff80000
+#define JSDOUBLE_LO32_NAN       0x00000000
+
+#define JSDOUBLE_HI32_EXPSHIFT  20
+#define JSDOUBLE_EXPBIAS        1023
+
 typedef union jsdpun {
     struct {
 #if defined(IS_LITTLE_ENDIAN) && !defined(FPU_IS_ARM_FPA)
@@ -77,19 +87,16 @@ typedef union jsdpun {
     jsdouble d;
 } jsdpun;
 
-/* Low-level floating-point predicates. See bug 640494. */
-#define JSDOUBLE_HI32_SIGNBIT   0x80000000
-#define JSDOUBLE_HI32_EXPMASK   0x7ff00000
-#define JSDOUBLE_HI32_MANTMASK  0x000fffff
-#define JSDOUBLE_HI32_NAN       0x7ff80000
-#define JSDOUBLE_LO32_NAN       0x00000000
-
 static inline int
 JSDOUBLE_IS_NaN(jsdouble d)
 {
     jsdpun u;
     u.d = d;
+#if defined(mips) || defined(__mips__) || defined(MIPS) || defined(_MIPS_)
+    return (u.u64 & ~JSDOUBLE_SIGNBIT) > JSDOUBLE_EXPMASK;
+#else
     return (u.s.hi & JSDOUBLE_HI32_NAN) == JSDOUBLE_HI32_NAN;
+#endif
 }
 
 static inline int
@@ -327,6 +334,9 @@ ValueToUint16(JSContext *cx, const js::Value &v, uint16_t *out)
     extern bool ValueToUint16Slow(JSContext *cx, const js::Value &v, uint16_t *out);
     return ValueToUint16Slow(cx, v, out);
 }
+
+JSBool
+num_parseInt(JSContext *cx, uintN argc, Value *vp);
 
 }  /* namespace js */
 

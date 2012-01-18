@@ -42,8 +42,8 @@
 
 // JavaScript includes
 #include "jsapi.h"
+#include "jsfriendapi.h"
 #include "jsprvtd.h"    // we are using private JS typedefs...
-#include "jscntxt.h"
 #include "jsdbgapi.h"
 #include "WrapperFactory.h"
 #include "AccessCheck.h"
@@ -140,6 +140,7 @@
 #include "nsIDOMDOMStringList.h"
 #include "nsIDOMDOMTokenList.h"
 #include "nsIDOMDOMSettableTokenList.h"
+#include "nsIDOMMozBrowserFrameElement.h"
 
 #include "nsDOMStringMap.h"
 
@@ -329,7 +330,6 @@
 #include "nsIDOMDeviceOrientationEvent.h"
 #include "nsIDOMDeviceMotionEvent.h"
 #include "nsIDOMRange.h"
-#include "nsIDOMNSRange.h"
 #include "nsIDOMRangeException.h"
 #include "nsIDOMNodeIterator.h"
 #include "nsIDOMTreeWalker.h"
@@ -424,6 +424,7 @@
 #include "nsIDOMSVGSVGElement.h"
 #include "nsIDOMSVGSwitchElement.h"
 #include "nsIDOMSVGSymbolElement.h"
+#include "nsIDOMSVGTests.h"
 #include "nsIDOMSVGTextElement.h"
 #include "nsIDOMSVGTextPathElement.h"
 #include "nsIDOMSVGTitleElement.h"
@@ -516,6 +517,12 @@
 #include "nsIDOMSmsMessage.h"
 #include "nsIDOMSmsEvent.h"
 #include "nsIPrivateDOMEvent.h"
+
+#ifdef MOZ_B2G_RIL
+#include "Telephony.h"
+#include "TelephonyCall.h"
+#include "CallEvent.h"
+#endif
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -1247,6 +1254,8 @@ static nsDOMClassInfoData sClassInfoData[] = {
                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
   NS_DEFINE_CLASSINFO_DATA(SVGRect, nsDOMGenericSH,
                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
+  NS_DEFINE_CLASSINFO_DATA(SVGStringList, nsDOMGenericSH,
+                           DOM_DEFAULT_SCRIPTABLE_FLAGS)    
   NS_DEFINE_CLASSINFO_DATA(SVGTransform, nsDOMGenericSH,
                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
   NS_DEFINE_CLASSINFO_DATA(SVGTransformList, nsSVGTransformListSH,
@@ -1516,8 +1525,8 @@ static nsDOMClassInfoData sClassInfoData[] = {
 
   NS_DEFINE_CLASSINFO_DATA(IDBFactory, nsDOMGenericSH,
                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
-  NS_DEFINE_CLASSINFO_DATA(IDBRequest, nsDOMGenericSH,
-                           DOM_DEFAULT_SCRIPTABLE_FLAGS)
+  NS_DEFINE_CLASSINFO_DATA(IDBRequest, nsEventTargetSH,
+                           EVENTTARGET_SCRIPTABLE_FLAGS)
   NS_DEFINE_CLASSINFO_DATA(IDBDatabase, nsDOMGenericSH,
                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
   NS_DEFINE_CLASSINFO_DATA(IDBObjectStore, nsDOMGenericSH,
@@ -1555,6 +1564,15 @@ static nsDOMClassInfoData sClassInfoData[] = {
                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
   NS_DEFINE_CLASSINFO_DATA(CustomEvent, nsDOMGenericSH,
                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
+
+#ifdef MOZ_B2G_RIL
+  NS_DEFINE_CLASSINFO_DATA(Telephony, nsEventTargetSH,
+                           EVENTTARGET_SCRIPTABLE_FLAGS)
+  NS_DEFINE_CLASSINFO_DATA(TelephonyCall, nsEventTargetSH,
+                           EVENTTARGET_SCRIPTABLE_FLAGS)
+  NS_DEFINE_CLASSINFO_DATA(CallEvent, nsDOMGenericSH,
+                           DOM_DEFAULT_SCRIPTABLE_FLAGS)
+#endif
 };
 
 // Objects that should be constructable through |new Name();|
@@ -1733,7 +1751,7 @@ PrintWarningOnConsole(JSContext *cx, const char *stringBundleProperty)
     return;
   }
 
-  nsCOMPtr<nsIScriptError2> scriptError =
+  nsCOMPtr<nsIScriptError> scriptError =
     do_CreateInstance(NS_SCRIPTERROR_CONTRACTID);
   if (!scriptError) {
     return;
@@ -1766,9 +1784,8 @@ PrintWarningOnConsole(JSContext *cx, const char *stringBundleProperty)
                                               "DOM:HTML",
                                               nsJSUtils::GetCurrentlyRunningCodeInnerWindowID(cx));
 
-  if (NS_SUCCEEDED(rv)){
-    nsCOMPtr<nsIScriptError> logError = do_QueryInterface(scriptError);
-    consoleService->LogMessage(logError);
+  if (NS_SUCCEEDED(rv)) {
+    consoleService->LogMessage(scriptError);
   }
 }
 
@@ -2345,6 +2362,9 @@ nsDOMClassInfo::Init()
                                         battery::BatteryManager::HasSupport())
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMMozNavigatorSms)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMMozNavigatorPointerLock)
+#ifdef MOZ_B2G_RIL
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMNavigatorTelephony)
+#endif
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(MozPointerLock, nsIDOMMozPointerLock)
@@ -2662,6 +2682,7 @@ nsDOMClassInfo::Init()
 
   DOM_CLASSINFO_MAP_BEGIN(HTMLFrameElement, nsIDOMHTMLFrameElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMHTMLFrameElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMMozBrowserFrameElement)
     DOM_CLASSINFO_GENERIC_HTML_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
@@ -2693,6 +2714,7 @@ nsDOMClassInfo::Init()
   DOM_CLASSINFO_MAP_BEGIN(HTMLIFrameElement, nsIDOMHTMLIFrameElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMHTMLIFrameElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMGetSVGDocument)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMMozBrowserFrameElement)
     DOM_CLASSINFO_GENERIC_HTML_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
@@ -2945,7 +2967,6 @@ nsDOMClassInfo::Init()
 
   DOM_CLASSINFO_MAP_BEGIN(Range, nsIDOMRange)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMRange)
-    DOM_CLASSINFO_MAP_ENTRY(nsIDOMNSRange)
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(NodeIterator, nsIDOMNodeIterator)
@@ -3103,6 +3124,7 @@ nsDOMClassInfo::Init()
 
   DOM_CLASSINFO_MAP_BEGIN(SVGAElement, nsIDOMSVGAElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGAElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGURIReference)
     DOM_CLASSINFO_SVG_GRAPHIC_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
@@ -3110,6 +3132,7 @@ nsDOMClassInfo::Init()
   DOM_CLASSINFO_MAP_BEGIN(SVGAltGlyphElement, nsIDOMSVGAltGlyphElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTextPositioningElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTextContentElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGURIReference)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMEventTarget)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
@@ -3118,6 +3141,7 @@ nsDOMClassInfo::Init()
 
   DOM_CLASSINFO_MAP_BEGIN(SVGAnimateElement, nsIDOMSVGAnimateElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGAnimationElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGAnimateElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMElementTimeControl)
     DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
@@ -3126,6 +3150,7 @@ nsDOMClassInfo::Init()
   DOM_CLASSINFO_MAP_BEGIN(SVGAnimateTransformElement,
                           nsIDOMSVGAnimateTransformElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGAnimationElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGAnimateTransformElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMElementTimeControl)
     DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
@@ -3134,6 +3159,7 @@ nsDOMClassInfo::Init()
   DOM_CLASSINFO_MAP_BEGIN(SVGAnimateMotionElement,
                           nsIDOMSVGAnimateMotionElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGAnimationElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGAnimateMotionElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMElementTimeControl)
     DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
@@ -3142,6 +3168,7 @@ nsDOMClassInfo::Init()
   DOM_CLASSINFO_MAP_BEGIN(SVGSetElement,
                           nsIDOMSVGSetElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGAnimationElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGSetElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMElementTimeControl)
     DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
@@ -3159,20 +3186,20 @@ nsDOMClassInfo::Init()
 
   DOM_CLASSINFO_MAP_BEGIN(SVGCircleElement, nsIDOMSVGCircleElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGCircleElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_SVG_GRAPHIC_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(SVGClipPathElement, nsIDOMSVGClipPathElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGClipPathElement)
-    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGLocatable)
-    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTransformable)
-    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGUnitTypes)
-    DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
+    DOM_CLASSINFO_SVG_GRAPHIC_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(SVGDefsElement, nsIDOMSVGDefsElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGDefsElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_SVG_GRAPHIC_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
@@ -3184,6 +3211,7 @@ nsDOMClassInfo::Init()
 
   DOM_CLASSINFO_MAP_BEGIN(SVGEllipseElement, nsIDOMSVGEllipseElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGEllipseElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_SVG_GRAPHIC_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
@@ -3342,6 +3370,7 @@ nsDOMClassInfo::Init()
 
   DOM_CLASSINFO_MAP_BEGIN(SVGFilterElement, nsIDOMSVGFilterElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGFilterElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGURIReference)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGUnitTypes)
@@ -3350,11 +3379,13 @@ nsDOMClassInfo::Init()
 
   DOM_CLASSINFO_MAP_BEGIN(SVGGElement, nsIDOMSVGGElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGGElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_SVG_GRAPHIC_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(SVGImageElement, nsIDOMSVGImageElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGImageElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGURIReference)
     DOM_CLASSINFO_SVG_GRAPHIC_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
@@ -3362,6 +3393,7 @@ nsDOMClassInfo::Init()
   DOM_CLASSINFO_MAP_BEGIN(SVGLinearGradientElement, nsIDOMSVGLinearGradientElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGGradientElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGLinearGradientElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGURIReference)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGUnitTypes)
@@ -3370,6 +3402,7 @@ nsDOMClassInfo::Init()
 
   DOM_CLASSINFO_MAP_BEGIN(SVGLineElement, nsIDOMSVGLineElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGLineElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_SVG_GRAPHIC_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
@@ -3382,6 +3415,7 @@ nsDOMClassInfo::Init()
 
   DOM_CLASSINFO_MAP_BEGIN(SVGMaskElement, nsIDOMSVGMaskElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGMaskElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGUnitTypes)
     DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
@@ -3394,12 +3428,14 @@ nsDOMClassInfo::Init()
 
   DOM_CLASSINFO_MAP_BEGIN(SVGPathElement, nsIDOMSVGPathElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGPathElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGAnimatedPathData)
     DOM_CLASSINFO_SVG_GRAPHIC_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(SVGPatternElement, nsIDOMSVGPatternElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGPatternElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGFitToViewBox)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGURIReference)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
@@ -3409,12 +3445,14 @@ nsDOMClassInfo::Init()
 
   DOM_CLASSINFO_MAP_BEGIN(SVGPolygonElement, nsIDOMSVGPolygonElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGPolygonElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGAnimatedPoints)
     DOM_CLASSINFO_SVG_GRAPHIC_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(SVGPolylineElement, nsIDOMSVGPolylineElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGPolylineElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGAnimatedPoints)
     DOM_CLASSINFO_SVG_GRAPHIC_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
@@ -3422,6 +3460,7 @@ nsDOMClassInfo::Init()
   DOM_CLASSINFO_MAP_BEGIN(SVGRadialGradientElement, nsIDOMSVGRadialGradientElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGGradientElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGRadialGradientElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGURIReference)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGUnitTypes)
@@ -3430,6 +3469,7 @@ nsDOMClassInfo::Init()
 
   DOM_CLASSINFO_MAP_BEGIN(SVGRectElement, nsIDOMSVGRectElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGRectElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_SVG_GRAPHIC_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
@@ -3456,6 +3496,7 @@ nsDOMClassInfo::Init()
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGSVGElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGFitToViewBox)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGLocatable)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGZoomAndPan)
     DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
@@ -3463,12 +3504,14 @@ nsDOMClassInfo::Init()
 
   DOM_CLASSINFO_MAP_BEGIN(SVGSwitchElement, nsIDOMSVGSwitchElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGSwitchElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_SVG_GRAPHIC_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(SVGSymbolElement, nsIDOMSVGSymbolElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMEventTarget)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGSymbolElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGFitToViewBox)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
     DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
@@ -3477,11 +3520,13 @@ nsDOMClassInfo::Init()
   DOM_CLASSINFO_MAP_BEGIN(SVGTextElement, nsIDOMSVGTextElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTextPositioningElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTextContentElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_SVG_GRAPHIC_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(SVGTextPathElement, nsIDOMSVGTextPathElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTextContentElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGURIReference)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMEventTarget)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
@@ -3498,6 +3543,7 @@ nsDOMClassInfo::Init()
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTextPositioningElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTextContentElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMEventTarget)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
     DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
@@ -3508,6 +3554,7 @@ nsDOMClassInfo::Init()
 
   DOM_CLASSINFO_MAP_BEGIN(SVGUseElement, nsIDOMSVGUseElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGUseElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTests)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGURIReference)
     DOM_CLASSINFO_SVG_GRAPHIC_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
@@ -3709,6 +3756,10 @@ nsDOMClassInfo::Init()
 
   DOM_CLASSINFO_MAP_BEGIN(SVGRect, nsIDOMSVGRect)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGRect)
+  DOM_CLASSINFO_MAP_END
+
+  DOM_CLASSINFO_MAP_BEGIN(SVGStringList, nsIDOMSVGStringList)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStringList)
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(SVGTransform, nsIDOMSVGTransform)
@@ -4223,6 +4274,23 @@ nsDOMClassInfo::Init()
     DOM_CLASSINFO_EVENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
+#ifdef MOZ_B2G_RIL
+  DOM_CLASSINFO_MAP_BEGIN(Telephony, nsIDOMTelephony)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMTelephony)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMEventTarget)
+  DOM_CLASSINFO_MAP_END
+
+  DOM_CLASSINFO_MAP_BEGIN(TelephonyCall, nsIDOMTelephonyCall)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMTelephonyCall)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMEventTarget)
+  DOM_CLASSINFO_MAP_END
+
+  DOM_CLASSINFO_MAP_BEGIN(CallEvent, nsIDOMCallEvent)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMCallEvent)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMEvent)
+  DOM_CLASSINFO_MAP_END
+#endif
+
 #ifdef NS_DEBUG
   {
     PRUint32 i = ArrayLength(sClassInfoData);
@@ -4657,15 +4725,6 @@ nsDOMClassInfo::HasInstance(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
                             bool *_retval)
 {
   NS_WARNING("nsDOMClassInfo::HasInstance Don't call me!");
-
-  return NS_ERROR_UNEXPECTED;
-}
-
-NS_IMETHODIMP
-nsDOMClassInfo::Trace(nsIXPConnectWrappedNative *wrapper, JSTracer *trc,
-                      JSObject *obj)
-{
-  NS_WARNING("nsDOMClassInfo::Trace Don't call me!");
 
   return NS_ERROR_UNEXPECTED;
 }
@@ -5336,7 +5395,7 @@ nsWindowSH::GetProperty(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
   }
 
   if (id == sWrappedJSObject_id &&
-      xpc::AccessCheck::isChrome(cx->compartment)) {
+      xpc::AccessCheck::isChrome(js::GetContextCompartment(cx))) {
     obj = JS_ObjectToOuterObject(cx, obj);
     *vp = OBJECT_TO_JSVAL(obj);
     return NS_SUCCESS_I_DID_SOMETHING;

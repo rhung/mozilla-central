@@ -734,7 +734,7 @@ mjit::Compiler::jsop_typeof()
         if (op == JSOP_STRICTEQ || op == JSOP_EQ || op == JSOP_STRICTNE || op == JSOP_NE) {
             JSAtom *atom = script->getAtom(fullAtomIndex(PC + JSOP_TYPEOF_LENGTH));
             JSRuntime *rt = cx->runtime;
-            JSValueType type = JSVAL_TYPE_BOXED;
+            JSValueType type = JSVAL_TYPE_UNKNOWN;
             Assembler::Condition cond = (op == JSOP_STRICTEQ || op == JSOP_EQ)
                                         ? Assembler::Equal
                                         : Assembler::NotEqual;
@@ -752,7 +752,7 @@ mjit::Compiler::jsop_typeof()
                 cond = (cond == Assembler::Equal) ? Assembler::BelowOrEqual : Assembler::Above;
             }
 
-            if (type != JSVAL_TYPE_BOXED) {
+            if (type != JSVAL_TYPE_UNKNOWN) {
                 PC += JSOP_STRING_LENGTH;;
                 PC += JSOP_EQ_LENGTH;
 
@@ -789,13 +789,12 @@ mjit::Compiler::booleanJumpScript(JSOp op, jsbytecode *target)
     if (op == JSOP_AND || op == JSOP_OR) {
         frame.syncForBranch(target, Uses(0));
     } else {
-        JS_ASSERT(op == JSOP_IFEQ || op == JSOP_IFEQX ||
-                  op == JSOP_IFNE || op == JSOP_IFNEX);
+        JS_ASSERT(op == JSOP_IFEQ || op == JSOP_IFNE);
         frame.syncForBranch(target, Uses(1));
     }
 
     FrameEntry *fe = frame.peek(-1);
-    Assembler::Condition cond = (op == JSOP_IFNE || op == JSOP_IFNEX || op == JSOP_OR)
+    Assembler::Condition cond = (op == JSOP_IFNE || op == JSOP_OR)
                                 ? Assembler::NonZero
                                 : Assembler::Zero;
 
@@ -859,7 +858,7 @@ mjit::Compiler::jsop_ifneq(JSOp op, jsbytecode *target)
 
         frame.pop();
 
-        if (op == JSOP_IFEQ || op == JSOP_IFEQX)
+        if (op == JSOP_IFEQ)
             b = !b;
         if (b) {
             if (!frame.syncForBranch(target, Uses(0)))
@@ -1172,17 +1171,26 @@ mjit::Compiler::jsop_setelem_dense()
 
         /*
          * The sync call below can potentially clobber key.reg() and slotsReg.
-         * So we save and restore them. Additionally, the WriteBarrier stub can
-         * clobber both registers. The rejoin call will restore key.reg() but
-         * not slotsReg. So we restore it again after the stub call.
+         * We pin key.reg() to avoid it being clobbered. If |hoisted| is true,
+         * we can also pin slotsReg. If not, then slotsReg is owned by the
+         * compiler and we save in manually to VMFrame::scratch.
+         *
+         * Additionally, the WriteBarrier stub can clobber both registers. The
+         * rejoin call will restore key.reg() but not slotsReg. So we save
+         * slotsReg in the frame and restore it after the stub call.
          */
         stubcc.masm.storePtr(slotsReg, FrameAddress(offsetof(VMFrame, scratch)));
+        if (hoisted)
+            frame.pinReg(slotsReg);
         if (!key.isConstant())
-            stubcc.masm.push(key.reg());
+            frame.pinReg(key.reg());
         frame.sync(stubcc.masm, Uses(3));
         if (!key.isConstant())
-            stubcc.masm.pop(key.reg());
-        stubcc.masm.loadPtr(FrameAddress(offsetof(VMFrame, scratch)), slotsReg);
+            frame.unpinReg(key.reg());
+        if (hoisted)
+            frame.unpinReg(slotsReg);
+        else
+            stubcc.masm.loadPtr(FrameAddress(offsetof(VMFrame, scratch)), slotsReg);
 
         if (key.isConstant())
             stubcc.masm.lea(Address(slotsReg, key.index() * sizeof(Value)), Registers::ArgReg1);
@@ -1521,7 +1529,7 @@ mjit::Compiler::jsop_setelem(bool popGuaranteed)
         types::TypeSet *types = analysis->poppedTypes(PC, 2);
 
         if (!types->hasObjectFlags(cx, types::OBJECT_FLAG_NON_DENSE_ARRAY) &&
-            !arrayPrototypeHasIndexedProperty()) {
+            !types::ArrayPrototypeHasIndexedProperty(cx, outerScript)) {
             // Inline dense array path.
             jsop_setelem_dense();
             return true;
@@ -2088,22 +2096,19 @@ mjit::Compiler::jsop_getelem_typed(int atype)
 #endif /* JS_METHODJIT_TYPED_ARRAY */
 
 bool
-mjit::Compiler::jsop_getelem(bool isCall)
+mjit::Compiler::jsop_getelem()
 {
     FrameEntry *obj = frame.peek(-2);
     FrameEntry *id = frame.peek(-1);
 
     if (!IsCacheableGetElem(obj, id)) {
-        if (isCall)
-            jsop_callelem_slow();
-        else
-            jsop_getelem_slow();
+        jsop_getelem_slow();
         return true;
     }
 
     // If the object is definitely an arguments object, a dense array or a typed array
     // we can generate code directly without using an inline cache.
-    if (cx->typeInferenceEnabled() && !id->isType(JSVAL_TYPE_STRING) && !isCall) {
+    if (cx->typeInferenceEnabled() && !id->isType(JSVAL_TYPE_STRING)) {
         types::TypeSet *types = analysis->poppedTypes(PC, 1);
         if (types->isLazyArguments(cx) && !outerScript->analysis()->modifiesArguments()) {
             // Inline arguments path.
@@ -2113,7 +2118,7 @@ mjit::Compiler::jsop_getelem(bool isCall)
 
         if (obj->mightBeType(JSVAL_TYPE_OBJECT) &&
             !types->hasObjectFlags(cx, types::OBJECT_FLAG_NON_DENSE_ARRAY) &&
-            !arrayPrototypeHasIndexedProperty()) {
+            !types::ArrayPrototypeHasIndexedProperty(cx, outerScript)) {
             // Inline dense array path.
             bool packed = !types->hasObjectFlags(cx, types::OBJECT_FLAG_NON_PACKED_ARRAY);
             jsop_getelem_dense(packed);
@@ -2137,10 +2142,7 @@ mjit::Compiler::jsop_getelem(bool isCall)
     frame.forgetMismatchedObject(obj);
 
     if (id->isType(JSVAL_TYPE_DOUBLE) || !globalObj) {
-        if (isCall)
-            jsop_callelem_slow();
-        else
-            jsop_getelem_slow();
+        jsop_getelem_slow();
         return true;
     }
 
@@ -2167,14 +2169,6 @@ mjit::Compiler::jsop_getelem(bool isCall)
 
     // Get a mutable register for the object. This will be the data reg.
     ic.objReg = frame.copyDataIntoReg(obj);
-
-    // For potential dense array calls, grab an extra reg to save the
-    // outgoing object.
-    MaybeRegisterID thisReg;
-    if (isCall && id->mightBeType(JSVAL_TYPE_INT32)) {
-        thisReg = frame.allocReg();
-        masm.move(ic.objReg, thisReg.reg());
-    }
 
     // Get a mutable register for pushing the result type. We kill two birds
     // with one stone by making sure, if the key type is not known, to be loaded
@@ -2226,14 +2220,6 @@ mjit::Compiler::jsop_getelem(bool isCall)
         Assembler::FastArrayLoadFails fails =
             masm.fastArrayLoad(ic.objReg, key, ic.typeReg, ic.objReg);
 
-        // Store the object back to sp[-1] for calls. This must occur after
-        // all guards because otherwise sp[-1] will be clobbered.
-        if (isCall) {
-            Address thisSlot = frame.addressOf(id);
-            masm.storeValueFromComponents(ImmType(JSVAL_TYPE_OBJECT), thisReg.reg(), thisSlot);
-            frame.freeReg(thisReg.reg());
-        }
-
         stubcc.linkExitDirect(fails.rangeCheck, ic.slowPathStart);
         stubcc.linkExitDirect(fails.holeCheck, ic.slowPathStart);
     } else {
@@ -2248,15 +2234,9 @@ mjit::Compiler::jsop_getelem(bool isCall)
         objTypeGuard.get().linkTo(stubcc.masm.label(), &stubcc.masm);
 #ifdef JS_POLYIC
     passICAddress(&ic);
-    if (isCall)
-        ic.slowPathCall = OOL_STUBCALL(ic::CallElement, REJOIN_FALLTHROUGH);
-    else
-        ic.slowPathCall = OOL_STUBCALL(ic::GetElement, REJOIN_FALLTHROUGH);
+    ic.slowPathCall = OOL_STUBCALL(ic::GetElement, REJOIN_FALLTHROUGH);
 #else
-    if (isCall)
-        ic.slowPathCall = OOL_STUBCALL(stubs::CallElem, REJOIN_FALLTHROUGH);
-    else
-        ic.slowPathCall = OOL_STUBCALL(stubs::GetElem, REJOIN_FALLTHROUGH);
+    ic.slowPathCall = OOL_STUBCALL(stubs::GetElem, REJOIN_FALLTHROUGH);
 #endif
 
     testPushedType(REJOIN_FALLTHROUGH, -2);
@@ -2270,17 +2250,15 @@ mjit::Compiler::jsop_getelem(bool isCall)
     frame.pushRegs(ic.typeReg, ic.objReg, knownPushedType(0));
     BarrierState barrier = testBarrier(ic.typeReg, ic.objReg, false, false,
                                        /* force = */ ic.forcedTypeBarrier);
-    if (isCall)
-        frame.pushSynced(knownPushedType(1));
 
-    stubcc.rejoin(Changes(isCall ? 2 : 1));
+    stubcc.rejoin(Changes(1));
 
 #ifdef JS_POLYIC
     if (!getElemICs.append(ic))
         return false;
 #endif
 
-    finishBarrier(barrier, REJOIN_FALLTHROUGH, isCall ? 1 : 0);
+    finishBarrier(barrier, REJOIN_FALLTHROUGH, 0);
     return true;
 }
 
@@ -2355,6 +2333,12 @@ mjit::Compiler::jsop_stricteq(JSOp op)
             masm.or32(result1, result);
         }
         frame.freeReg(result1);
+#elif defined(JS_CPU_MIPS)
+        /* On MIPS the result 0.0/0.0 is 0x7FF7FFFF.
+           We need to manually set it to 0x7FF80000. */
+        static const int ShiftedCanonicalNaNType = 0x7FF80000 << 1;
+        masm.setShiftedCanonicalNaN(treg, treg);
+        masm.setPtr(oppositeCond, treg, Imm32(ShiftedCanonicalNaNType), result);
 #elif !defined(JS_CPU_X64)
         static const int ShiftedCanonicalNaNType = 0x7FF80000 << 1;
         masm.setPtr(oppositeCond, treg, Imm32(ShiftedCanonicalNaNType), result);

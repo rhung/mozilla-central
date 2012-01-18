@@ -1125,8 +1125,10 @@ FrameState::frameSlot(ActiveFrame *a, const FrameEntry *fe) const
 }
 
 inline JSC::MacroAssembler::Address
-FrameState::addressForInlineReturn() const
+FrameState::addressForInlineReturn()
 {
+    if (a->callee_->isTracked())
+        discardFe(a->callee_);
     return addressOf(a->callee_);
 }
 
@@ -1280,7 +1282,7 @@ FrameState::getCallee()
 }
 
 inline void
-FrameState::unpinKilledReg(RegisterID reg)
+FrameState::unpinKilledReg(AnyRegisterID reg)
 {
     regstate(reg).unpinUnsafe();
     freeRegs.putReg(reg);

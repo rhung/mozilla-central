@@ -762,27 +762,6 @@ nsDOMWindowUtils::CycleCollect(nsICycleCollectorListener *aListener)
 }
 
 NS_IMETHODIMP
-nsDOMWindowUtils::ProcessUpdates()
-{
-  nsPresContext* presContext = GetPresContext();
-  if (!presContext)
-    return NS_ERROR_UNEXPECTED;
-
-  nsIPresShell* shell = presContext->GetPresShell();
-  if (!shell)
-    return NS_ERROR_UNEXPECTED;
-
-  nsIViewManager *viewManager = shell->GetViewManager();
-  if (!viewManager)
-    return NS_ERROR_UNEXPECTED;
-  
-  nsIViewManager::UpdateViewBatch batch;
-  batch.BeginUpdateViewBatch(viewManager);
-  batch.EndUpdateViewBatch(NS_VMREFRESH_IMMEDIATE);
-  return NS_OK;
-}
-
-NS_IMETHODIMP
 nsDOMWindowUtils::SendSimpleGestureEvent(const nsAString& aType,
                                          float aX,
                                          float aY,
@@ -1619,6 +1598,55 @@ nsDOMWindowUtils::GetLayerManagerType(nsAString& aType)
   return NS_OK;
 }
 
+NS_IMETHODIMP
+nsDOMWindowUtils::StartFrameTimeRecording()
+{
+  nsCOMPtr<nsIWidget> widget = GetWidget();
+  if (!widget)
+    return NS_ERROR_FAILURE;
+
+  LayerManager *mgr = widget->GetLayerManager();
+  if (!mgr)
+    return NS_ERROR_FAILURE;
+
+  mgr->StartFrameTimeRecording();
+
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsDOMWindowUtils::StopFrameTimeRecording(PRUint32 *frameCount NS_OUTPARAM, float **frames NS_OUTPARAM)
+{
+  NS_ENSURE_ARG_POINTER(frameCount);
+  NS_ENSURE_ARG_POINTER(frames);
+
+  nsCOMPtr<nsIWidget> widget = GetWidget();
+  if (!widget)
+    return NS_ERROR_FAILURE;
+
+  LayerManager *mgr = widget->GetLayerManager();
+  if (!mgr)
+    return NS_ERROR_FAILURE;
+
+  nsTArray<float> frameTimes = mgr->StopFrameTimeRecording();
+
+  *frames = nsnull;
+  *frameCount = frameTimes.Length();
+
+  if (*frameCount != 0) {
+    *frames = (float*)nsMemory::Alloc(*frameCount * sizeof(float*));
+    if (!*frames)
+      return NS_ERROR_OUT_OF_MEMORY;
+
+    /* copy over the frame times into the array we just allocated */
+    for (PRUint32 i = 0; i < *frameCount; i++) {
+      (*frames)[i] = frameTimes[i];
+    }
+  }
+
+  return NS_OK;
+}
+
 static bool
 ComputeAnimationValue(nsCSSProperty aProperty,
                       Element* aElement,
@@ -1982,77 +2010,37 @@ nsDOMWindowUtils::GetFileReferences(const nsAString& aDatabaseName,
   return NS_OK;
 }
 
-static inline JSContext *
-GetJSContext()
-{
-  nsCOMPtr<nsIXPConnect> xpc = nsContentUtils::XPConnect();
-
-  // get the xpconnect native call context
-  nsAXPCNativeCallContext *cc = nsnull;
-  xpc->GetCurrentNativeCallContext(&cc);
-  if(!cc)
-    return NULL;
-
-  // Get JSContext of current call
-  JSContext* cx;
-  nsresult rv = cc->GetJSContext(&cx);
-  if(NS_FAILED(rv) || !cx)
-    return NULL;
-
-  return cx;
-}
-
 NS_IMETHODIMP
-nsDOMWindowUtils::StartPCCountProfiling()
+nsDOMWindowUtils::StartPCCountProfiling(JSContext* cx)
 {
-  JSContext *cx = GetJSContext();
-  if (!cx)
-    return NS_ERROR_FAILURE;
-
   js::StartPCCountProfiling(cx);
   return NS_OK;
 }
 
 NS_IMETHODIMP
-nsDOMWindowUtils::StopPCCountProfiling()
+nsDOMWindowUtils::StopPCCountProfiling(JSContext* cx)
 {
-  JSContext *cx = GetJSContext();
-  if (!cx)
-    return NS_ERROR_FAILURE;
-
   js::StopPCCountProfiling(cx);
   return NS_OK;
 }
 
 NS_IMETHODIMP
-nsDOMWindowUtils::PurgePCCounts()
+nsDOMWindowUtils::PurgePCCounts(JSContext* cx)
 {
-  JSContext *cx = GetJSContext();
-  if (!cx)
-    return NS_ERROR_FAILURE;
-
   js::PurgePCCounts(cx);
   return NS_OK;
 }
 
 NS_IMETHODIMP
-nsDOMWindowUtils::GetPCCountScriptCount(PRInt32 *result)
+nsDOMWindowUtils::GetPCCountScriptCount(JSContext* cx, PRInt32 *result)
 {
-  JSContext *cx = GetJSContext();
-  if (!cx)
-    return NS_ERROR_FAILURE;
-
   *result = js::GetPCCountScriptCount(cx);
   return NS_OK;
 }
 
 NS_IMETHODIMP
-nsDOMWindowUtils::GetPCCountScriptSummary(PRInt32 script, nsAString& result)
+nsDOMWindowUtils::GetPCCountScriptSummary(PRInt32 script, JSContext* cx, nsAString& result)
 {
-  JSContext *cx = GetJSContext();
-  if (!cx)
-    return NS_ERROR_FAILURE;
-
   JSString *text = js::GetPCCountScriptSummary(cx, script);
   if (!text)
     return NS_ERROR_FAILURE;
@@ -2066,12 +2054,8 @@ nsDOMWindowUtils::GetPCCountScriptSummary(PRInt32 script, nsAString& result)
 }
 
 NS_IMETHODIMP
-nsDOMWindowUtils::GetPCCountScriptContents(PRInt32 script, nsAString& result)
+nsDOMWindowUtils::GetPCCountScriptContents(PRInt32 script, JSContext* cx, nsAString& result)
 {
-  JSContext *cx = GetJSContext();
-  if (!cx)
-    return NS_ERROR_FAILURE;
-
   JSString *text = js::GetPCCountScriptContents(cx, script);
   if (!text)
     return NS_ERROR_FAILURE;
@@ -2083,3 +2067,19 @@ nsDOMWindowUtils::GetPCCountScriptContents(PRInt32 script, nsAString& result)
   result = str;
   return NS_OK;
 }
+
+NS_IMETHODIMP
+nsDOMWindowUtils::GetPaintingSuppressed(bool *aPaintingSuppressed)
+{
+  NS_ENSURE_TRUE(mWindow, NS_ERROR_FAILURE);
+  nsIDocShell *docShell = mWindow->GetDocShell();
+  NS_ENSURE_TRUE(docShell, NS_ERROR_FAILURE);
+
+  nsCOMPtr<nsIPresShell> presShell;
+  docShell->GetPresShell(getter_AddRefs(presShell));
+  NS_ENSURE_TRUE(presShell, NS_ERROR_FAILURE);
+
+  *aPaintingSuppressed = presShell->IsPaintingSuppressed();
+  return NS_OK;
+}
+
