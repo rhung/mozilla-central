@@ -252,7 +252,6 @@ nsDOMMozPointerLock::Lock(nsIDOMElement* aTarget,
   } else if (ShouldLock(aTarget)) {
     mPointerLockedElement = aTarget;
 
-    // TODO: should these throw or cause the error callback?
     nsCOMPtr<nsPIDOMWindow> domWindow = do_QueryInterface(mWindow);
     if (!domWindow) {
       NS_ERROR("Lock(): No DOM found in nsCOMPtr<nsPIDOMWindow>");

@@ -68,7 +68,7 @@ public:
   void SendFailure();
 
 private:
-  nsCOMPtr<nsIContent>                          mContent;
+  nsCOMPtr<nsIContent>                       mContent;
   nsCOMPtr<nsIMozPointerLockSuccessCallback> mSuccessCallback;
   nsCOMPtr<nsIMozPointerLockFailureCallback> mFailureCallback;
 };
