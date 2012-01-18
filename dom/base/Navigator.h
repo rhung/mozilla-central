@@ -48,7 +48,6 @@
 #include "nsIDOMNavigatorDesktopNotification.h"
 #include "nsIDOMClientInformation.h"
 #include "nsIDOMNavigatorBattery.h"
-#include "nsDOMMozPointerLock.h"
 #include "nsIDOMMozNavigatorPointerLock.h"
 #include "nsIDOMNavigatorSms.h"
 #include "nsAutoPtr.h"
@@ -59,6 +58,7 @@ class nsMimeTypeArray;
 class nsGeolocation;
 class nsDesktopNotificationCenter;
 class nsPIDOMWindow;
+class nsDOMMozPointerLock;
 
 //*****************************************************************************
 // Navigator: Script "navigator" object

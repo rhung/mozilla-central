@@ -929,15 +929,13 @@ Navigator::GetMozBattery(nsIDOMMozBatteryManager** aBattery)
 NS_IMETHODIMP
 Navigator::GetMozPointer(nsIDOMMozPointerLock** aPointer)
 {
-  NS_ENSURE_ARG_POINTER(aPointer);
-
-  if (!mPointer) {
-    mPointer = new nsDOMMozPointerLock();
-  }
-
   nsCOMPtr<nsIDOMWindow> domWin(do_QueryReferent(mWindow));
   if (!domWin) {
     return NS_ERROR_FAILURE;
+  }
+
+  if (!mPointer) {
+    mPointer = new nsDOMMozPointerLock();
   }
 
   if (NS_FAILED(mPointer->Init(domWin))) {
@@ -1180,4 +1178,3 @@ NS_GetNavigatorAppName(nsAString& aAppName)
   aAppName.AssignLiteral("Netscape");
   return NS_OK;
 }
-

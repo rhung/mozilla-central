@@ -73,24 +73,6 @@ private:
   nsCOMPtr<nsIDOMMozPointerLockFailureCallback> mFailureCallback;
 };
 
-
-class nsRequestPointerLockEvent : public nsRunnable
-{
-public:
-  nsRequestPointerLockEvent(bool aAllow,
-                            nsPointerLockRequest* aRequest)
-    : mRequest(aRequest),
-      mAllow(aAllow)
-  {}
-
-  NS_IMETHOD Run();
-
-private:
-  nsRefPtr<nsPointerLockRequest> mRequest;
-  bool mAllow;
-};
-
-
 class nsDOMMozPointerLock : public nsIDOMMozPointerLock,
                             public nsIMutationObserver
 {

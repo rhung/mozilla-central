@@ -8543,22 +8543,30 @@ nsDocument::MaybeUnlockMouse(nsIDocument* aDocument)
   // When exiting fullscreen, if the pointer is also locked to the fullscreen element,
   // we'll need to unlock it as we the document exits fullscreen.
   nsCOMPtr<nsIDOMWindow> window = aDocument->GetWindow();
-  if (window) {
-    nsCOMPtr<nsIDOMNavigator> navigator;
-    window->GetNavigator(getter_AddRefs(navigator));
-    if (navigator) {
-      nsCOMPtr<nsIDOMMozNavigatorPointerLock> navigatorPointerLock =
-        do_QueryInterface(navigator);
-      if (navigatorPointerLock) {
-        nsCOMPtr<nsIDOMMozPointerLock> pointer;
-        navigatorPointerLock->GetMozPointer(getter_AddRefs(pointer));
-        if (pointer) {
-          // Unlock will bail early if not really locked
-          pointer->Unlock();
-        }
-      }
-    }
+  if (!window) {
+    return;
   }
+
+  nsCOMPtr<nsIDOMNavigator> navigator;
+  window->GetNavigator(getter_AddRefs(navigator));
+  if (!navigator) {
+    return;
+  }
+
+  nsCOMPtr<nsIDOMMozNavigatorPointerLock> navigatorPointerLock =
+    do_QueryInterface(navigator);
+  if (!navigatorPointerLock) {
+    return;
+  }
+
+  nsCOMPtr<nsIDOMMozPointerLock> pointer;
+  navigatorPointerLock->GetMozPointer(getter_AddRefs(pointer));
+  if (!pointer) {
+    return;
+  }
+
+  // Unlock will bail early if not really locked
+  pointer->Unlock();
 }
 
 /* static */

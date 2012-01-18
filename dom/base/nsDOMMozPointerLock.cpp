@@ -55,6 +55,31 @@
 #include "nsIServiceManager.h"
 #include "nsContentUtils.h"
 
+// nsRequestPointerLockEvent
+class nsRequestPointerLockEvent : public nsRunnable
+{
+public:
+  nsRequestPointerLockEvent(bool aAllow,
+                            nsPointerLockRequest* aRequest)
+    : mRequest(aRequest),
+      mAllow(aAllow)
+  {}
+
+  NS_IMETHOD Run() {
+    if (mAllow) {
+      mRequest->SendSuccess();
+    } else {
+      mRequest->SendFailure();
+    }
+    return NS_OK;
+  }
+
+private:
+  nsRefPtr<nsPointerLockRequest> mRequest;
+  bool mAllow;
+};
+
+
 DOMCI_DATA(MozPointerLock, nsDOMMozPointerLock)
 
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(nsDOMMozPointerLock)
@@ -380,16 +405,4 @@ nsPointerLockRequest::SendFailure()
       mFailureCallback->HandleEvent();
     }
   }
-}
-
-// nsRequestPointerLockEvent
-NS_IMETHODIMP
-nsRequestPointerLockEvent::Run()
-{
-  if (mAllow) {
-    mRequest->SendSuccess();
-  } else {
-    mRequest->SendFailure();
-  }
-  return NS_OK;
 }
