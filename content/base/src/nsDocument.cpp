@@ -8916,11 +8916,11 @@ nsDocument::RequestFullScreen(Element* aElement, bool aWasCallerChrome)
 
   // Remember the root document, so that if a full-screen document is hidden
   // we can reset full-screen state in the remaining visible full-screen documents.
-  sFullScreenRootDoc = do_GetWeakReference(nsContentUtils::GetRootDocument(this));
+  nsIDocument* fullScreenDoc = nsContentUtils::GetRootDocument(this);
+  sFullScreenRootDoc = do_GetWeakReference(fullScreenDoc);
 
   // If a document is already in fullscreen, then unlock the mouse pointer
   // before setting a new document to fullscreen
-  nsCOMPtr<nsIDocument> fullScreenDoc(do_QueryReferent(sFullScreenDoc));
   if (fullScreenDoc) {
     MaybeUnlockMouse(fullScreenDoc);
   }

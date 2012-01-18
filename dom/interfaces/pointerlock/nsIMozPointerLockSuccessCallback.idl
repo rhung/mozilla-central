@@ -11,10 +11,10 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is Geolocation.
+ * The Original Code is Mouse Lock.
  *
  * The Initial Developer of the Original Code is Mozilla Foundation
- * Portions created by the Initial Developer are Copyright (C) 2008
+ * Portions created by the Initial Developer are Copyright (C) 2011
  * the Initial Developer. All Rights Reserved.
  *
  * Contributor(s):
@@ -37,8 +37,8 @@
 
 #include "domstubs.idl"
 
-[scriptable, function, uuid(3fd4368c-1662-11e1-82e6-206a8a092638)]
-interface nsIDOMMozPointerLockFailureCallback : nsISupports
+[scriptable, function, uuid(877ee0b4-1661-11e1-a667-206a8a092638)]
+interface nsIMozPointerLockSuccessCallback : nsISupports
 {
   void handleEvent();
 };

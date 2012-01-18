@@ -182,7 +182,7 @@ nsDOMMozPointerLock::Unlock()
 }
 
 NS_IMETHODIMP
-nsDOMMozPointerLock::IsLocked(bool *_retval NS_OUTPARAM)
+nsDOMMozPointerLock::GetIsLocked(bool *_retval)
 {
   NS_ENSURE_ARG_POINTER(_retval);
   *_retval = mPointerLockedElement ? true : false;
@@ -231,8 +231,8 @@ nsDOMMozPointerLock::ShouldLock(nsIDOMElement* aTarget)
 
 NS_IMETHODIMP
 nsDOMMozPointerLock::Lock(nsIDOMElement* aTarget,
-                          nsIDOMMozPointerLockSuccessCallback* aSuccessCallback,
-                          nsIDOMMozPointerLockFailureCallback* aFailureCallback)
+                          nsIMozPointerLockSuccessCallback* aSuccessCallback,
+                          nsIMozPointerLockFailureCallback* aFailureCallback)
 {
   NS_ENSURE_ARG_POINTER(aTarget);
 
@@ -377,8 +377,8 @@ NS_IMPL_THREADSAFE_ISUPPORTS0(nsPointerLockRequest)
 
 nsPointerLockRequest::nsPointerLockRequest(
   nsIContent* aContent,
-  nsIDOMMozPointerLockSuccessCallback* aSuccessCallback,
-  nsIDOMMozPointerLockFailureCallback* aFailureCallback)
+  nsIMozPointerLockSuccessCallback* aSuccessCallback,
+  nsIMozPointerLockFailureCallback* aFailureCallback)
   : mContent(aContent),
     mSuccessCallback(aSuccessCallback),
     mFailureCallback(aFailureCallback)
@@ -388,21 +388,25 @@ nsPointerLockRequest::nsPointerLockRequest(
 void
 nsPointerLockRequest::SendSuccess()
 {
-  if (mSuccessCallback) {
-    nsCxPusher pusher;
-    if (pusher.Push(mContent)) {
-      mSuccessCallback->HandleEvent();
-    }
+  if (!mSuccessCallback) {
+    return;
+  }
+
+  nsCxPusher pusher;
+  if (pusher.Push(mContent)) {
+    mSuccessCallback->HandleEvent();
   }
 }
 
 void
 nsPointerLockRequest::SendFailure()
 {
-  if (mFailureCallback) {
-    nsCxPusher pusher;
-    if (pusher.Push(mContent)) {
-      mFailureCallback->HandleEvent();
-    }
+  if (!mFailureCallback) {
+    return;
+  }
+
+  nsCxPusher pusher;
+  if (pusher.Push(mContent)) {
+    mFailureCallback->HandleEvent();
   }
 }
