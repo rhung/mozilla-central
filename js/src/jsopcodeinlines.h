@@ -42,6 +42,24 @@
 
 namespace js {
 
+static inline PropertyName *
+GetNameFromBytecode(JSContext *cx, jsbytecode *pc, JSOp op, const JSCodeSpec &cs)
+{
+    if (op == JSOP_LENGTH)
+        return cx->runtime->atomState.lengthAtom;
+
+    // The method JIT's implementation of instanceof contains an internal lookup
+    // of the prototype property.
+    if (op == JSOP_INSTANCEOF)
+        return cx->runtime->atomState.classPrototypeAtom;
+
+    JSScript *script = cx->stack.currentScript();
+    ptrdiff_t pcoff = (JOF_TYPE(cs.format) == JOF_SLOTATOM) ? SLOTNO_LEN : 0;
+    PropertyName *name;
+    GET_NAME_FROM_BYTECODE(script, pc, pcoff, name);
+    return name;
+}
+
 class BytecodeRange {
   public:
     BytecodeRange(JSScript *script)
@@ -56,20 +74,6 @@ class BytecodeRange {
     JSScript *script;
     jsbytecode *pc, *end;
 };
-
-/* 
- * Warning: this does not skip JSOP_RESETBASE* or JSOP_INDEXBASE* ops, so it is
- * useful only when checking for optimization opportunities.
- */
-JS_ALWAYS_INLINE jsbytecode *
-AdvanceOverBlockchainOp(jsbytecode *pc)
-{
-    if (*pc == JSOP_NULLBLOCKCHAIN)
-        return pc + JSOP_NULLBLOCKCHAIN_LENGTH;
-    if (*pc == JSOP_BLOCKCHAIN)
-        return pc + JSOP_BLOCKCHAIN_LENGTH;
-    return pc;
-}
 
 class SrcNoteLineScanner
 {

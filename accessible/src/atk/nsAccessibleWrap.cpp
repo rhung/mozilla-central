@@ -441,21 +441,12 @@ nsAccessibleWrap::CreateMaiInterfaces(void)
        interfacesBits |= 1 << MAI_INTERFACE_VALUE; 
     }
 
-    //nsIAccessibleDocument
-    nsCOMPtr<nsIAccessibleDocument> accessInterfaceDocument;
-    QueryInterface(NS_GET_IID(nsIAccessibleDocument),
-                              getter_AddRefs(accessInterfaceDocument));
-    if (accessInterfaceDocument) {
+    // document accessible
+    if (IsDoc())
         interfacesBits |= 1 << MAI_INTERFACE_DOCUMENT;
-    }
 
-    //nsIAccessibleImage
-    nsCOMPtr<nsIAccessibleImage> accessInterfaceImage;
-    QueryInterface(NS_GET_IID(nsIAccessibleImage),
-                              getter_AddRefs(accessInterfaceImage));
-    if (accessInterfaceImage) {
+    if (IsImageAccessible())
         interfacesBits |= 1 << MAI_INTERFACE_IMAGE;
-    }
 
   // HyperLinkAccessible
   if (IsLink())

@@ -806,7 +806,7 @@ class FrameState
     /*
      * Same as unpinReg(), but does not restore the FrameEntry.
      */
-    inline void unpinKilledReg(RegisterID reg);
+    inline void unpinKilledReg(AnyRegisterID reg);
 
     /* Pins a data or type register if one exists. */
     MaybeRegisterID maybePinData(FrameEntry *fe);
@@ -877,7 +877,7 @@ class FrameState
     Address addressForDataRemat(const FrameEntry *fe) const;
 
     // Inside an inline frame, the address for the return value in the caller.
-    Address addressForInlineReturn() const;
+    Address addressForInlineReturn();
 
     inline StateRemat dataRematInfo(const FrameEntry *fe) const;
 

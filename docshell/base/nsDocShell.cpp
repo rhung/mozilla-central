@@ -1626,10 +1626,10 @@ nsDocShell::ValidateOrigin(nsIDocShellTreeItem* aOriginTreeItem,
     NS_ENSURE_SUCCESS(rv, false);
 
     if (subjectPrincipal) {
-        // We're called from JS, check if UniversalBrowserWrite is
+        // We're called from JS, check if UniversalXPConnect is
         // enabled.
         bool ubwEnabled = false;
-        rv = securityManager->IsCapabilityEnabled("UniversalBrowserWrite",
+        rv = securityManager->IsCapabilityEnabled("UniversalXPConnect",
                                                   &ubwEnabled);
         NS_ENSURE_SUCCESS(rv, false);
 
@@ -4732,8 +4732,7 @@ nsDocShell::Repaint(bool aForce)
     nsIViewManager* viewManager = presShell->GetViewManager();
     NS_ENSURE_TRUE(viewManager, NS_ERROR_FAILURE);
 
-    // what about aForce ?
-    NS_ENSURE_SUCCESS(viewManager->UpdateAllViews(0), NS_ERROR_FAILURE);
+    NS_ENSURE_SUCCESS(viewManager->InvalidateAllViews(), NS_ERROR_FAILURE);
     return NS_OK;
 }
 
@@ -7324,7 +7323,7 @@ nsDocShell::RestoreFromHistory()
             // call Thaw. So we issue the invalidate here.
             newRootView = newVM->GetRootView();
             if (newRootView) {
-                newVM->UpdateView(newRootView, NS_VMREFRESH_NO_SYNC);
+                newVM->InvalidateView(newRootView);
             }
         }
     }
@@ -7784,7 +7783,7 @@ nsDocShell::CheckLoadingPermissions()
     NS_ENSURE_SUCCESS(rv, rv);
 
     bool ubwEnabled = false;
-    rv = securityManager->IsCapabilityEnabled("UniversalBrowserWrite",
+    rv = securityManager->IsCapabilityEnabled("UniversalXPConnect",
                                               &ubwEnabled);
     if (NS_FAILED(rv) || ubwEnabled) {
         return rv;

@@ -40,6 +40,7 @@
 #include "Logging.h"
 #include "assembler/jit/ExecutableAllocator.h"
 #include "assembler/assembler/RepatchBuffer.h"
+#include "js/MemoryMetrics.h"
 #include "jsgcmark.h"
 #include "BaseAssembler.h"
 #include "Compiler.h"
@@ -139,27 +140,23 @@ static const size_t STUB_CALLS_FOR_OP_COUNT = 255;
 static uint32_t StubCallsForOp[STUB_CALLS_FOR_OP_COUNT];
 #endif
 
+// Called from JaegerTrampoline only
 extern "C" void JS_FASTCALL
 PushActiveVMFrame(VMFrame &f)
 {
+    f.oldregs = &f.cx->stack.regs();
+    f.cx->stack.repointRegs(&f.regs);
     f.entryfp->script()->compartment()->jaegerCompartment()->pushActiveFrame(&f);
     f.entryfp->setNativeReturnAddress(JS_FUNC_TO_DATA_PTR(void*, JaegerTrampolineReturn));
     f.regs.clearInlined();
 }
 
+// Called from JaegerTrampolineReturn, JaegerThrowpoline, JaegerInterpoline
 extern "C" void JS_FASTCALL
 PopActiveVMFrame(VMFrame &f)
 {
     f.entryfp->script()->compartment()->jaegerCompartment()->popActiveFrame();
-}
-
-extern "C" void JS_FASTCALL
-SetVMFrameRegs(VMFrame &f)
-{
-    f.oldregs = &f.cx->stack.regs();
-
-    /* Restored on exit from EnterMethodJIT. */
-    f.cx->stack.repointRegs(&f.regs);
+    f.cx->stack.repointRegs(f.oldregs);
 }
 
 #if defined(__APPLE__) || (defined(XP_WIN) && !defined(JS_CPU_X64)) || defined(XP_OS2)
@@ -256,7 +253,7 @@ JS_STATIC_ASSERT(offsetof(FrameRegs, sp) == 0);
 #if defined(__GNUC__) && !defined(_WIN64)
 
 /* If this assert fails, you need to realign VMFrame to 16 bytes. */
-#ifdef JS_CPU_ARM
+#if defined(JS_CPU_ARM) || defined(JS_CPU_MIPS)
 JS_STATIC_ASSERT(sizeof(VMFrame) % 8 == 0);
 #else
 JS_STATIC_ASSERT(sizeof(VMFrame) % 16 == 0);
@@ -326,8 +323,6 @@ SYMBOL_STRING(JaegerTrampoline) ":"       "\n"
 
     /* Set cx->regs and set the active frame. Save rdx and align frame in one. */
     "pushq %rdx"                         "\n"
-    "movq  %rsp, %rdi"                   "\n"
-    "call " SYMBOL_STRING_VMFRAME(SetVMFrameRegs) "\n"
     "movq  %rsp, %rdi"                   "\n"
     "call " SYMBOL_STRING_VMFRAME(PushActiveVMFrame) "\n"
 
@@ -512,8 +507,6 @@ SYMBOL_STRING(JaegerTrampoline) ":"       "\n"
     "subl $0x1C, %esp"                   "\n"
 
     /* Jump into the JIT'd code. */
-    "movl  %esp, %ecx"                   "\n"
-    "call " SYMBOL_STRING_VMFRAME(SetVMFrameRegs) "\n"
     "movl  %esp, %ecx"                   "\n"
     "call " SYMBOL_STRING_VMFRAME(PushActiveVMFrame) "\n"
 
@@ -730,8 +723,6 @@ SYMBOL_STRING(JaegerTrampoline) ":"         "\n"
 "   mov     r10, r1"                            "\n"
 
 "   mov     r0, sp"                             "\n"
-"   blx  " SYMBOL_STRING_VMFRAME(SetVMFrameRegs)   "\n"
-"   mov     r0, sp"                             "\n"
 "   blx  " SYMBOL_STRING_VMFRAME(PushActiveVMFrame)"\n"
 
     /* Call the compiled JavaScript function. */
@@ -831,6 +822,7 @@ SYMBOL_STRING(JaegerStubVeneer) ":"         "\n"
 );
 
 # elif defined(JS_CPU_SPARC)
+# elif defined(JS_CPU_MIPS)
 # else
 #  error "Unsupported CPU!"
 # endif
@@ -875,8 +867,6 @@ extern "C" {
             sub  esp, 0x1C;
 
             /* Jump into into the JIT'd code. */
-            mov  ecx, esp;
-            call SetVMFrameRegs;
             mov  ecx, esp;
             call PushActiveVMFrame;
 
@@ -1054,7 +1044,6 @@ mjit::EnterMethodJIT(JSContext *cx, StackFrame *fp, void *code, Value *stackLimi
 #endif
 
     JS_ASSERT(cx->fp() == fp);
-    FrameRegs &oldRegs = cx->regs();
 
     JSBool ok;
     {
@@ -1067,9 +1056,6 @@ mjit::EnterMethodJIT(JSContext *cx, StackFrame *fp, void *code, Value *stackLimi
     prof.stop();
     JaegerSpew(JSpew_Prof, "script run took %d ms\n", prof.time_ms());
 #endif
-
-    /* Undo repointRegs in SetVMFrameRegs. */
-    cx->stack.repointRegs(&oldRegs);
 
     JaegerStatus status = cx->compartment->jaegerCompartment()->lastUnfinished();
     if (status) {
@@ -1105,7 +1091,7 @@ mjit::EnterMethodJIT(JSContext *cx, StackFrame *fp, void *code, Value *stackLimi
 
     /* See comment in mjit::Compiler::emitReturn. */
     if (fp->isFunctionFrame())
-        fp->markFunctionEpilogueDone();
+        fp->updateEpilogueFlags();
 
     return ok ? Jaeger_Returned : Jaeger_Throwing;
 }
@@ -1371,9 +1357,6 @@ PICPCComparator(const void *key, const void *entry)
 {
     const jsbytecode *pc = (const jsbytecode *)key;
     const ic::PICInfo *pic = (const ic::PICInfo *)entry;
-
-    if (ic::PICInfo::CALL != pic->kind)
-        return ic::PICInfo::CALL - pic->kind;
 
     /*
      * We can't just return |pc - pic->pc| because the pointers may be
