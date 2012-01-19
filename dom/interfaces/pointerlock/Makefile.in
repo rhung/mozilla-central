@@ -48,8 +48,8 @@ GRE_MODULE     = 1
 XPIDLSRCS =					\
 	nsIDOMMozNavigatorPointerLock.idl	\
 	nsIDOMMozPointerLock.idl		\
-	nsIDOMMozPointerLockSuccessCallback.idl	\
-	nsIDOMMozPointerLockFailureCallback.idl	\
+	nsIMozPointerLockSuccessCallback.idl	\
+	nsIMozPointerLockFailureCallback.idl	\
 	$(NULL)
 
 include $(topsrcdir)/config/rules.mk
