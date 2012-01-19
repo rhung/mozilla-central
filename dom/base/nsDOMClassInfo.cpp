@@ -42,8 +42,8 @@
 
 // JavaScript includes
 #include "jsapi.h"
+#include "jsfriendapi.h"
 #include "jsprvtd.h"    // we are using private JS typedefs...
-#include "jscntxt.h"
 #include "jsdbgapi.h"
 #include "WrapperFactory.h"
 #include "AccessCheck.h"
@@ -2361,10 +2361,10 @@ nsDOMClassInfo::Init()
     DOM_CLASSINFO_MAP_CONDITIONAL_ENTRY(nsIDOMMozNavigatorBattery,
                                         battery::BatteryManager::HasSupport())
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMMozNavigatorSms)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMMozNavigatorPointerLock)
 #ifdef MOZ_B2G_RIL
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMNavigatorTelephony)
 #endif
-    DOM_CLASSINFO_MAP_ENTRY(nsIDOMMozNavigatorPointerLock)
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(MozPointerLock, nsIDOMMozPointerLock)
@@ -5395,7 +5395,7 @@ nsWindowSH::GetProperty(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
   }
 
   if (id == sWrappedJSObject_id &&
-      xpc::AccessCheck::isChrome(cx->compartment)) {
+      xpc::AccessCheck::isChrome(js::GetContextCompartment(cx))) {
     obj = JS_ObjectToOuterObject(cx, obj);
     *vp = OBJECT_TO_JSVAL(obj);
     return NS_SUCCESS_I_DID_SOMETHING;

@@ -129,10 +129,10 @@ NS_INTERFACE_MAP_BEGIN(Navigator)
   NS_INTERFACE_MAP_ENTRY(nsIDOMMozNavigatorBattery)
   NS_INTERFACE_MAP_ENTRY(nsIDOMNavigatorDesktopNotification)
   NS_INTERFACE_MAP_ENTRY(nsIDOMMozNavigatorSms)
+  NS_INTERFACE_MAP_ENTRY(nsIDOMMozNavigatorPointerLock)
 #ifdef MOZ_B2G_RIL
   NS_INTERFACE_MAP_ENTRY(nsIDOMNavigatorTelephony)
 #endif
-  NS_INTERFACE_MAP_ENTRY(nsIDOMMozNavigatorPointerLock)
   NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(Navigator)
 NS_INTERFACE_MAP_END
 
@@ -942,15 +942,13 @@ Navigator::GetMozBattery(nsIDOMMozBatteryManager** aBattery)
 NS_IMETHODIMP
 Navigator::GetMozPointer(nsIDOMMozPointerLock** aPointer)
 {
-  NS_ENSURE_ARG_POINTER(aPointer);
-
-  if (!mPointer) {
-    mPointer = new nsDOMMozPointerLock();
-  }
-
   nsCOMPtr<nsIDOMWindow> domWin(do_QueryReferent(mWindow));
   if (!domWin) {
     return NS_ERROR_FAILURE;
+  }
+
+  if (!mPointer) {
+    mPointer = new nsDOMMozPointerLock();
   }
 
   if (NS_FAILED(mPointer->Init(domWin))) {
@@ -1229,4 +1227,3 @@ NS_GetNavigatorAppName(nsAString& aAppName)
   aAppName.AssignLiteral("Netscape");
   return NS_OK;
 }
-
