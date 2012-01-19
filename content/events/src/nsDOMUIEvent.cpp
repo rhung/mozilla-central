@@ -156,7 +156,7 @@ nsDOMUIEvent::IsPointerLocked()
   }
 
   bool isLocked;
-  pointer->IsLocked(&isLocked);
+  pointer->GetIsLocked(&isLocked);
   return isLocked;
 }
 
