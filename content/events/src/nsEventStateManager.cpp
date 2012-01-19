@@ -163,7 +163,7 @@ nsIDocument* nsEventStateManager::sMouseOverDocument = nsnull;
 nsWeakFrame nsEventStateManager::sLastDragOverFrame = nsnull;
 nsIntPoint nsEventStateManager::sLastRefPoint = nsIntPoint(0,0);
 nsIntPoint nsEventStateManager::sLastScreenOffset = nsIntPoint(0,0);
-nsCOMPtr<nsIContent> nsEventStateManager::mPointerLockedElement = nsnull;
+nsCOMPtr<nsIContent> nsEventStateManager::sPointerLockedElement = nsnull;
 nsCOMPtr<nsIContent> nsEventStateManager::sDragOverContent = nsnull;
 
 static PRUint32 gMouseOrKeyboardEventCounter = 0;
@@ -1152,6 +1152,9 @@ nsEventStateManager::PreHandleEvent(nsPresContext* aPresContext,
     GenerateDragGesture(aPresContext, (nsMouseEvent*)aEvent);
     UpdateCursor(aPresContext, aEvent, mCurrentTarget, aStatus);
     GenerateMouseEnterExit((nsGUIEvent*)aEvent);
+    // Flush pending layout changes, so that later mouse move events
+    // will go to the right nodes.
+    FlushPendingEvents(aPresContext);
     break;
   case NS_DRAGDROP_GESTURE:
     if (mClickHoldContextMenu) {
@@ -3900,7 +3903,7 @@ void
 nsEventStateManager::NotifyMouseOut(nsGUIEvent* aEvent, nsIContent* aMovingInto)
 {
   // If the mouse is locked, don't fire mouseout events
-  if (mPointerLockedElement) {
+  if (sPointerLockedElement) {
     return;
   }
 
@@ -3965,7 +3968,7 @@ void
 nsEventStateManager::NotifyMouseOver(nsGUIEvent* aEvent, nsIContent* aContent)
 {
   // If the mouse is locked, don't fire mouseover events
-  if (mPointerLockedElement) {
+  if (sPointerLockedElement) {
     return;
   }
 
@@ -4035,7 +4038,7 @@ nsEventStateManager::GenerateMouseEnterExit(nsGUIEvent* aEvent)
   switch(aEvent->message) {
   case NS_MOUSE_MOVE:
     {
-      if (mPointerLockedElement && aEvent->widget) {
+      if (sPointerLockedElement && aEvent->widget) {
         // Perform mouse lock by recentering the mouse directly, then remembering the deltas.
         nsIntRect bounds;
         aEvent->widget->GetScreenBounds(bounds);
@@ -4096,13 +4099,13 @@ nsEventStateManager::SetPointerLock(nsIWidget* aWidget,
 {
   // Remember which element is locked so we don't dispatch events for
   // elements that aren't locked. aElement will be nsnull when unlocking.
-  mPointerLockedElement = aElement;
+  sPointerLockedElement = aElement;
 
   if (!aWidget) {
     return;
   }
 
-  if (mPointerLockedElement) {
+  if (sPointerLockedElement) {
     // Store the last known ref point so we can reposition the pointer after unlock.
     mPreLockPoint = sLastRefPoint + sLastScreenOffset;
     nsIntRect bounds;
@@ -4123,7 +4126,7 @@ nsEventStateManager::SetLastScreenOffset(nsIntPoint aScreenOffset) {
 
 nsIntPoint
 nsEventStateManager::GetMouseCoords(nsIntRect aScreenBounds) {
-  nsCOMPtr<nsIDOMHTMLElement> lockedElement = do_QueryInterface(mPointerLockedElement);
+  nsCOMPtr<nsIDOMHTMLElement> lockedElement = do_QueryInterface(sPointerLockedElement);
   if (!lockedElement) {
     return nsIntPoint(0,0);
   }
@@ -4615,6 +4618,31 @@ nsEventStateManager::UpdateAncestorState(nsIContent* aStartNode,
     Element* labelTarget = GetLabelTarget(element);
     if (labelTarget) {
       DoStateChange(labelTarget, aState, aAddState);
+    }
+  }
+
+  if (aAddState) {
+    // We might be in a situation where a node was in hover both
+    // because it was hovered and because the label for it was
+    // hovered, and while we stopped hovering the node the label is
+    // still hovered.  Or we might have had two nested labels for the
+    // same node, and while one is no longer hovered the other still
+    // is.  In that situation, the label that's still hovered will be
+    // aStopBefore or some ancestor of it, and the call we just made
+    // to UpdateAncestorState with aAddState = false would have
+    // removed the hover state from the node.  But the node should
+    // still be in hover state.  To handle this situation we need to
+    // keep walking up the tree and any time we find a label mark its
+    // corresponding node as still in our state.
+    for ( ; aStartNode; aStartNode = aStartNode->GetParent()) {
+      if (!aStartNode->IsElement()) {
+        continue;
+      }
+
+      Element* labelTarget = GetLabelTarget(aStartNode->AsElement());
+      if (labelTarget && !labelTarget->State().HasState(aState)) {
+        DoStateChange(labelTarget, aState, true);
+      }
     }
   }
 }

@@ -481,7 +481,7 @@ private:
 
   PRInt32     mLockCursor;
   // The element that is mouse locked, if any.
-  static nsCOMPtr<nsIContent> mPointerLockedElement;
+  static nsCOMPtr<nsIContent> sPointerLockedElement;
   // Point when mouse was locked, used to reposition after unlocking.
   nsIntPoint  mPreLockPoint;
 

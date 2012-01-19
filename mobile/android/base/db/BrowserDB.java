@@ -53,7 +53,7 @@ public class BrowserDB {
     private static BrowserDBIface sDb;
 
     public interface BrowserDBIface {
-        public Cursor filter(ContentResolver cr, CharSequence constraint, int limit);
+        public Cursor filter(ContentResolver cr, CharSequence constraint, int limit, CharSequence urlFilter);
 
         public void updateVisitedHistory(ContentResolver cr, String uri);
 
@@ -83,13 +83,16 @@ public class BrowserDB {
     }
 
     static {
-        // FIXME: Still need to figure out how to use local or android
-        // database here.
-        sDb = new AndroidBrowserDB();
+        // Forcing local DB no option to switch to Android DB for now
+        sDb = new LocalBrowserDB(BrowserContract.DEFAULT_PROFILE);
+    }
+
+    public static Cursor filter(ContentResolver cr, CharSequence constraint, int limit, CharSequence urlFilter) {
+        return sDb.filter(cr, constraint, limit, urlFilter);
     }
 
     public static Cursor filter(ContentResolver cr, CharSequence constraint, int limit) {
-        return sDb.filter(cr, constraint, limit);
+        return sDb.filter(cr, constraint, limit, null);
     }
 
     public static void updateVisitedHistory(ContentResolver cr, String uri) {

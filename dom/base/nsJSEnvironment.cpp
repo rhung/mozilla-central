@@ -37,7 +37,6 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-#include "jscntxt.h"
 #include "nsJSEnvironment.h"
 #include "nsIScriptGlobalObject.h"
 #include "nsIScriptObjectPrincipal.h"
@@ -129,6 +128,8 @@ static PRLogModuleInfo* gJSDiagnostics;
 // a page) and doing the actual GC.
 #define NS_GC_DELAY                 4000 // ms
 
+#define NS_SHRINK_GC_BUFFERS_DELAY  4000 // ms
+
 // The amount of time we wait from the first request to GC to actually
 // doing the first GC.
 #define NS_FIRST_GC_DELAY           10000 // ms
@@ -142,6 +143,7 @@ static PRLogModuleInfo* gJSDiagnostics;
 // if you add statics here, add them to the list in nsJSRuntime::Startup
 
 static nsITimer *sGCTimer;
+static nsITimer *sShrinkGCBuffersTimer;
 static nsITimer *sCCTimer;
 
 static bool sGCHasRun;
@@ -228,7 +230,7 @@ private:
   }
 
   nsAutoTArray<jsval, 16> vals;
-  js::AutoArrayRooter avr;
+  JS::AutoArrayRooter avr;
 };
 
 /****************************************************************
@@ -371,18 +373,10 @@ public:
           ? "chrome javascript"
           : "content javascript";
 
-        nsCOMPtr<nsIScriptError2> error2(do_QueryInterface(errorObject));
-        if (error2) {
-          rv = error2->InitWithWindowID(mErrorMsg.get(), mFileName.get(),
-                                        mSourceLine.get(),
-                                        mLineNr, mColumn, mFlags,
-                                        category, mInnerWindowID);
-        } else {
-          rv = errorObject->Init(mErrorMsg.get(), mFileName.get(),
-                                 mSourceLine.get(),
-                                 mLineNr, mColumn, mFlags,
-                                 category);
-        }
+        rv = errorObject->InitWithWindowID(mErrorMsg.get(), mFileName.get(),
+                                           mSourceLine.get(),
+                                           mLineNr, mColumn, mFlags,
+                                           category, mInnerWindowID);
 
         if (NS_SUCCEEDED(rv)) {
           nsCOMPtr<nsIConsoleService> consoleService =
@@ -717,8 +711,7 @@ nsJSContext::DOMOperationCallback(JSContext *cx)
 
   // Check if we should offer the option to debug
   JSStackFrame* fp = ::JS_GetScriptedCaller(cx, NULL);
-  bool debugPossible = (fp != nsnull && cx->debugHooks &&
-                          cx->debugHooks->debuggerHandler != nsnull);
+  bool debugPossible = fp && js::CanCallContextDebugHandler(cx);
 #ifdef MOZ_JSDEBUGGER
   // Get the debugger service if necessary.
   if (debugPossible) {
@@ -847,10 +840,7 @@ nsJSContext::DOMOperationCallback(JSContext *cx)
   else if ((buttonPressed == 2) && debugPossible) {
     // Debug the script
     jsval rval;
-    switch(cx->debugHooks->debuggerHandler(cx, script, ::JS_GetFramePC(cx, fp),
-                                           &rval,
-                                           cx->debugHooks->
-                                           debuggerHandlerData)) {
+    switch (js::CallContextDebugHandler(cx, script, JS_GetFramePC(cx, fp), &rval)) {
       case JSTRAP_RETURN:
         JS_SetFrameReturnValue(cx, fp, rval);
         return JS_TRUE;
@@ -1106,8 +1096,9 @@ nsJSContext::~nsJSContext()
 void
 nsJSContext::DestroyJSContext()
 {
-  if (!mContext)
+  if (!mContext) {
     return;
+  }
 
   // Clear our entry in the JSContext, bugzilla bug 66413
   ::JS_SetContextPrivate(mContext, nsnull);
@@ -1116,14 +1107,14 @@ nsJSContext::DestroyJSContext()
   Preferences::UnregisterCallback(JSOptionChangedCallback,
                                   js_options_dot_str, this);
 
-  bool do_gc = mGCOnDestruction && !sGCTimer;
-
+  if (mGCOnDestruction) {
+    PokeGC();
+  }
+        
   // Let xpconnect destroy the JSContext when it thinks the time is right.
   nsIXPConnect *xpc = nsContentUtils::XPConnect();
   if (xpc) {
-    xpc->ReleaseJSContext(mContext, !do_gc);
-  } else if (do_gc) {
-    ::JS_DestroyContext(mContext);
+    xpc->ReleaseJSContext(mContext, true);
   } else {
     ::JS_DestroyContextNoGC(mContext);
   }
@@ -1135,7 +1126,7 @@ NS_IMPL_CYCLE_COLLECTION_CLASS(nsJSContext)
 NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN(nsJSContext)
 NS_IMPL_CYCLE_COLLECTION_TRACE_END
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsJSContext)
-  NS_ASSERTION(!tmp->mContext || tmp->mContext->outstandingRequests == 0,
+  NS_ASSERTION(!tmp->mContext || js::GetContextOutstandingRequests(tmp->mContext) == 0,
                "Trying to unlink a context with outstanding requests.");
   tmp->mIsInitialized = false;
   tmp->mGCOnDestruction = false;
@@ -1165,7 +1156,7 @@ nsJSContext::GetCCRefcnt()
 {
   nsrefcnt refcnt = mRefCnt.get();
   if (NS_LIKELY(mContext))
-    refcnt += mContext->outstandingRequests;
+    refcnt += js::GetContextOutstandingRequests(mContext);
   return refcnt;
 }
 
@@ -1907,7 +1898,7 @@ nsJSContext::CallEventHandler(nsISupports* aTarget, JSObject* aScope,
   nsresult rv = JSObjectFromInterface(aTarget, aScope, &target);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  js::AutoObjectRooter targetVal(mContext, target);
+  JS::AutoObjectRooter targetVal(mContext, target);
   jsval rval = JSVAL_VOID;
 
   // This one's a lot easier than EvaluateString because we don't have to
@@ -3232,6 +3223,7 @@ nsJSContext::GarbageCollectNow(bool shrinkingGC)
   SAMPLE_LABEL("GC", "GarbageCollectNow");
 
   KillGCTimer();
+  KillShrinkGCBuffersTimer();
 
   // Reset sPendingLoadCount in case the timer that fired was a
   // timer we scheduled due to a normal GC timer firing while
@@ -3245,6 +3237,18 @@ nsJSContext::GarbageCollectNow(bool shrinkingGC)
   if (nsContentUtils::XPConnect()) {
     nsContentUtils::XPConnect()->GarbageCollect(shrinkingGC);
   }
+}
+
+//static
+void
+nsJSContext::ShrinkGCBuffersNow()
+{
+  NS_TIME_FUNCTION_MIN(1.0);
+  SAMPLE_LABEL("GC", "ShrinkGCBuffersNow");
+
+  KillShrinkGCBuffersTimer();
+
+  JS_ShrinkGCBuffers(nsJSRuntime::sRuntime);
 }
 
 //Static
@@ -3302,6 +3306,14 @@ GCTimerFired(nsITimer *aTimer, void *aClosure)
   NS_RELEASE(sGCTimer);
 
   nsJSContext::GarbageCollectNow();
+}
+
+void
+ShrinkGCBuffersTimerFired(nsITimer *aTimer, void *aClosure)
+{
+  NS_RELEASE(sShrinkGCBuffersTimer);
+
+  nsJSContext::ShrinkGCBuffersNow();
 }
 
 // static
@@ -3369,6 +3381,26 @@ nsJSContext::PokeGC()
 
 // static
 void
+nsJSContext::PokeShrinkGCBuffers()
+{
+  if (sShrinkGCBuffersTimer) {
+    return;
+  }
+
+  CallCreateInstance("@mozilla.org/timer;1", &sShrinkGCBuffersTimer);
+
+  if (!sShrinkGCBuffersTimer) {
+    // Failed to create timer (probably because we're in XPCOM shutdown)
+    return;
+  }
+
+  sShrinkGCBuffersTimer->InitWithFuncCallback(ShrinkGCBuffersTimerFired, nsnull,
+                                              NS_SHRINK_GC_BUFFERS_DELAY,
+                                              nsITimer::TYPE_ONE_SHOT);
+}
+
+// static
+void
 nsJSContext::MaybePokeCC()
 {
   if (nsCycleCollector_suspectedCount() > 1000) {
@@ -3405,6 +3437,17 @@ nsJSContext::KillGCTimer()
     sGCTimer->Cancel();
 
     NS_RELEASE(sGCTimer);
+  }
+}
+
+//static
+void
+nsJSContext::KillShrinkGCBuffersTimer()
+{
+  if (sShrinkGCBuffersTimer) {
+    sShrinkGCBuffersTimer->Cancel();
+
+    NS_RELEASE(sShrinkGCBuffersTimer);
   }
 }
 
@@ -3473,10 +3516,11 @@ DOMGCFinishedCallback(JSRuntime *rt, JSCompartment *comp, const char *status)
     }
   }
 
-  // If we didn't end up scheduling a GC, and there are unused
-  // chunks waiting to expire, make sure we will GC again soon.
-  if (!sGCTimer && JS_GetGCParameter(rt, JSGC_UNUSED_CHUNKS) > 0) {
-    nsJSContext::PokeGC();
+  // If we didn't end up scheduling a GC, make sure that we release GC buffers
+  // soon after canceling previous shrinking attempt 
+  nsJSContext::KillShrinkGCBuffersTimer();
+  if (!sGCTimer) {
+    nsJSContext::PokeShrinkGCBuffers();
   }
 }
 
@@ -3816,6 +3860,7 @@ void
 nsJSRuntime::Shutdown()
 {
   nsJSContext::KillGCTimer();
+  nsJSContext::KillShrinkGCBuffersTimer();
   nsJSContext::KillCCTimer();
 
   NS_IF_RELEASE(gNameSpaceManager);

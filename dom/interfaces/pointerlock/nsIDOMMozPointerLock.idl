@@ -36,15 +36,15 @@
  * ***** END LICENSE BLOCK ***** */
 
 #include "domstubs.idl"
-#include "nsIDOMMozPointerLockSuccessCallback.idl"
-#include "nsIDOMMozPointerLockFailureCallback.idl"
+#include "nsIMozPointerLockSuccessCallback.idl"
+#include "nsIMozPointerLockFailureCallback.idl"
 
 [scriptable, uuid(12c0cd86-7cd6-4355-8e0a-6b42486f2b32)]
 interface nsIDOMMozPointerLock : nsISupports
 {
    void lock(           in nsIDOMElement target,
-             [optional] in nsIDOMMozPointerLockSuccessCallback successCallback,
-             [optional] in nsIDOMMozPointerLockFailureCallback failureCallback);
+             [optional] in nsIMozPointerLockSuccessCallback successCallback,
+             [optional] in nsIMozPointerLockFailureCallback failureCallback);
    void unlock();
-   boolean isLocked();
+   readonly attribute boolean isLocked;
 };

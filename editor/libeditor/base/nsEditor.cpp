@@ -121,6 +121,7 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/dom/Element.h"
 #include "nsContentUtils.h"
+#include "nsCCUncollectableMarker.h"
 
 #define NS_ERROR_EDITOR_NO_SELECTION NS_ERROR_GENERATE_FAILURE(NS_ERROR_MODULE_EDITOR,1)
 #define NS_ERROR_EDITOR_NO_TEXTNODE  NS_ERROR_GENERATE_FAILURE(NS_ERROR_MODULE_EDITOR,2)
@@ -199,6 +200,12 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsEditor)
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(nsEditor)
+ nsIDocument* currentDoc =
+   tmp->mRootElement ? tmp->mRootElement->GetCurrentDoc() : nsnull;
+ if (currentDoc &&
+     nsCCUncollectableMarker::InGeneration(cb, currentDoc->GetMarkedCCGeneration())) {
+   return NS_SUCCESS_INTERRUPTED_TRAVERSE;
+ }
  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(mRootElement)
  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(mInlineSpellChecker)
  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(mTxnMgr)
@@ -993,7 +1000,8 @@ nsEditor::EndPlaceHolderTransaction()
         // since that is the only known case where the placeholdertxn would disappear on us.
         // For now just removing the assert.
       }
-      // notify editor observers of action unless it is uncommitted IME
+      // notify editor observers of action but if composing, it's done by
+      // text event handler.
       if (!mInIMEMode) NotifyEditorObservers();
     }
   }
@@ -4198,15 +4206,6 @@ nsresult nsEditor::BeginUpdateViewBatch()
       nsCOMPtr<nsISelectionPrivate> selPrivate(do_QueryInterface(selection));
       selPrivate->StartBatchChanges();
     }
-
-    // Turn off view updating.
-    nsCOMPtr<nsIPresShell> ps = GetPresShell();
-    if (ps) {
-      nsCOMPtr<nsIViewManager> viewManager = ps->GetViewManager();
-      if (viewManager) {
-        mBatch.BeginUpdateViewBatch(viewManager);
-      }
-    }
   }
 
   mUpdateCount++;
@@ -4241,20 +4240,6 @@ nsresult nsEditor::EndUpdateViewBatch()
       caret = presShell->GetCaret();
 
     StCaretHider caretHider(caret);
-
-    PRUint32 flags = 0;
-
-    GetFlags(&flags);
-
-    // Turn view updating back on.
-    PRUint32 updateFlag = NS_VMREFRESH_IMMEDIATE;
-
-    // If we're doing async updates, use NS_VMREFRESH_DEFERRED here, so that
-    // the reflows we caused will get processed before the invalidates.
-    if (flags & nsIPlaintextEditor::eEditorUseAsyncUpdatesMask) {
-      updateFlag = NS_VMREFRESH_DEFERRED;
-    }
-    mBatch.EndUpdateViewBatch(updateFlag);
 
     // Turn selection updating and notifications back on.
 
@@ -4972,23 +4957,8 @@ nsEditor::CreateRange(nsIDOMNode *aStartParent, PRInt32 aStartOffset,
                       nsIDOMNode *aEndParent, PRInt32 aEndOffset,
                       nsIDOMRange **aRange)
 {
-  nsresult result;
-  result = CallCreateInstance("@mozilla.org/content/range;1", aRange);
-  NS_ENSURE_SUCCESS(result, result);
-
-  NS_ENSURE_TRUE(*aRange, NS_ERROR_NULL_POINTER);
-
-  result = (*aRange)->SetStart(aStartParent, aStartOffset);
-
-  if (NS_SUCCEEDED(result))
-    result = (*aRange)->SetEnd(aEndParent, aEndOffset);
-
-  if (NS_FAILED(result))
-  {
-    NS_RELEASE((*aRange));
-    *aRange = 0;
-  }
-  return result;
+  return nsRange::CreateRange(aStartParent, aStartOffset, aEndParent,
+                              aEndOffset, aRange);
 }
 
 nsresult 

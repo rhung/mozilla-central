@@ -48,7 +48,6 @@
 #include "nsIDOMNavigatorDesktopNotification.h"
 #include "nsIDOMClientInformation.h"
 #include "nsIDOMNavigatorBattery.h"
-#include "nsDOMMozPointerLock.h"
 #include "nsIDOMMozNavigatorPointerLock.h"
 #include "nsIDOMNavigatorSms.h"
 #include "nsAutoPtr.h"
@@ -59,6 +58,12 @@ class nsMimeTypeArray;
 class nsGeolocation;
 class nsDesktopNotificationCenter;
 class nsPIDOMWindow;
+class nsDOMMozPointerLock;
+
+#ifdef MOZ_B2G_RIL
+#include "nsIDOMNavigatorTelephony.h"
+class nsIDOMTelephony;
+#endif
 
 //*****************************************************************************
 // Navigator: Script "navigator" object
@@ -82,6 +87,9 @@ class Navigator : public nsIDOMNavigator,
                   public nsIDOMMozNavigatorBattery,
                   public nsIDOMMozNavigatorSms,
                   public nsIDOMMozNavigatorPointerLock
+#ifdef MOZ_B2G_RIL
+                , public nsIDOMNavigatorTelephony
+#endif
 {
 public:
   Navigator(nsPIDOMWindow *aInnerWindow);
@@ -96,6 +104,10 @@ public:
   NS_DECL_NSIDOMMOZNAVIGATORSMS
   NS_DECL_NSIDOMMOZNAVIGATORPOINTERLOCK
 
+#ifdef MOZ_B2G_RIL
+  NS_DECL_NSIDOMNAVIGATORTELEPHONY
+#endif
+
   static void Init();
 
   void Invalidate();
@@ -107,6 +119,11 @@ public:
 
   PRInt64 SizeOf() const;
 
+  /**
+   * For use during document.write where our inner window changes.
+   */
+  void SetWindow(nsPIDOMWindow *aInnerWindow);
+
 private:
   bool IsSmsAllowed() const;
   bool IsSmsSupported() const;
@@ -117,6 +134,9 @@ private:
   nsRefPtr<nsDesktopNotificationCenter> mNotification;
   nsRefPtr<battery::BatteryManager> mBatteryManager;
   nsRefPtr<sms::SmsManager> mSmsManager;
+#ifdef MOZ_B2G_RIL
+  nsCOMPtr<nsIDOMTelephony> mTelephony;
+#endif
   nsWeakPtr mWindow;
   nsRefPtr<nsDOMMozPointerLock> mPointer;
 };

@@ -184,43 +184,39 @@ nsTableFrame::GetType() const
 
 
 nsTableFrame::nsTableFrame(nsStyleContext* aContext)
-  : nsHTMLContainerFrame(aContext),
+  : nsContainerFrame(aContext),
     mCellMap(nsnull),
     mTableLayoutStrategy(nsnull)
 {
-  mBits.mHaveReflowedColGroups  = false;
-  mBits.mCellSpansPctCol        = false;
-  mBits.mNeedToCalcBCBorders    = false;
-  mBits.mIsBorderCollapse       = false;
-  mBits.mResizedColumns         = false; // only really matters if splitting
-  mBits.mGeometryDirty          = false;
+  memset(&mBits, 0, sizeof(mBits));
 }
 
 NS_QUERYFRAME_HEAD(nsTableFrame)
   NS_QUERYFRAME_ENTRY(nsITableLayout)
-NS_QUERYFRAME_TAIL_INHERITING(nsHTMLContainerFrame)
+NS_QUERYFRAME_TAIL_INHERITING(nsContainerFrame)
 
 NS_IMETHODIMP
 nsTableFrame::Init(nsIContent*      aContent,
                    nsIFrame*        aParent,
                    nsIFrame*        aPrevInFlow)
 {
-  nsresult  rv;
+  NS_PRECONDITION(!mCellMap, "Init called twice");
+  NS_PRECONDITION(!aPrevInFlow ||
+                  aPrevInFlow->GetType() == nsGkAtoms::tableFrame,
+                  "prev-in-flow must be of same type");
 
   // Let the base class do its processing
-  rv = nsHTMLContainerFrame::Init(aContent, aParent, aPrevInFlow);
+  nsresult rv = nsContainerFrame::Init(aContent, aParent, aPrevInFlow);
 
   // see if border collapse is on, if so set it
   const nsStyleTableBorder* tableStyle = GetStyleTableBorder();
   bool borderCollapse = (NS_STYLE_BORDER_COLLAPSE == tableStyle->mBorderCollapse);
   SetBorderCollapse(borderCollapse);
-  // Create the cell map
+  // Create the cell map if this frame is the first-in-flow.
   if (!aPrevInFlow) {
     mCellMap = new nsTableCellMap(*this, borderCollapse);
     if (!mCellMap)
       return NS_ERROR_OUT_OF_MEMORY;
-  } else {
-    mCellMap = nsnull;
   }
 
   if (aPrevInFlow) {
@@ -242,25 +238,17 @@ nsTableFrame::Init(nsIContent*      aContent,
   return rv;
 }
 
-
 nsTableFrame::~nsTableFrame()
 {
-  if (nsnull!=mCellMap) {
-    delete mCellMap;
-    mCellMap = nsnull;
-  }
-
-  if (nsnull!=mTableLayoutStrategy) {
-    delete mTableLayoutStrategy;
-    mTableLayoutStrategy = nsnull;
-  }
+  delete mCellMap;
+  delete mTableLayoutStrategy;
 }
 
 void
 nsTableFrame::DestroyFrom(nsIFrame* aDestructRoot)
 {
   mColGroups.DestroyFramesFrom(aDestructRoot);
-  nsHTMLContainerFrame::DestroyFrom(aDestructRoot);
+  nsContainerFrame::DestroyFrom(aDestructRoot);
 }
 
 // Make sure any views are positioned properly
@@ -1060,13 +1048,13 @@ nsTableFrame::GetChildList(ChildListID aListID) const
   if (aListID == kColGroupList) {
     return mColGroups;
   }
-  return nsHTMLContainerFrame::GetChildList(aListID);
+  return nsContainerFrame::GetChildList(aListID);
 }
 
 void
 nsTableFrame::GetChildLists(nsTArray<ChildList>* aLists) const
 {
-  nsHTMLContainerFrame::GetChildLists(aLists);
+  nsContainerFrame::GetChildLists(aLists);
   mColGroups.AppendIfNonempty(aLists, kColGroupList);
 }
 
@@ -1469,7 +1457,7 @@ nsTableFrame::MarkIntrinsicWidthsDirty()
 
   // XXXldb Call SetBCDamageArea?
 
-  nsHTMLContainerFrame::MarkIntrinsicWidthsDirty();
+  nsContainerFrame::MarkIntrinsicWidthsDirty();
 }
 
 /* virtual */ nscoord
@@ -1498,7 +1486,7 @@ nsTableFrame::GetPrefWidth(nsRenderingContext *aRenderingContext)
 nsTableFrame::IntrinsicWidthOffsets(nsRenderingContext* aRenderingContext)
 {
   IntrinsicWidthOffsetData result =
-    nsHTMLContainerFrame::IntrinsicWidthOffsets(aRenderingContext);
+    nsContainerFrame::IntrinsicWidthOffsets(aRenderingContext);
 
   result.hMargin = 0;
   result.hPctMargin = 0;
@@ -1521,9 +1509,8 @@ nsTableFrame::ComputeSize(nsRenderingContext *aRenderingContext,
                           bool aShrinkWrap)
 {
   nsSize result =
-    nsHTMLContainerFrame::ComputeSize(aRenderingContext, aCBSize,
-                                      aAvailableWidth,
-                                      aMargin, aBorder, aPadding, aShrinkWrap);
+    nsContainerFrame::ComputeSize(aRenderingContext, aCBSize, aAvailableWidth,
+                                  aMargin, aBorder, aPadding, aShrinkWrap);
 
   // Tables never shrink below their min width.
   nscoord minWidth = GetMinWidth(aRenderingContext);
@@ -2042,30 +2029,30 @@ nsTableFrame::GetCollapsedWidth(nsMargin aBorderPadding)
 /* virtual */ void
 nsTableFrame::DidSetStyleContext(nsStyleContext* aOldStyleContext)
 {
-   if (!aOldStyleContext) //avoid this on init
-     return;
+  if (!aOldStyleContext) //avoid this on init
+    return;
 
-   if (IsBorderCollapse() &&
-       BCRecalcNeeded(aOldStyleContext, GetStyleContext())) {
-     SetFullBCDamageArea();
-   }
+  if (IsBorderCollapse() &&
+      BCRecalcNeeded(aOldStyleContext, GetStyleContext())) {
+    SetFullBCDamageArea();
+  }
 
-   //avoid this on init or nextinflow
-   if (!mTableLayoutStrategy || GetPrevInFlow())
-     return;
+  //avoid this on init or nextinflow
+  if (!mTableLayoutStrategy || GetPrevInFlow())
+    return;
 
-   bool isAuto = IsAutoLayout();
-   if (isAuto != (LayoutStrategy()->GetType() == nsITableLayoutStrategy::Auto)) {
-     nsITableLayoutStrategy* temp;
-     if (isAuto)
-       temp = new BasicTableLayoutStrategy(this);
-     else
-       temp = new FixedTableLayoutStrategy(this);
+  bool isAuto = IsAutoLayout();
+  if (isAuto != (LayoutStrategy()->GetType() == nsITableLayoutStrategy::Auto)) {
+    nsITableLayoutStrategy* temp;
+    if (isAuto)
+      temp = new BasicTableLayoutStrategy(this);
+    else
+      temp = new FixedTableLayoutStrategy(this);
 
-     if (temp) {
-       delete mTableLayoutStrategy;
-       mTableLayoutStrategy = temp;
-     }
+    if (temp) {
+      delete mTableLayoutStrategy;
+      mTableLayoutStrategy = temp;
+    }
   }
 }
 
@@ -2322,7 +2309,7 @@ nsTableFrame::RemoveFrame(ChildListID     aListID,
 nsTableFrame::GetUsedBorder() const
 {
   if (!IsBorderCollapse())
-    return nsHTMLContainerFrame::GetUsedBorder();
+    return nsContainerFrame::GetUsedBorder();
 
   return GetIncludedOuterBCBorder();
 }
@@ -2331,7 +2318,7 @@ nsTableFrame::GetUsedBorder() const
 nsTableFrame::GetUsedPadding() const
 {
   if (!IsBorderCollapse())
-    return nsHTMLContainerFrame::GetUsedPadding();
+    return nsContainerFrame::GetUsedPadding();
 
   return nsMargin(0,0,0,0);
 }
@@ -3308,20 +3295,12 @@ nsTableFrame::DistributeHeightToRows(const nsHTMLReflowState& aReflowState,
 
 PRInt32 nsTableFrame::GetColumnWidth(PRInt32 aColIndex)
 {
-  nsTableFrame * firstInFlow = (nsTableFrame *)GetFirstInFlow();
-  NS_ASSERTION(firstInFlow, "illegal state -- no first in flow");
-  PRInt32 result = 0;
+  nsTableFrame* firstInFlow = static_cast<nsTableFrame*>(GetFirstInFlow());
   if (this == firstInFlow) {
     nsTableColFrame* colFrame = GetColFrame(aColIndex);
-    if (colFrame) {
-      result = colFrame->GetFinalWidth();
-    }
+    return colFrame ? colFrame->GetFinalWidth() : 0;
   }
-  else {
-    result = firstInFlow->GetColumnWidth(aColIndex);
-  }
-
-  return result;
+  return firstInFlow->GetColumnWidth(aColIndex);
 }
 
 // XXX: could cache this.  But be sure to check style changes if you do!
@@ -3373,18 +3352,15 @@ NS_NewTableFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 NS_IMPL_FRAMEARENA_HELPERS(nsTableFrame)
 
 nsTableFrame*
-nsTableFrame::GetTableFrame(nsIFrame* aSourceFrame)
+nsTableFrame::GetTableFrame(nsIFrame* aFrame)
 {
-  if (aSourceFrame) {
-    // "result" is the result of intermediate calls, not the result we return from this method
-    for (nsIFrame* parentFrame = aSourceFrame->GetParent(); parentFrame;
-         parentFrame = parentFrame->GetParent()) {
-      if (nsGkAtoms::tableFrame == parentFrame->GetType()) {
-        return (nsTableFrame*)parentFrame;
-      }
+  for (nsIFrame* ancestor = aFrame->GetParent(); ancestor;
+       ancestor = ancestor->GetParent()) {
+    if (nsGkAtoms::tableFrame == ancestor->GetType()) {
+      return static_cast<nsTableFrame*>(ancestor);
     }
   }
-  NS_NOTREACHED("unable to find table parent");
+  NS_RUNTIMEABORT("unable to find table parent");
   return nsnull;
 }
 
@@ -3590,14 +3566,8 @@ void nsTableIterator::Init(nsIFrame* aFirstChild)
   }
 
   nsTableFrame* table = nsTableFrame::GetTableFrame(mFirstChild);
-  if (table) {
-    mLeftToRight = (NS_STYLE_DIRECTION_LTR ==
-                    table->GetStyleVisibility()->mDirection);
-  }
-  else {
-    NS_NOTREACHED("source of table iterator is not part of a table");
-    return;
-  }
+  mLeftToRight = (NS_STYLE_DIRECTION_LTR ==
+                  table->GetStyleVisibility()->mDirection);
 
   if (!mLeftToRight) {
     mCount = 0;
@@ -5059,7 +5029,7 @@ nsTableFrame::ExpandBCDamageArea(nsRect& aRect) const
       else if ((dEndY >= rgStartY) && (dEndY <= rgEndY)) {
         // the damage area ends in the row group
         iterStartY = rgStartY;
-        iterEndY   = NS_MIN(dEndY, rgStartY);
+        iterEndY   = dEndY;
       }
       else if ((rgStartY >= dStartY) && (rgEndY <= dEndY)) {
         // the damage area contains the row group
@@ -6234,8 +6204,7 @@ BCPaintBorderIterator::SetDamageArea(nsRect aDirtyRect)
       if (haveIntersect) {
         if (aDirtyRect.YMost() >= (rowY - topBorderHalf)) {
           nsTableRowFrame* fifRow =
-            (nsTableRowFrame*)rowFrame->GetFirstInFlow();
-          if (!fifRow) ABORT1(false);
+            static_cast<nsTableRowFrame*>(rowFrame->GetFirstInFlow());
           endRowIndex = fifRow->GetRowIndex();
         }
         else done = true;
@@ -6245,8 +6214,7 @@ BCPaintBorderIterator::SetDamageArea(nsRect aDirtyRect)
           mStartRg  = rgFrame;
           mStartRow = rowFrame;
           nsTableRowFrame* fifRow =
-            (nsTableRowFrame*)rowFrame->GetFirstInFlow();
-          if (!fifRow) ABORT1(false);
+            static_cast<nsTableRowFrame*>(rowFrame->GetFirstInFlow());
           startRowIndex = endRowIndex = fifRow->GetRowIndex();
           haveIntersect = true;
         }
