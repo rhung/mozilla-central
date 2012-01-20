@@ -53,7 +53,6 @@ include $(DEPTH)/config/autoconf.mk
 include $(topsrcdir)/config/rules.mk
 
 _TEST_FILES	= \
-    test_mouseLockable.html \
     test_FullScreenHarness.html \
     mouselock_util.js \
     file_defaultUnlock.html \
