@@ -28,14 +28,13 @@
     </div>
 
     <pre id="test">
-    <script type="text/javascript">
+    <script type="application/javascript">
       /** Test for Bug 633602 **/
       SimpleTest.waitForExplicitFinish();
 
-      var pointer   =  navigator.mozPointer,
-          finish    = false,
-          parentDiv,
-          childDiv;
+      var pointer = navigator.mozPointer;
+      var finish = false;
+      var parentDiv, childDiv;
 
       document.addEventListener("mozfullscreenchange", function() {
         // Must call document.mozCancelFullScreen twice, since there are
