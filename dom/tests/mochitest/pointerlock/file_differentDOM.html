@@ -17,11 +17,11 @@
     </style>
   </head>
   <body>
-    <a target="_blank" 
+    <a target="_blank"
       href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">
       Mozilla Bug 633602
     </a>
-    <iframe id="iframe" src="iframe_differentDOM.html" mozallowfullscreen="true" 
+    <iframe id="iframe" src="iframe_differentDOM.html" mozallowfullscreen="true"
       style="display: none" onload="start();" >
     </iframe>
     <pre id="test">
@@ -60,8 +60,7 @@
                     "different DOM Tree pointer should NOT be locked");
                   iDoc.mozCancelFullScreen();
                 });
-              }
-              else {
+              } else {
                 SimpleTest.finish();
               }
             }, false);

@@ -28,7 +28,7 @@
     </div>
 
     <pre id="test">
-    <script type="application/javascript">
+    <script type="text/javascript">
       /** Test for Bug 633602 **/
       SimpleTest.waitForExplicitFinish();
 
@@ -44,15 +44,13 @@
           // Cancel fullscreen on parentDiv
           document.mozCancelFullScreen();
           SimpleTest.finish();
-        }
-        else if (document.mozFullScreenElement === parentDiv) {
+        } else if (document.mozFullScreenElement === parentDiv) {
           pointer.lock(parentDiv, function () {
             // Mouse should be locked to the parentDiv
             ok (pointer.isLocked, "Mouse should be locked to parentDiv");
             childDiv.mozRequestFullScreen();
           });
-        }
-        else if (document.mozFullScreenElement === childDiv) {
+        } else if (document.mozFullScreenElement === childDiv) {
           // Mouse wasn't locked to childDiv, it was locked to parentDiv
           // If childDiv receives fullscreen, mouse should be unlocked
           is(pointer.isLocked, false, "Mouse shouldn't be locked to childDiv");
