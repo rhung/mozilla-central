@@ -33,21 +33,15 @@
       SimpleTest.waitForExplicitFinish();
 
       var pointer = navigator.mozPointer;
-      var finish = false;
       var parentDiv, childDiv;
 
       document.addEventListener("mozfullscreenchange", function() {
         // Must call document.mozCancelFullScreen twice, since there are
         // two nested elements in fullscreen mode
-        if (finish) {
-          finish = false;
-          // Cancel fullscreen on parentDiv
-          document.mozCancelFullScreen();
-          SimpleTest.finish();
-        } else if (document.mozFullScreenElement === parentDiv) {
+        if (document.mozFullScreenElement === parentDiv) {
           pointer.lock(parentDiv, function () {
             // Mouse should be locked to the parentDiv
-            ok (pointer.isLocked, "Mouse should be locked to parentDiv");
+            ok(pointer.isLocked, "Mouse should be locked to parentDiv");
             childDiv.mozRequestFullScreen();
           });
         } else if (document.mozFullScreenElement === childDiv) {
@@ -57,10 +51,12 @@
           finish = true;
           // Cancel fullscreen on childDiv
           document.mozCancelFullScreen();
+          SimpleTest.finish();
         }
       }, false);
 
-      function start() {
+      function start()
+      {
         parentDiv = document.getElementById("parentDiv");
         childDiv = document.getElementById("childDiv");
 
