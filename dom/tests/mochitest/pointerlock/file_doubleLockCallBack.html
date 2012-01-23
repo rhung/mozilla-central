@@ -31,7 +31,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
         SimpleTest.waitForExplicitFinish();
 
         SimpleTest.waitForFocus(function() {
-          var pointer = navigator.pointer,
+          var pointer = navigator.mozPointer,
             testElement = document.getElementById("test-element");
 
           document.addEventListener("mozfullscreenchange", function (e) {
@@ -40,15 +40,16 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
               pointer.lock(
                 testElement,
                 function () {
-                  pointer.lock(testElement,
+                  pointer.lock(
+                    testElement,
                     function() {
-                      ok(pointer.islocked(),
+                      ok(pointer.isLocked,
                          "Mouse was not locked when success callback fired");
                       document.mozCancelFullScreen();
                       SimpleTest.finish();
                     },
                     function() {
-                      ok(false, "Mouse couldn't double lock same element");
+                      ok(false, "Mouse couldn't lock the same element twice");
                       SimpleTest.finish();
                     }
                   );
