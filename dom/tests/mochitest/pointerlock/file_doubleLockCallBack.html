@@ -28,7 +28,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
       //This test checks to ensure that if pointer.lock is called on the same
       //element twice, it still fires the successful lock callback both times.
       SimpleTest.waitForExplicitFinish();
-      var pointer = navigator.pointer;
+      var pointer = navigator.mozPointer;
       var testElement = document.getElementById("test-element");
 
       document.addEventListener("mozfullscreenchange", function (e) {
