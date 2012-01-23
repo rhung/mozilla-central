@@ -48,14 +48,14 @@
               is(pointer.isLocked, false, "Pointer should be unlocked when " +
                 "an element is removed the DOM Tree");
               document.mozCancelFullScreen();
-             }, function () {
+            }, function () {
               /* Failure callback shouldn't fire when element is attached to
                  a DOM Tree and in fullscreen mode */
               ok(pointer.isLocked, "Mouse should be locked when DOM " +
                 "element is in the tree and failure callback should NOT be " +
                 "dispatched");
               document.mozCancelFullScreen();
-             });
+            });
           } else {
             SimpleTest.finish();
           }
