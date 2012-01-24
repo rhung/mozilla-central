@@ -5,42 +5,69 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
 -->
 <head>
   <title>Test for Bug 633602</title>
-  <script src="/tests/SimpleTest/SimpleTest.js"></script>
-  <script src="/tests/SimpleTest/EventUtils.js"></script>
-	<script type="text/javascript" src="/tests/SimpleTest/EventUtils.js">      
+  <script type="application/javascript" src="/tests/SimpleTest/EventUtils.js">
   </script>
-  <script type="application/javascript" src="mouselock_util.js">      
+  <script type="application/javascript" src="/tests/SimpleTest/SimpleTest.js">
   </script>
+  <script type="application/javascript" src="mouselock_util.js"></script>
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
 </head>
 <body>
   <a target="_blank"
-	   href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">
-		   Mozilla Bug 633602
-	</a>
-
-  <p id="display"></p>
-
-  <div id="content" style="display: none">
-  </div>
+       href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">
+    Mozilla Bug 633602
+  </a>
   <canvas id="canvas" width="150" height="150"></canvas>
   <pre id="test">
-    <script>
+    <script type="text/javascript">
+      /** Test for Bug 633602 **/
+      /*
+        Check that the mouselock is unlocked on default key. Namely ESC
+        Also check that another key ('a' in this case) does not cause a unlock
+      */
       SimpleTest.waitForExplicitFinish();
-      var utils = window.QueryInterface(
-	                Components.interfaces.nsIInterfaceRequestor
-					).getInterface(Components.interfaces.nsIDOMWindowUtils);
-
-      var defaultTest = function(e) {
-
+      netscape.security.PrivilegeManager.enablePrivilege("UniversalXPConnect");
       //Local Variables
-        var canvas = document.getElementById("canvas");
-        var pointer = navigator.pointer;
-        var runOnce = false;
+      var canvas = document.getElementById("canvas");
+      var pointer = navigator.mozPointer;
+      var runOnce = false;
 
+      var utils = window.
+                  QueryInterface(Components.interfaces.nsIInterfaceRequestor).
+                  getInterface(Components.interfaces.nsIDOMWindowUtils);
+
+      document.addEventListener("mozfullscreenchange", function(e) {
+        if (document.mozFullScreen && 
+            document.mozFullScreenElement === blueBox) {
+          pointer.lock(canvas, function() {
+              // Success Callback
+              ok(pointer.isLocked, "Mouse locked on fullscreen");
+              // Check mouse is not unlocked by non-default key, 'a'
+              utils.sendKeyEvent("keydown", 97, 97, 0);
+              utils.sendKeyEvent("keyup", 97, 97, 0);
+              setTimeout(function() {
+                ok(pointer.isLocked, "Mouse still locked on key event 'a'");
+              },1000);
+              // Check mouse is unlocked on default key "ESC"
+              utils.sendKeyEvent("keydown", 27, 27, 0);
+              utils.sendKeyEvent("keyup", 27, 27, 0);
+              setTimeout(function() {
+                ok(pointer.isLocked, "Mouse unlocked on key event 'ESC'");
+              },1000);
+            }, function() {
+              // Failure Callback
+              ok(pointer.isLocked, "pointer.lock() failed to lock mouse");
+          });
+        } else {
+          //ok(document.mozFullScreen, "failed to enter fullscreen");
+          SimpleTest.finish();
+        }
+      }, false);
+      
+      /*var defaultTest = function(e) {
         //Local Functions
         var onLockGet = function(e) {
-          ok(pointer.islocked(),
+          ok(pointer.isLocked,
              "Element should be locked after the lock() function is called");
           netscape.security.PrivilegeManager.enablePrivilege("UniversalXPConnect");
           utils.sendKeyEvent("keydown", 27, 27, 0);
@@ -51,6 +78,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
             SimpleTest.finish();
           },1000);
         };
+        
         var onLockFail = function(e) {
           ok(false,"Lock()'s failed callback was called, lock() did not succeed");
           SimpleTest.finish();
@@ -64,12 +92,18 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
 
       //Full screen
         document.body.mozRequestFullScreen();
-        document.addEventListener("mozfullscreenchange",onFullScreen,false);
-
         canvas.focus();
         canvas.mozRequestFullScreen();
       };
-      defaultTest();
+      defaultTest();*/
+      
+      function start()
+      {
+        SimpleTest.waitForFocus(function() {
+          //document.body.mozRequestFullScreen();
+          canvas.mozRequestFullScreen();
+        });
+      }
     </script>
   </pre>
 </body>

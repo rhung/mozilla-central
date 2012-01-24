@@ -13,7 +13,7 @@
     </script>
     <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
   </head>
-  <body>
+  <body onload="start();">
     <a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi
 			?id=633602">Mozilla Bug 633602</a>
     <p id="display">
@@ -27,25 +27,29 @@
       </div>
     </div>
     <pre id="test">
-      <script type="application/javascript">
+      <script type="text/javascript">
         /** Test for Bug 633602 **/
         /** This test is to verify that the mouselocklost event fired by
             the browser has the bubbles attribute set to true, and
             the target attribute is the correct element **/
         SimpleTest.waitForExplicitFinish();
-        var pointer = navigator.pointer;
+        var pointer = navigator.mozPointer;
         var blueBox = document.getElementById("blueBox");
         var firstTest = true;
+        
         document.addEventListener("mozfullscreenchange", function() {
-          if (document.mozFullScreen) {
+          if (document.mozFullScreen && 
+              document.mozFullScreenElement === blueBox) {
             // If we've locked on to the blueBox element, proceed with test
-            if (document.mozFullScreenElement === blueBox) {
-              pointer.lock(blueBox, function(){
-                pointer.unlock();
-              });
-            }
+            pointer.lock(blueBox, function(){
+              pointer.unlock();
+            });
+          } else {
+            ok(pointer.isLocked, "Element failed to enter fullscreen");
+            SimpleTest.finish();
           }
         }, false);
+        
         blueBox.addEventListener("mouselocklost", function(e) {
           // First test scenario: calling pointer.unlock() and testing the
           // mouselockevent attributes
@@ -58,17 +62,22 @@
             pointer.lock(blueBox, function() {
               document.mozCancelFullScreen();
             });
-          }
-          // Second test scenario: calling document.mozCancelFullScreen() 
-          // and testing the mouselockevent attributes
-          else if (!firstTest) {
+          } else if (!firstTest) {
+            // Second test scenario: calling document.mozCancelFullScreen() 
+            // and testing the mouselockevent attributes
             ok(e.bubbles, "mozCancelFullScreen request - The mouselocklost \
               event should have it's bubbles attribute set to true");
             is(e.target.id, "blueBox", "target should be blueBox");
             SimpleTest.finish();
           }
         }, false);
-      blueBox.mozRequestFullScreen();
+        
+        function start()
+        {
+          SimpleTest.waitForFocus(function() {
+            blueBox.mozRequestFullScreen();
+          });
+        }
       </script>
     </pre>
   </body>
