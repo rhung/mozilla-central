@@ -41,7 +41,7 @@
 
           SimpleTest.waitForExplicitFinish();
           SimpleTest.waitForFocus(function() {
-            const pointer = navigator.pointer,
+            const pointer = navigator.mozPointer,
               canvas = document.getElementById("canvas");
 
             var lockTestDone = false,
@@ -55,7 +55,7 @@
                     pointer.lock(
                       canvas,
                       function() {
-                        ok(pointer.islocked(),
+                        ok(pointer.isLocked(),
                            "Mouse wasn't locked when success callback fired");
 
                         finish = true;
@@ -72,17 +72,17 @@
                     pointer.lock(
                       canvas,
                       function() {
-                        ok(pointer.islocked(),
+                        ok(pointer.isLocked(),
                            "Mouse wasn't locked when success callback fired");
                         pointer.unlock();
 
-                        isnot(pointer.islocked(), true,
+                        isnot(pointer.isLocked(), true,
                               "Mouse was locked after unlock call");
 
                         pointer.lock(
                           canvas,
                           function() {
-                            ok(pointer.islocked(),
+                            ok(pointer.isLocked(),
                                "Mouse unlocked when success callback fired " +
                                "after relock");
                             lockTestDone = true;
@@ -113,7 +113,7 @@
                       SimpleTest.finish();
                     },
                     function() {
-                      isnot(pointer.islocked(), true,
+                      isnot(pointer.isLocked(), true,
                             "Mouse was locked when failure callback was fired");
                       unlockTestDone = true;
 
@@ -132,7 +132,7 @@
                       SimpleTest.finish();
                     },
                     function() {
-                      isnot(pointer.islocked(), true,
+                      isnot(pointer.isLocked(), true,
                             "Mouse was locked when failure callback was fired");
 
                       document.body.mozRequestFullScreen();
@@ -142,7 +142,7 @@
                   canvas.mozRequestFullScreen();
                 }
               } else {
-                isnot(pointer.islocked(), true,
+                isnot(pointer.isLocked(), true,
                       "Mouse did not unlock after fullscreen was taken away");
 
                 SimpleTest.finish();
@@ -158,7 +158,7 @@
                 SimpleTest.finish();
               },
               function() {
-                isnot(pointer.islocked(), true,
+                isnot(pointer.isLocked(), true,
                       "Mouse was locked when failure callback was fired");
 
                 canvas.mozRequestFullScreen();
