@@ -32,42 +32,24 @@
         SimpleTest.waitForExplicitFinish();
         var pointer = navigator.mozPointer;
         var blueBox = document.getElementById("blueBox");
-        var firstTest = true;
 
         document.addEventListener("mozfullscreenchange", function() {
           if (document.mozFullScreen &&
               document.mozFullScreenElement === blueBox) {
             // If we've locked on to the blueBox element, proceed with test
             pointer.lock(blueBox, function(){
-              ok(pointer.isLocked, "Mouse is lock to element");
               pointer.unlock();
             });
-          }/* else {
-            ok(pointer.isLocked, "Element failed to enter fullscreen");
-            SimpleTest.finish();
-          }*/
+          }
         }, false);
 
         blueBox.addEventListener("mozpointerlocklost", function(e) {
-          // First test scenario: calling pointer.unlock() and testing the
-          // mouselockevent attributes
-          if (firstTest) {
-            firstTest = false;
-            ok(e.bubbles, "Manual unlock request - The mouselocklost event " +
-              "should have it's bubbles attribute set to true");
-            is((e.target || e.srcElement).id, "blueBox", "target should be blueBox");
-            // Pending no problems, begin second test
-            pointer.lock(blueBox, function() {
-              document.mozCancelFullScreen();
-            });
-          } else if (!firstTest) {
-            // Second test scenario: calling document.mozCancelFullScreen()
-            // and testing the mouselockevent attributes
-            ok(e.bubbles, "mozCancelFullScreen request - The mouselocklost " +
-              "event should have it's bubbles attribute set to true");
-            is((e.target || e.srcElement).id, "blueBox", "target should be blueBox");
-            SimpleTest.finish();
-          }
+          // Since pointer.unlock() and mozCancelFullScreen calls the same function,
+          // seperate test for each case is not needed
+          ok(e.bubbles, "Manual unlock request - The mouselocklost event " +
+            "should have it's bubbles attribute set to true");
+          is((e.target || e.srcElement).id, "blueBox", "target should be blueBox");
+          SimpleTest.finish();
         }, false);
 
         function start()
