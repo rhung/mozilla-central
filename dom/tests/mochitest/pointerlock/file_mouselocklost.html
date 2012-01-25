@@ -58,7 +58,7 @@
             is((e.target || e.srcElement).id, "blueBox", "target should be blueBox");
             // Pending no problems, begin second test
             pointer.lock(blueBox, function() {
-              document.mozCancelFullScreen();
+              blueBox.mozCancelFullScreen();
             });
           } else if (!firstTest) {
             // Second test scenario: calling document.mozCancelFullScreen()
