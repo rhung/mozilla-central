@@ -3818,6 +3818,20 @@ nsEventStateManager::DispatchMouseEvent(nsGUIEvent* aEvent, PRUint32 aMessage,
                                         nsIContent* aTargetContent,
                                         nsIContent* aRelatedContent)
 {
+  // http://dvcs.w3.org/hg/webevents/raw-file/default/mouse-lock.html#methods
+  // "[When the mouse is locked on an element...e]vents that require the concept
+  // of a mouse cursor must not be dispatched (for example: mouseover, mouseout).
+  if ((aEvent->flags & NS_EVENT_FLAG_STOP_DISPATCH) ||
+      (sPointerLockedElement &&
+        (aMessage == NS_MOUSELEAVE ||
+         aMessage == NS_MOUSEENTER ||
+         aMessage == NS_MOUSE_ENTER_SYNTH ||
+         aMessage == NS_MOUSE_EXIT_SYNTH))) {
+    fprintf(stderr, "Bailing\n");
+    mCurrentTargetContent = nsnull;
+    return mPresContext->GetPrimaryFrameFor(sPointerLockedElement);
+  }
+
   SAMPLE_LABEL("Input", "DispatchMouseEvent");
   nsEventStatus status = nsEventStatus_eIgnore;
   nsMouseEvent event(NS_IS_TRUSTED_EVENT(aEvent), aMessage, aEvent->widget,
@@ -3902,11 +3916,6 @@ public:
 void
 nsEventStateManager::NotifyMouseOut(nsGUIEvent* aEvent, nsIContent* aMovingInto)
 {
-  // If the mouse is locked, don't fire mouseout events
-  if (sPointerLockedElement) {
-    return;
-  }
-
   if (!mLastMouseOverElement)
     return;
   // Before firing mouseout, check for recursion
@@ -3967,11 +3976,6 @@ nsEventStateManager::NotifyMouseOut(nsGUIEvent* aEvent, nsIContent* aMovingInto)
 void
 nsEventStateManager::NotifyMouseOver(nsGUIEvent* aEvent, nsIContent* aContent)
 {
-  // If the mouse is locked, don't fire mouseover events
-  if (sPointerLockedElement) {
-    return;
-  }
-
   NS_ASSERTION(aContent, "Mouse must be over something");
 
   if (mLastMouseOverElement == aContent)
