@@ -44,11 +44,11 @@
         }, false);
 
         blueBox.addEventListener("mozpointerlocklost", function(e) {
-          // Since pointer.unlock() and mozCancelFullScreen calls the same function,
-          // seperate test for each case is not needed
+          // Since pointer.unlock() and mozCancelFullScreen calls the same
+          // function, seperate test for each case is not needed
           ok(e.bubbles, "Manual unlock request - The mouselocklost event " +
             "should have it's bubbles attribute set to true");
-          is((e.target || e.srcElement).id, "blueBox", "target should be blueBox");
+          is((e.target || e.srcElement).id, "blueBox", "target is blueBox");
           SimpleTest.finish();
         }, false);
 
