@@ -33,9 +33,9 @@
         var pointer = navigator.mozPointer;
         var blueBox = document.getElementById("blueBox");
         var firstTest = true;
-        
+
         document.addEventListener("mozfullscreenchange", function() {
-          if (document.mozFullScreen && 
+          if (document.mozFullScreen &&
               document.mozFullScreenElement === blueBox) {
             // If we've locked on to the blueBox element, proceed with test
             pointer.lock(blueBox, function(){
@@ -47,7 +47,7 @@
             SimpleTest.finish();
           }*/
         }, false);
-        
+
         blueBox.addEventListener("pointerlocklost", function(e) {
           // First test scenario: calling pointer.unlock() and testing the
           // mouselockevent attributes
@@ -55,13 +55,13 @@
             firstTest = false;
             ok(e.bubbles, "Manual unlock request - The mouselocklost event " +
               "should have it's bubbles attribute set to true");
-            is(e.target.id, "blueBox", "target should be blueBox");
+            is((e.target || e.srcElement).id, "blueBox", "target should be blueBox");
             // Pending no problems, begin second test
             pointer.lock(blueBox, function() {
               document.mozCancelFullScreen();
             });
           } else if (!firstTest) {
-            // Second test scenario: calling document.mozCancelFullScreen() 
+            // Second test scenario: calling document.mozCancelFullScreen()
             // and testing the mouselockevent attributes
             ok(e.bubbles, "mozCancelFullScreen request - The mouselocklost " +
               "event should have it's bubbles attribute set to true");
@@ -69,7 +69,7 @@
             SimpleTest.finish();
           }
         }, false);
-        
+
         function start()
         {
           SimpleTest.waitForFocus(function() {
