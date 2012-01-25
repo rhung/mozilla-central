@@ -3852,8 +3852,9 @@ nsEventStateManager::DispatchMouseEvent(nsGUIEvent* aEvent, PRUint32 aMessage,
   nsIFrame* targetFrame = nsnull;
   if (aTargetContent) {
     nsESMEventCB callback(aTargetContent);
-    nsEventDispatcher::Dispatch(aTargetContent, mPresContext, &event, nsnull,
-                                &status, &callback);
+//XXXhumph: not sure if this is right, an experiment at the moment to retarget the element...
+    nsEventDispatcher::Dispatch(sPointerLockedElement ? sPointerLockedElement.get() : aTargetContent,
+                                mPresContext, &event, nsnull, &status, &callback);
 
     // Although the primary frame was checked in event callback, 
     // it may not be the same object after event dispatching and handling.
