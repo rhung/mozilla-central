@@ -4120,16 +4120,18 @@ nsEventStateManager::SetPointerLock(nsIWidget* aWidget,
 }
 
 void
-nsEventStateManager::SetLastScreenOffset(nsIntPoint aScreenOffset) {
+nsEventStateManager::SetLastScreenOffset(nsIntPoint aScreenOffset)
+{
   sLastScreenOffset = aScreenOffset;
 }
 
 nsIntPoint
-nsEventStateManager::GetMouseCoords(nsIntRect aScreenBounds) {
-  nsCOMPtr<nsIDOMHTMLElement> lockedElement = do_QueryInterface(sPointerLockedElement);
-  if (!lockedElement) {
-    return nsIntPoint(0,0);
-  }
+nsEventStateManager::GetMouseCoords(nsIntRect aScreenBounds)
+{
+  NS_ASSERTION(sPointerLockedElement, "sPointerLockedElement is null in GetMouseCoords!");
+
+  nsCOMPtr<nsIDOMHTMLElement> lockedElement =
+    do_QueryInterface(sPointerLockedElement);
 
   nsCOMPtr<nsIDOMDocument> domDoc;
   lockedElement->GetOwnerDocument(getter_AddRefs(domDoc));

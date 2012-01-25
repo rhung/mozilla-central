@@ -372,7 +372,7 @@ nsDOMMozPointerLock::NodeWillBeDestroyed(const nsINode* aNode)
 }
 
 // nsPointerLockRequest
-NS_IMPL_THREADSAFE_ISUPPORTS0(nsPointerLockRequest)
+NS_IMPL_ISUPPORTS0(nsPointerLockRequest)
 
 nsPointerLockRequest::nsPointerLockRequest(
   nsIContent* aContent,

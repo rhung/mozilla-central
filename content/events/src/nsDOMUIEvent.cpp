@@ -145,10 +145,6 @@ nsDOMUIEvent::IsPointerLocked()
   nsCOMPtr<nsIDOMMozNavigatorPointerLock> navigatorPointerLock =
     do_QueryInterface(navigator);
 
-  if (!navigatorPointerLock) {
-    return false;
-  }
-
   nsCOMPtr<nsIDOMMozPointerLock> pointer;
   navigatorPointerLock->GetMozPointer(getter_AddRefs(pointer));
   if (!pointer) {
