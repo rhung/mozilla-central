@@ -14,7 +14,7 @@
     <link rel="stylesheet" type="text/css"
           href="/tests/SimpleTest/test.css" />
   </head>
-  <body onload="runTests();">
+  <body onload="start();">
     <a target="_blank"
        href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">
       Mozilla Bug 633602</a>
@@ -29,7 +29,7 @@
         SimpleTest.waitForExplicitFinish();
 
         var pointer = navigator.mozPointer;
-        var canvas;
+        var canvas = document.getElementById("canvas");
         SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only",
                                   false);
 
@@ -68,8 +68,7 @@
 
         document.addEventListener("mozfullscreenchange", doTests, false);
 
-        function runTests() {
-          canvas = document.getElementById("canvas");
+        function start() {
           pointer.lock(canvas, function() {}, function() {
             is(pointer.isLocked, false, "Mouse lock can't be locked if " +
                "user preference is set to true.");
