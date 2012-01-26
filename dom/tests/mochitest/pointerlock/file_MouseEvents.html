@@ -198,6 +198,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
             "DOMMouseScroll event did not fire normally.");
           is(innerResult.innerHTML.substr(7,1), '1',
             "Click event did not fire normally.");
+          is(innerResult.innerHTML.substr(8,1), '1',
+            "mousemove event did not fire normally.");
           is(outerResult.innerHTML.substr(0,1), '1',
             "Right mouseup event did not bubble to the outer element.");
           is(outerResult.innerHTML.substr(1,1), '1',
@@ -214,6 +216,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
             "DOMMouseScroll event did not bubble to the outer element.");
           is(outerResult.innerHTML.substr(7,1), '1',
             "Click event did not bubble to the outer element.");
+          is(outerResult.innerHTML.substr(8,1), '1',
+            "mousemove event did not bubble to the outer element.");
           outer.removeEventListener('mousemove', mouseTests, false);
           SimpleTest.finish();
         }
