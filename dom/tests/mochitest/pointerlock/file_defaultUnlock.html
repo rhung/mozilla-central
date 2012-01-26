@@ -12,7 +12,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
   <script type="application/javascript" src="mouselock_util.js"></script>
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
 </head>
-<body>
+<body onload="start();">
   <a target="_blank"
        href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">
     Mozilla Bug 633602
@@ -26,14 +26,13 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
         Also check that another key ('a' in this case) does not cause a unlock
       */
       SimpleTest.waitForExplicitFinish();
-      netscape.security.PrivilegeManager.enablePrivilege("UniversalXPConnect");
       //Local Variables
       var canvas = document.getElementById("canvas");
       var pointer = navigator.mozPointer;
       var runOnce = false;
       var utils = window.
-                  QueryInterface(Components.interfaces.nsIInterfaceRequestor).
-                  getInterface(Components.interfaces.nsIDOMWindowUtils);
+                    QueryInterface(Components.interfaces.nsIInterfaceRequestor).
+                    getInterface(Components.interfaces.nsIDOMWindowUtils);
 
       document.addEventListener("mozfullscreenchange", function(e) {
         if (document.mozFullScreen && 
@@ -42,12 +41,16 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
               // Success Callback
               ok(pointer.isLocked, "Mouse locked on fullscreen");
               // Check mouse is not unlocked by non-default key, 'a'
+              netscape.security.
+                PrivilegeManager.enablePrivilege("UniversalXPConnect");
               utils.sendKeyEvent("keydown", 97, 97, 0);
               utils.sendKeyEvent("keyup", 97, 97, 0);
               setTimeout(function() {
                 ok(pointer.isLocked, "Mouse still locked on key event 'a'");
               },1000);
               // Check mouse is unlocked on default key "ESC"
+              netscape.security.
+                PrivilegeManager.enablePrivilege("UniversalXPConnect");
               utils.sendKeyEvent("keydown", 27, 27, 0);
               utils.sendKeyEvent("keyup", 27, 27, 0);
               setTimeout(function() {
@@ -100,6 +103,11 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
       {
         SimpleTest.waitForFocus(function() {
           //document.body.mozRequestFullScreen();
+          pointer.lock(canvas, function() {
+            ok(pointer.isLocked, "mouse locked");
+          }, function() {
+            isnot(pointer.isLocked, true, "mouse not locked");
+          });
           canvas.mozRequestFullScreen();
         });
       }
