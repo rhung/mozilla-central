@@ -42,53 +42,23 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
       var divWidth = 0;
       var divHeight = 0;
 
-      // Hold the values for screenX/Y clientX/Y when the mouse itsn't locked
-      var screenXUnlocked = 0;
-      var screenYUnlocked = 0;
-      var clientXUnlocked = 0;
-      var clientYUnlocked = 0;
-
+      var prevScreenX = 0;
+      var prevScreenY = 0;
+      
       var moveUnlocked = function (e) {
         // Mouse should be unlocked here
-        is(pointer.isLocked(), false, "Mouse should be unlocked");
-        // clientX/clientY should be equal to divWidth/divHeight
-        // since the mouse isn't locked
-        is(e.clientX, divWidth, "clientX should be dynamic since mouse isn't "
-          + " locked");
-        is(e.clientY, divHeight, "clientY should be dynamic since mouse isn't "
-          + " locked");
-        screenXUnlocked = e.screenX;
-        screenYUnlocked = e.screenY;
-        clientXUnlocked = e.clientX;
-        clientYUnlocked = e.clientY;
-
+        is(pointer.isLocked, false, "Mouse should be unlocked");
+        // clientXY should be equal to divWidth/divHeight since the 
+        // mouse isn't locked
+        is(e.clientX, divWidth, "clientX should be equal to the width of div " +
+          "element when mouse isn't locked");
+        is(e.clientY, divHeight, "clientY should be equal to the height of " +
+          "div  element when mouse isn't locked");
+        prevScreenX = e.screenX;
+        prevScreenY = e.screenY;
+        
         // Remove the current mousemove listener from "div" and add a new one
         div.removeEventListener("mousemove", moveUnlocked, false);
-        div.addEventListener("mousemove", moveUnlockedAgain, false);
-
-        // Move the mouse to coords divWidth and divHeight
-        synthesizeMouse(div, divWidth+10, divHeight+10, {
-          type: "mousemove"
-        }, window);
-      };
-
-      var moveUnlockedAgain = function (e) {
-        // Mouse should be unlocked here
-        is(pointer.isLocked(), false, "Mouse should be unlocked");
-        // clientX/clientY should be equal to divWidth+10/divHeight+10
-        // since the mouse isn't locked
-        is(e.clientX, divWidth+10, "clientX should be dynamic since "
-          + " mouse isn't locked");
-        is(e.clientY, divHeight+10, "clientY should be dynamic since "
-          + " mouse isn't locked");
-
-        screenXUnlocked = e.screenX;
-        screenYUnlocked = e.screenY;
-        clientXUnlocked = e.clientX;
-        clientYUnlocked = e.clientY;
-
-        // Remove the current mousemove listener from "div" and add a new one
-        div.removeEventListener("mousemove", moveUnlockedAgain, false);
         div.addEventListener("mousemove", moveLocked, false);
 
         pointer.lock(div, function () {
@@ -101,20 +71,13 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
 
       var moveLocked = function (e) {
         // Mouse should be locked here
-        ok(pointer.isLocked(), "Mouse should be locked");
-        // When mouse lock is enabled clientX, clientY, screenX, and screenY
-        // must hold constant values 
-        // as if the mouse did not move at all once mouse lock was entered
-        is(e.screenX, screenXUnlocked, "screenX must hold constant value "
-          + " as if the mouse did not move at all once mouse was lock");
-        is(e.screenY, screenYUnlocked, "screenY must hold constant value " 
-          +" as if the mouse did not move at all once mouse was lock");
-        is(e.clientX, clientXUnlocked, "clientX must hold constant value "
-          + " as if the mouse did not move at all once mouse was lock");
-        is(e.clientY, clientYUnlocked, "clientY must hold constant value "
-          + " as if the mouse did not move at all once mouse was lock");
-
-        div.removeEventListener("mousemove", moveLocked, false);
+        ok(pointer.isLocked, "Mouse should be locked");
+        // clientXY and screenXY should be equal to zero when
+        // the mouse is locked
+        is(e.clientX, divWidth, "clientX should be equal to 0 when mouse is locked");
+        is(e.clientY, divHeight, "clientY should be equal to 0 when mouse is locked");
+        is(e.screenX, prevScreenX, "screenX should be equal to 0 when mouse is locked");
+        is(e.screenY, prevScreenY, "screenY should be equal to 0 when mouse is locked");
 
         document.mozCancelFullScreen();
       };
