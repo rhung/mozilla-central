@@ -31,7 +31,6 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
       var canvas = document.getElementById("canvas");
       var pointer = navigator.mozPointer;
       var runOnce = false;
-
       var utils = window.
                   QueryInterface(Components.interfaces.nsIInterfaceRequestor).
                   getInterface(Components.interfaces.nsIDOMWindowUtils);
@@ -73,7 +72,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
           utils.sendKeyEvent("keydown", 27, 27, 0);
           utils.sendKeyEvent("keyup", 27, 27, 0);
           setTimeout(function() {
-            ok(!pointer.islocked(),
+            ok(!pointer.isLocked,
                "Element should be unlock after ESC key was injected");
             SimpleTest.finish();
           },1000);
