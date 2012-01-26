@@ -38,7 +38,7 @@
 
         document.addEventListener("mozfullscreenchange", function() {
           if (document.mozFullScreenElement === div) {
-            input.addEventListener('focus', function() {
+            input.addEventListener("focus", function() {
               /*  Lock the mouse if the focused element is not the element
                   being locked */
               pointer.lock(
@@ -46,7 +46,7 @@
                 function () {
                   /*  Even when the element being locked is not in focus
                       the mouse should be locked */
-                  ok(pointer.isLocked(), "Mouse should be locked even if " +
+                  ok(pointer.isLocked, "Mouse should be locked even if " +
                     "the element being locked is not focused");
                   document.mozCancelFullScreen();
                 }

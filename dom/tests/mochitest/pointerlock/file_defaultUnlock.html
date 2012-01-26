@@ -35,18 +35,18 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
 
       //Local Variables
         var canvas = document.getElementById("canvas");
-        var pointer = navigator.pointer;
+        var pointer = navigator.mozPointer;
         var runOnce = false;
 
         //Local Functions
         var onLockGet = function(e) {
-          ok(pointer.islocked(),
+          ok(pointer.isLocked,
              "Element should be locked after the lock() function is called");
           netscape.security.PrivilegeManager.enablePrivilege("UniversalXPConnect");
           utils.sendKeyEvent("keydown", 27, 27, 0);
           utils.sendKeyEvent("keyup", 27, 27, 0);
           setTimeout(function() {
-            ok(!pointer.islocked(),
+            ok(!pointer.isLocked,
                "Element should be unlock after ESC key was injected");
             SimpleTest.finish();
           },1000);

@@ -71,7 +71,6 @@ _TEST_FILES	= \
     file_unlockOnUnload.html \
     file_exitMouseLockOnLoseFocus.html \
     file_differentDOM.html \
-    iframe_differentDOM.html \
     $(NULL)
 
 libs::	$(_TEST_FILES)
