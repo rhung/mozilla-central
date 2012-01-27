@@ -3821,13 +3821,11 @@ nsEventStateManager::DispatchMouseEvent(nsGUIEvent* aEvent, PRUint32 aMessage,
   // http://dvcs.w3.org/hg/webevents/raw-file/default/mouse-lock.html#methods
   // "[When the mouse is locked on an element...e]vents that require the concept
   // of a mouse cursor must not be dispatched (for example: mouseover, mouseout).
-  if ((aEvent->flags & NS_EVENT_FLAG_STOP_DISPATCH) ||
-      (sPointerLockedElement &&
-        (aMessage == NS_MOUSELEAVE ||
-         aMessage == NS_MOUSEENTER ||
-         aMessage == NS_MOUSE_ENTER_SYNTH ||
-         aMessage == NS_MOUSE_EXIT_SYNTH))) {
-    fprintf(stderr, "Bailing\n");
+  if (sPointerLockedElement &&
+      (aMessage == NS_MOUSELEAVE ||
+       aMessage == NS_MOUSEENTER ||
+       aMessage == NS_MOUSE_ENTER_SYNTH ||
+       aMessage == NS_MOUSE_EXIT_SYNTH)) {
     mCurrentTargetContent = nsnull;
     return mPresContext->GetPrimaryFrameFor(sPointerLockedElement);
   }
@@ -4118,15 +4116,14 @@ nsEventStateManager::SetPointerLock(nsIWidget* aWidget,
     sLastRefPoint = GetMouseCoords(bounds);
     aWidget->SynthesizeNativeMouseMove(sLastRefPoint);
 
-    // Retarget all events to this element.
-    nsIPresShell::SetCapturingContent(aElement, CAPTURE_RETARGETTOELEMENT |
-                                                CAPTURE_IGNOREALLOWED);
+    // Retarget all events to this element via capture.
+    nsIPresShell::SetCapturingContent(aElement, CAPTURE_POINTERLOCK);
   } else {
     // Unlocking, so return pointer to the original position
     aWidget->SynthesizeNativeMouseMove(mPreLockPoint);
 
     // Don't retarget events to this element any more.
-    nsIPresShell::SetCapturingContent(nsnull, 0);
+    nsIPresShell::SetCapturingContent(nsnull, CAPTURE_POINTERLOCK);
   }
 }
 

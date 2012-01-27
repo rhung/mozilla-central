@@ -131,18 +131,21 @@ class LayerManager;
 #define CAPTURE_RETARGETTOELEMENT 2
 // true if the current capture wants drags to be prevented
 #define CAPTURE_PREVENTDRAG 4
+// true when the mouse is pointer locked, and events are sent to locked elemnt
+#define CAPTURE_POINTERLOCK 8
 
 typedef struct CapturingContentInfo {
   // capture should only be allowed during a mousedown event
   bool mAllowed;
+  bool mPointerLock;
   bool mRetargetToElement;
   bool mPreventDrag;
   nsIContent* mContent;
 } CapturingContentInfo;
 
 #define NS_IPRESSHELL_IID    \
-{ 0x3ab5b116, 0x2d73, 0x431c, \
- { 0x9a, 0x4b, 0x6c, 0x91, 0x9e, 0x42, 0x45, 0xc3 } }
+{ 0x43d1a6ad, 0xb8ab, 0x445e, \
+ { 0xa4, 0xc2, 0x73, 0xd4, 0x1e, 0xe6, 0x11, 0x6c } }
 
 // Constants for ScrollContentIntoView() function
 #define NS_PRESSHELL_SCROLL_TOP      0
@@ -1063,6 +1066,11 @@ public:
    *
    * If CAPTURE_PREVENTDRAG is set then drags are prevented from starting while
    * this capture is active.
+   *
+   * If CAPTURE_POINTERLOCK is set, similar to CAPTURE_RETARGETTOELEMENT, then
+   * events are targeted at aContent, but capturing is held more strongly (i.e.,
+   * calls to SetCapturingContent won't unlock unless CAPTURE_POINTERLOCK is
+   * set again).
    */
   static void SetCapturingContent(nsIContent* aContent, PRUint8 aFlags);
 
