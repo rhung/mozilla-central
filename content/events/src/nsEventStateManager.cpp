@@ -4133,7 +4133,7 @@ nsEventStateManager::GetMouseCoords()
   nsIntRect screenRect = sPointerLockedElement->GetPrimaryFrame()->GetScreenRect();
 
   return nsIntPoint((screenRect.width/2) + screenRect.x,
-                        (screenRect.height/2) + screenRect.y);
+                   (screenRect.height/2) + screenRect.y);
 }
 
 void
