@@ -30,13 +30,13 @@
       /** Test for Bug 633602 **/
 
       /*
-          This test validates the following requirements:
-          -pointer.isLocked returns true if mouse is locked, false otherwise.
-          -that lock expects 3 arguments, a DOM element, a success callback
-          and a failure callback.
-          -that lock returns immediately and calls callbacks when lock
-          succeeds or fails.
-          -that unlock cancels the locked state.
+       * This test validates the following requirements:
+       * -pointer.isLocked returns true if mouse is locked, false otherwise.
+       * -that lock expects 3 arguments, a DOM element, a success callback
+       * and a failure callback.
+       * -that lock returns immediately and calls callbacks when lock
+       * succeeds or fails.
+       * -that unlock cancels the locked state.
        */
       SimpleTest.waitForExplicitFinish();
       const pointer = navigator.mozPointer;
@@ -116,8 +116,7 @@
       }, false);
 
 
-      function start()
-      {
+      function start() {
         SimpleTest.waitForFocus(function() {
           pointer.lock(canvas, function() {
             ok(false, "Success callback - pointer should not be locked as " +

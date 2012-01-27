@@ -26,7 +26,12 @@
 
     <pre id="test">
     <script type="application/javascript">
-      /** Test for Bug 633602 **/
+      /*
+       * Test for Bug 633602 
+       * Check that when there is a nested HTML tag, lock is not allowed
+       * to the child element when parent is in lock
+       */
+      
       SimpleTest.waitForExplicitFinish();
 
       var pointer = navigator.mozPointer;
@@ -70,4 +75,3 @@
     </pre>
   </body>
 </html>
-

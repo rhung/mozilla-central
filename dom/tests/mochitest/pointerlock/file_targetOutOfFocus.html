@@ -25,10 +25,11 @@
     <pre id="test">
       <script type="application/javascript">
         /** Test for Bug 633602 **/
-        /*  Checks if an element can be locked even withouth focus
-            It gives the focus to an input element and then tries to lock
-            the pointer to a div
-            The lock should be successful
+        /*
+         * Checks if an element can be locked even withouth focus
+         * It gives the focus to an input element and then tries to lock
+         * the pointer to a div
+         * The lock should be successful
         */
         SimpleTest.waitForExplicitFinish();
 
@@ -39,13 +40,17 @@
         document.addEventListener("mozfullscreenchange", function() {
           if (document.mozFullScreenElement === div) {
             input.addEventListener("focus", function() {
-              /*  Lock the mouse if the focused element is not the element
-                  being locked */
+              /*
+               * Lock the mouse if the focused element is not the element
+               * being locked
+               */
               pointer.lock(
                 div,
                 function () {
-                  /*  Even when the element being locked is not in focus
-                      the mouse should be locked */
+                  /*
+                   * Even when the element being locked is not in focus
+                   * the mouse should be locked
+                   */
                   ok(pointer.isLocked, "Mouse should be locked even if " +
                     "the element being locked is not focused");
                   document.mozCancelFullScreen();
@@ -53,7 +58,7 @@
               );
             }, false);
             input.focus();
-          } 
+          }
           else {
             SimpleTest.finish();
           }

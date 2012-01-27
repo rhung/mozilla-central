@@ -22,14 +22,13 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
     <script type="text/javascript">
       /** Test for Bug 633602 **/
       /*
-        Check that the mouselock is unlocked on default key. Namely ESC
-        Also check that another key ('a' in this case) does not cause a unlock
-      */
+       *  Check that the mouselock is unlocked on default key. Namely ESC
+       *  Also check that another key ('a' in this case) does not cause a unlock
+       */
       SimpleTest.waitForExplicitFinish();
       //Local Variables
       var canvas = document.getElementById("canvas");
       var pointer = navigator.mozPointer;
-      var runOnce = false;
       var gKeyTestIndex = 0;
       var gKeyName;
       var gKeyCode;
@@ -41,8 +40,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
         { code: "VK_ESCAPE", suppressed: false},
       ];
 
-      function keyHandler(event)
-      {
+      function keyHandler(event) {
         gKeyReceived = true;
       }
 
@@ -50,8 +48,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
       window.addEventListener("keypress", keyHandler, false);
       window.addEventListener("keyup", keyHandler, false);
 
-      function checkKeyEffect()
-      {
+      function checkKeyEffect() {
         if (gKeyName === "VK_ESCAPE") {
           is(pointer.isLocked, false,
              "Mouselock lost for " + gKeyName + " key press");
@@ -67,16 +64,14 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
         }
       }
 
-      function testTrustedKeyEvents()
-      {
+      function testTrustedKeyEvents() {
         document.body.focus();
         gKeyReceived = false;
         synthesizeKey(gKeyName, {});
         setTimeout(checkKeyEffect, 0);
       }
 
-      function testScriptInitiatedKeyEvents()
-      {
+      function testScriptInitiatedKeyEvents() {
         // Script initiated untrusted key events
         // should not cause full-screen exit.
         document.body.focus();
@@ -104,8 +99,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
            "Mouselock shouldn't be lost to script initiated events for " + gKeyName);
       }
 
-      function testNextKey()
-      {
+      function testNextKey() {
         if (!document.mozFullScreen) {
           canvas.mozRequestFullScreen();
         }
@@ -140,8 +134,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
         }
       }, false);
       
-      function start()
-      {
+      function start() {
         SimpleTest.waitForFocus(function() {
           //document.body.mozRequestFullScreen();
           pointer.lock(canvas, function() {

@@ -29,14 +29,13 @@
         /** Test for Bug 633602 **/
 
         /*
-          Checks if element belongs to the same DOM as the pointer
-          It loads an iframe, and tries to lock a div from the iframe
-          to the pointer of the parent page. That should fail, since
-          the div belongs to a different DOM.
-        */
+         *  Checks if element belongs to the same DOM as the pointer
+         *  It loads an iframe, and tries to lock a div from the iframe
+         *  to the pointer of the parent page. That should fail, since
+         *  the div belongs to a different DOM.
+         */
 
-        function start()
-        {
+        function start() {
           SimpleTest.waitForFocus(function() {
             var pointer = navigator.mozPointer;
             // Gets a reference to the iframe's div
