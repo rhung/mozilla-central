@@ -39,23 +39,23 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
             document.mozFullScreenElement === canvas) {
           pointer.lock(canvas, function() {
               // Success Callback
-              ok(pointer.isLocked, "Mouse locked on fullscreen");
-              // Check mouse is not unlocked by non-default key, 'a'
               netscape.security.
                 PrivilegeManager.enablePrivilege("UniversalXPConnect");
+              ok(pointer.isLocked, "Mouse locked on fullscreen");
+              // Check mouse is not unlocked by non-default key, 'a'
               utils.sendKeyEvent("keydown", 97, 97, 0);
               utils.sendKeyEvent("keyup", 97, 97, 0);
               setTimeout(function() {
                 ok(pointer.isLocked, "Mouse still locked on key event 'a'");
-              },1000);
+              },500);
               // Check mouse is unlocked on default key "ESC"
               netscape.security.
                 PrivilegeManager.enablePrivilege("UniversalXPConnect");
               utils.sendKeyEvent("keydown", 27, 27, 0);
               utils.sendKeyEvent("keyup", 27, 27, 0);
               setTimeout(function() {
-                ok(pointer.isLocked, "Mouse unlocked on key event 'ESC'");
-              },1000);
+                is(pointer.isLocked, false, "KeyEvent 'ESC', Mouse unlocked");
+              },500);
             }, function() {
               // Failure Callback
               ok(pointer.isLocked, "pointer.lock() failed to lock mouse");
