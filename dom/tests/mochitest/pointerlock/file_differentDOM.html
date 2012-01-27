@@ -17,11 +17,11 @@
     </style>
   </head>
   <body>
-    <a target="_blank" 
+    <a target="_blank"
       href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">
       Mozilla Bug 633602
     </a>
-    <iframe id="iframe" src="iframe_differentDOM.html" mozallowfullscreen="true" 
+    <iframe id="iframe" src="iframe_differentDOM.html" mozallowfullscreen="true"
       style="display: none" onload="start();" >
     </iframe>
     <pre id="test">
@@ -35,7 +35,8 @@
           the div belongs to a different DOM.
         */
 
-        function start() {
+        function start()
+        {
           SimpleTest.waitForFocus(function() {
             var pointer = navigator.mozPointer;
             // Gets a reference to the iframe's div
@@ -49,19 +50,18 @@
                 pointer.lock(div, function () {
                   /* The success callback shouldn't be fired, since the
                      element being locked belongs to a different DOM */
-                  is(pointer.isLocked(), false, "If an element belongs to a " +
+                  is(pointer.isLocked, false, "If an element belongs to a " +
                     "different DOM Tree pointer should NOT be locked and " +
                     "success callback should NOT be dispatched");
                   iDoc.mozCancelFullScreen();
                 }, function () {
                   /* Pointer shouldn't be locked if the element being locked
                      belongs to a different DOM */
-                  is(pointer.isLocked(), false, "If an element belongs to a " +
+                  is(pointer.isLocked, false, "If an element belongs to a " +
                     "different DOM Tree pointer should NOT be locked");
                   iDoc.mozCancelFullScreen();
                 });
-              }
-              else {
+              } else {
                 SimpleTest.finish();
               }
             }, false);
