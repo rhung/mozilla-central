@@ -30,12 +30,13 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
   </div>
   <pre id="test">
     <script type="application/javascript">
-      /** Test will check to make sure that the following mouse events can be
-       ** executed prior to mouse lock and after mouse lock.
-       **   - mouseover, mouseout, mouseenter, mouseleave
-       **   - click, mousedown, mouseup, DOMMouseScroll
-       ** Mousedown and mouseup tests left, middle, and right mouse buttons.
-       **/
+      /*
+       * Test will check to make sure that the following mouse events can be
+       * executed prior to mouse lock and after mouse lock.
+       *   - mouseover, mouseout, mouseenter, mouseleave
+       *   - click, mousedown, mouseup, DOMMouseScroll
+       * Mousedown and mouseup tests left, middle, and right mouse buttons.
+       */
       SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only",
         false);
       const RIGHT_MOUSE_CLICK = 2;

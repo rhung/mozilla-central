@@ -17,26 +17,28 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
       href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">
       Mozilla Bug 633602
     </a>
-
     <div id="div"></div>
-
     <pre id="test">
       <script type="application/javascript">
-        /** Test for Bug 633602 **/
-        /** This test checks if mozMovementX and mozMovementY
-            are present in a mouse event object.
-            It also checks the values for mozMovementXY.
-            They should be equal to the current screenXY minus
-            the last screenXY **/
+        /*
+         * Test for Bug 633602
+         * This test checks if mozMovementX and mozMovementY 
+         * are present in a mouse event object.
+         * It also checks the values for mozMovementXY.
+         * They should be equal to the current screenXY minus
+         * the last screenXY
+         * This test will also test that the incremental movement does
+         * not exceed the width of the screen eventually.
+         */
 
         SimpleTest.waitForExplicitFinish();
 
         // The width and height of a div element
         // These values will be used to move the mouse
-        var divWidth = 0,
-            divHeight = 0,
-            div,
-            ePrevious;
+        var divWidth = 0;
+        var divHeight = 0;
+        var div;
+        var ePrevious;
 
         var moveMouse = function (e) {
           // Mouse event object should have both mozMovementX and mozMovementY
@@ -56,8 +58,10 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
         };
 
         var moveMouseAgain = function (e) {
-          /** mozMovementXY should be equal to the current screenXY 
-              minus last screenXY **/
+          /*
+           * mozMovementXY should be equal to the current screenXY
+           * minus last screenXY
+           */
           is(e.mozMovementX, e.screenX - ePrevious.screenX, "mozMovementX " +
             "should be equal to eNow.screenX-ePrevious.screenX");
           is(e.mozMovementY, e.screenY - ePrevious.screenY, "mozMovementY " +
@@ -88,7 +92,6 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
         function start() {
           div = document.getElementById("div");
           div.addEventListener("mousemove", moveMouse, false);
-
           SimpleTest.waitForFocus(function() {
             div.mozRequestFullScreen();
           });
