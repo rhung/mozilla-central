@@ -24,9 +24,10 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
   </div>
   <pre id="test">
     <script type="text/javascript">
-      /** Test for Bug 633602 **/
-      //This test checks to ensure that mouse lock is lost when a
-      //window unloads
+      /*
+       * Test for Bug 633602 
+       * This test checks to ensure that mouselock is lost when window unloads
+       */
       SimpleTest.waitForExplicitFinish();
       var pointer = navigator.mozPointer;
       var testElement = document.getElementById("test-element");
@@ -44,8 +45,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
         }
       }, false);
 
-      function start()
-      {
+      function start() {
         SimpleTest.waitForFocus(function() {
           testElement.mozRequestFullScreen();
         });

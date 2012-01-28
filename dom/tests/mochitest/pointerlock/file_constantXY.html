@@ -23,17 +23,16 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
 
   <pre id="test">
     <script type="application/javascript">
-      /** Test for Bug 633602 **/
-      /**
-      The mouse is moved when it's not locked
-      Then the mouse is moved when it is locked
-      When the mouse isn't locked, the clientXY and screenXY should
-      have values representing their respectives positions on the screen
-      However, when the mouse is locked, they all should be equal to zero
-      **/
+      /*
+       * Test for Bug 633602
+       * The mouse is moved when it's not locked
+       * Then the mouse is moved when it is locked
+       * When the mouse isn't locked, the clientXY and screenXY should
+       * have values representing their respectives positions on the screen
+       * However, when the mouse is locked, they all should be equal to zero
+       */
 
       SimpleTest.waitForExplicitFinish();
-
       var pointer = navigator.mozPointer;
       var div;
       var countMoves = 0;
@@ -87,10 +86,12 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
 
       document.addEventListener("mozfullscreenchange", function() {
         if (document.mozFullScreenElement === div) {
-          // Set the values for divWidth and divHeight
-          // It's dividing by two to make sure the value is a valid coord
-          // The value is being rounded since it's not possible to move
-          // the mouse to broken values
+          /*
+           * Set the values for divWidth and divHeight
+           * It's dividing by two to make sure the value is a valid coord
+           * The value is being rounded since it's not possible to move
+           * the mouse to broken values
+           */
           divWidth = Math.round(div.offsetWidth / 2);
           divHeight = Math.round(div.offsetHeight / 2);
           // Moving the mouse when the pointer is not locked
@@ -105,7 +106,6 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
       function start() {
         div = document.getElementById("div");
         div.addEventListener("mousemove", moveUnlocked, false);
-
         SimpleTest.waitForFocus(function() {
           div.mozRequestFullScreen();
         });
@@ -114,4 +114,3 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
   </pre>
 </body>
 </html>
-
