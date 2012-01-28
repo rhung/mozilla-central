@@ -32,15 +32,18 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
          */
 
         SimpleTest.waitForExplicitFinish();
-
         // The width and height of a div element
         // These values will be used to move the mouse
         var divWidth = 0;
         var divHeight = 0;
         var div;
         var ePrevious;
+        var moves = 0;
+        var totalX = 0;
+        var totalY = 0;
+        var pointer = navigator.mozPointer;
 
-        var moveMouse = function (e) {
+        var moveMouse = function(e) {
           // Mouse event object should have both mozMovementX and mozMovementY
           ok("mozMovementX" in e && "mozMovementY" in e, "mozMovementX and " +
             "mozMovementY should exist in mouse events objects.");
@@ -57,7 +60,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
           }, window);
         };
 
-        var moveMouseAgain = function (e) {
+        var moveMouseAgain = function(e) {
           /*
            * mozMovementXY should be equal to the current screenXY
            * minus last screenXY
@@ -68,15 +71,63 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
             "should be equal to eNow.screenY-ePrevious.screenY");
 
           div.removeEventListener("mousemove", moveMouseAgain, false);
-          document.mozCancelFullScreen();
+          ePrevious = e;
+
+          synthesizeMouse(div, divWidth, divHeight, {
+            type: "mousemove"
+          }, window);
+          pointer.lock(div, function () {
+              div.addEventListener("mousemove", infiniteMouseMove, false);
+              /*
+               * The mouse is now at the middle of the screen, move the mouse
+               * half a screen over -1 pixel.
+               */
+              synthesizeMouse(div, e.screenX + divWidth - 1, 
+                              e.screenY + divHeight - 1, {
+                                type: "mousemove"
+                              }, window);
+            }, function () {
+              ok(pointer.isLocked, "Pointer should be allowed to lock");
+            }
+          );
         };
+
+        var infiniteMouseMove = function (e) {
+          if (moves < 2) {
+            // Moves the mouse and adds the value 2 times
+            moves++;
+            totalX += e.mozMovementX;
+            totalY += e.mozMovementY;
+
+            synthesizeMouse(div, e.screenX + divWidth - 1,
+                            e.screenY + divHeight - 1, {
+                              type: "mousemove"
+                            }, window);
+          } else {
+            /*
+             * The final move is added and that should make it 1.5x both
+             * length wise and height wise. (minus a few pixels) 
+             */
+            div.removeEventListener("mousemove", infiniteMouseMove, false);
+            totalX += e.mozMovementX;
+            totalY += e.mozMovementY;
+            ok(totalX > div.offsetWidth,
+               "Should have moved more than one screen's worth in width.");
+            ok(totalY > div.offsetHeight,
+               "Should have moved more than one screen's worth in height.");
+            pointer.unlock();
+            document.mozCancelFullScreen();
+          }
+        }
 
         document.addEventListener("mozfullscreenchange", function() {
           if (document.mozFullScreenElement === div) {
-            // Set the values for divWidth and divHeight
-            // It's dividing by two to make sure the value is a valid coord
-            // The value is being rounded since it's not possible to move
-            // the mouse to broken values
+            /*
+             * Set the values for divWidth and divHeight
+             * It's dividing by two to make sure the value is a valid coord
+             * The value is being rounded since it's not possible to move
+             * the mouse to broken values
+             */
             divWidth = Math.round(div.offsetWidth / 2);
             divHeight = Math.round(div.offsetHeight / 2);
             // Moving the mouse when the pointer is not locked

@@ -33,7 +33,6 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
        */
 
       SimpleTest.waitForExplicitFinish();
-
       var pointer = navigator.mozPointer;
       var div;
       var countMoves = 0;
@@ -44,7 +43,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
 
       var prevScreenX = 0;
       var prevScreenY = 0;
-      
+
       var moveUnlocked = function (e) {
         // Mouse should be unlocked here
         is(pointer.isLocked, false, "Mouse should be unlocked");
@@ -74,20 +73,25 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
         ok(pointer.isLocked, "Mouse should be locked");
         // clientXY and screenXY should be equal to zero when
         // the mouse is locked
-        is(e.clientX, divWidth, "clientX should be equal to 0 when mouse is locked");
-        is(e.clientY, divHeight, "clientY should be equal to 0 when mouse is locked");
-        is(e.screenX, prevScreenX, "screenX should be equal to 0 when mouse is locked");
-        is(e.screenY, prevScreenY, "screenY should be equal to 0 when mouse is locked");
-
+        is(e.clientX, divWidth,
+           "clientX should be equal to where the mouse was originaly locked");
+        is(e.clientY, divHeight,
+           "clientY should be equal to where the mouse was originaly locked");
+        is(e.screenX, prevScreenX,
+           "screenX should be equal to where the mouse was originaly locked");
+        is(e.screenY, prevScreenY,
+           "screenY should be equal to where the mouse was originaly locked");
         document.mozCancelFullScreen();
       };
 
       document.addEventListener("mozfullscreenchange", function() {
         if (document.mozFullScreenElement === div) {
-          // Set the values for divWidth and divHeight
-          // It's dividing by two to make sure the value is a valid coord
-          // The value is being rounded since it's not possible to move
-          // the mouse to broken values
+          /*
+           * Set the values for divWidth and divHeight
+           * It's dividing by two to make sure the value is a valid coord
+           * The value is being rounded since it's not possible to move
+           * the mouse to broken values
+           */
           divWidth = Math.round(div.offsetWidth / 2);
           divHeight = Math.round(div.offsetHeight / 2);
           // Moving the mouse when the pointer is not locked
@@ -102,7 +106,6 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
       function start() {
         div = document.getElementById("div");
         div.addEventListener("mousemove", moveUnlocked, false);
-
         SimpleTest.waitForFocus(function() {
           div.mozRequestFullScreen();
         });

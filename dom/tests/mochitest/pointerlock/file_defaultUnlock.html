@@ -49,12 +49,12 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
       window.addEventListener("keyup", keyHandler, false);
 
       function checkKeyEffect() {
-        if (gKeyName === "VK_ESCAPE") {
-          is(pointer.isLocked, false,
-             "Mouselock lost for " + gKeyName + " key press");
-        } else {
+        if (gKeySuppressed) {
           ok(pointer.isLocked,
              "Mouselock shouldn't exit for " + gKeyName + " press");
+        } else {
+          is(pointer.isLocked, false,
+             "Mouselock lost for " + gKeyName + " key press");
         }
         if (gKeyTestIndex < keyList.length) {
           setTimeout(testNextKey, 0);
