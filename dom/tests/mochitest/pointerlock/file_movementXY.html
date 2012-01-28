@@ -112,9 +112,11 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
             totalX += e.mozMovementX;
             totalY += e.mozMovementY;
             ok(totalX > div.offsetWidth,
-               "Should have moved more than one screen's worth in width.");
+               "Should have moved more than one screen's worth in width." +
+               "TotalX: " + totalX + "  Screensize X: " + div.offsetWidth);
             ok(totalY > div.offsetHeight,
-               "Should have moved more than one screen's worth in height.");
+               "Should have moved more than one screen's worth in height." +
+               "TotalY: " + totalY + "  Screensize Y: " + div.offsetHeight);
             pointer.unlock();
             document.mozCancelFullScreen();
           }
