@@ -36,7 +36,11 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
         var divWidth = 0,
             divHeight = 0,
             div,
-            ePrevious;
+            ePrevious,
+            moves = 0,
+            totalX = 0,
+            totalY = 0,
+            pointer = navigator.mozPointer;
 
         var moveMouse = function (e) {
           // Mouse event object should have both mozMovementX and mozMovementY
@@ -64,8 +68,50 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
             "should be equal to eNow.screenY-ePrevious.screenY");
 
           div.removeEventListener("mousemove", moveMouseAgain, false);
-          document.mozCancelFullScreen();
+          ePrevious = e;
+
+          synthesizeMouse(div, divWidth, divHeight, {
+            type: "mousemove"
+          }, window);
+          pointer.lock(div, function () {
+              div.addEventListener("mousemove", infiniteMouseMove, false);
+              /** The mouse is now at the middle of the screen, move the mouse
+                  half a screen over -1 pixel.**/
+              synthesizeMouse(div, e.screenX + divWidth - 1, 
+                              e.screenY + divHeight - 1, {
+                                type: "mousemove"
+                              }, window);
+            }, function () {
+              ok(pointer.isLocked, "Pointer should be allowed to lock");
+            }
+          );
         };
+
+        var infiniteMouseMove = function (e) {
+          if (moves < 2) {
+            // Moves the mouse and adds the value 2 times
+            moves++;
+            totalX += e.mozMovementX;
+            totalY += e.mozMovementY;
+
+            synthesizeMouse(div, e.screenX + divWidth - 1,
+                            e.screenY + divHeight - 1, {
+                              type: "mousemove"
+                            }, window);
+          } else {
+            /** The final move is added and that should make it 1.5x both
+                length wise and height wise. (minus a few pixels) */
+            div.removeEventListener("mousemove", infiniteMouseMove, false);
+            totalX += e.mozMovementX;
+            totalY += e.mozMovementY;
+            ok(totalX > div.offsetWidth,
+               "Should have moved more than one screen's worth in width.");
+            ok(totalY > div.offsetHeight,
+               "Should have moved more than one screen's worth in height.");
+            pointer.unlock();
+            document.mozCancelFullScreen();
+          }
+        }
 
         document.addEventListener("mozfullscreenchange", function() {
           if (document.mozFullScreenElement === div) {

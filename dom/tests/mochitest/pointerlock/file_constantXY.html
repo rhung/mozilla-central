@@ -44,7 +44,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
 
       var prevScreenX = 0;
       var prevScreenY = 0;
-      
+
       var moveUnlocked = function (e) {
         // Mouse should be unlocked here
         is(pointer.isLocked, false, "Mouse should be unlocked");
@@ -74,11 +74,14 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
         ok(pointer.isLocked, "Mouse should be locked");
         // clientXY and screenXY should be equal to zero when
         // the mouse is locked
-        is(e.clientX, divWidth, "clientX should be equal to 0 when mouse is locked");
-        is(e.clientY, divHeight, "clientY should be equal to 0 when mouse is locked");
-        is(e.screenX, prevScreenX, "screenX should be equal to 0 when mouse is locked");
-        is(e.screenY, prevScreenY, "screenY should be equal to 0 when mouse is locked");
-
+        is(e.clientX, divWidth,
+           "clientX should be equal to where the mouse was originaly locked");
+        is(e.clientY, divHeight,
+           "clientY should be equal to where the mouse was originaly locked");
+        is(e.screenX, prevScreenX,
+           "screenX should be equal to where the mouse was originaly locked");
+        is(e.screenY, prevScreenY,
+           "screenY should be equal to where the mouse was originaly locked");
         document.mozCancelFullScreen();
       };
 
