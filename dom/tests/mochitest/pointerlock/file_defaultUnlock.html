@@ -38,6 +38,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
       var keyList = [
         { code: "VK_A", suppressed: true },
         { code: "VK_ESCAPE", suppressed: false},
+        { code: "VK_W", suppressed: true },
       ];
 
       function keyHandler(event) {
@@ -102,18 +103,19 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
       function testNextKey() {
         if (!document.mozFullScreen) {
           canvas.mozRequestFullScreen();
+        } else {
+          // mozRequestFullScreen() is async...
+          setTimeout(function() {
+            ok(document.mozFullScreen, "Must be in full-screen mode");
+            gKeyName = keyList[gKeyTestIndex].code;
+            gKeyCode = KeyEvent["DOM_" + gKeyName];
+            gKeySuppressed = keyList[gKeyTestIndex].suppressed;
+            gKeyTestIndex++;
+            ok(pointer.isLocked, "Mouse is locked befoe testing " + gKeyName); 
+            testScriptInitiatedKeyEvents();
+            testTrustedKeyEvents();
+          }, 0);
         }
-        // mozRequestFullScreen() is async...
-        setTimeout(function() {
-          ok(document.mozFullScreen, "Must be in full-screen mode");
-          gKeyName = keyList[gKeyTestIndex].code;
-          gKeyCode = KeyEvent["DOM_" + gKeyName];
-          gKeySuppressed = keyList[gKeyTestIndex].suppressed;
-          gKeyTestIndex++;
-          ok(pointer.isLocked, "Mouse is locked befoe testing " + gKeyName); 
-          testScriptInitiatedKeyEvents();
-          testTrustedKeyEvents();
-        }, 0);
       }
 
       document.addEventListener("mozfullscreenchange", function(e) {
@@ -129,14 +131,11 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
             // Failure Callback
             ok(pointer.isLocked, "pointer.lock() failed to lock mouse");
           });
-        } else {
-          SimpleTest.finish();
         }
       }, false);
       
       function start() {
         SimpleTest.waitForFocus(function() {
-          //document.body.mozRequestFullScreen();
           pointer.lock(canvas, function() {
             ok(pointer.isLocked, "mouse locked");
           }, function() {
