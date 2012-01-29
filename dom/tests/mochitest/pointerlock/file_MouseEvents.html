@@ -348,6 +348,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
 
       function startTests() {
         SimpleTest.waitForFocus(function() {
+          synthesizeMouse(outer, 50, 50, { type: 'mousemove' }, window);
           fs.mozRequestFullScreen();
         });
       }
