@@ -1,0 +1,231 @@
+<!DOCTYPE HTML>
+<html>
+<!--
+https://bugzilla.mozilla.org/show_bug.cgi?id=633602
+-->
+<head>
+  <title>Test for Bug 633602</title>
+  <script type="application/javascript" src="/tests/SimpleTest/SimpleTest.js">
+  </script>
+  <script type="text/javascript" src="/tests/SimpleTest/EventUtils.js"></script>
+ <!-- <script type="text/javascript" src="mouselock_util.js"></script> -->
+  <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
+
+  <style>
+    /*Porbably don't need to add this styles for parent, since it will be placed in fullscreen mode*/
+    #parent {
+      background-color: blue;
+      width: 100px;
+      height: 100px;
+      margin: 0;
+      padding: 0;
+    }
+
+    #child {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      background-color: red;
+    }
+  </style>
+
+</head>
+<body onload="start();">
+  <a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">
+    Mozilla Bug 633602
+  </a>
+  <p id="display"></p>
+  <div id="content" style="display: none">
+  </div>
+
+  <div id="parent">
+    <div id="child">
+      Child
+    </div>
+  </div>
+
+  <pre id="test">
+    <script type="application/javascript">
+      /*
+       * Test for Bug 633602
+       * The mouse is moved when it's not locked
+       * Then the mouse is moved when it is locked
+       * When the mouse isn't locked, the clientXY and screenXY should
+       * have values representing their respectives positions on the screen
+       * However, when the mouse is locked, they all should be equal to zero
+       */
+
+      SpecialPowers.setBoolPref("full-screen-api.allow-trusted-requests-only",
+                                  false);
+
+      var parent = document.getElementById("parent");
+      var child = document.getElementById("child");
+
+      var pointer = navigator.mozPointer;
+      var body = document.body;
+
+      function simulateEvent(screenX, screenY, clientX, clientY, type) {
+        console.log("simulate move");
+
+        //var rect = aTarget.getBoundingClientRect();
+        //synthesizeMouse(aTarget, rect.width / 2, rect.height / 2, aEvent, aWindow);
+
+        //var rect = aTarget.getBoundingClientRect();
+        //synthesizeMouseAtPoint(rect.left + aOffsetX, rect.top + aOffsetY, aEvent, aWindow);
+
+        var evt = document.createEvent("MouseEvents");
+        evt.initMouseEvent(type, true, true, window,
+          0, screenX, screenY, clientX, clientY, false, false, false, false, 0, null);
+        var canceled = !child.dispatchEvent(evt);
+        if(canceled) {
+          // A handler called preventDefault
+          console.log("canceled");
+        } else {
+          // None of the handlers called preventDefault
+          console.log("not canceled");
+        }
+      }
+
+
+      parent.addEventListener("mousemove", function (e) {
+        console.log("mousemove parent");
+        console.log("\n");
+        ok(true, "mousemove parent");
+      });
+
+      parent.addEventListener("mousedown", function (e) {
+        console.log("mousedown parent");
+        console.log("\n");
+        ok(true, "mousedown parent");
+      });
+
+      parent.addEventListener("mouseup", function (e) {
+        console.log("mouseup parent");
+        console.log("\n");
+        ok(true, "mouseup parent");
+      });
+
+      parent.addEventListener("click", function (e) {
+        console.log("click parent");
+        console.log("\n");
+        ok(true, "click parent");
+      });
+
+      parent.addEventListener("dbclick", function (e) {
+        console.log("dbclick parent");
+        console.log("\n");
+      });
+
+      parent.addEventListener("mouseenter", function (e) {
+        console.log("mouseenter parent");
+        console.log("\n");
+      });
+
+      parent.addEventListener("mouseleave", function (e) {
+        console.log("mouseleave parent");
+        console.log("\n");
+      });
+
+      parent.addEventListener("mouseover", function (e) {
+        console.log("mouseover parent");
+        console.log("\n");
+      });
+
+      parent.addEventListener("mouseout", function (e) {
+        console.log("mouseout parent");
+        console.log("\n");
+      });
+
+    
+      child.addEventListener("mousemove", function (e) {
+        console.log("mousemove child");
+        console.log("\n");
+        ok(true, "mousemove child");
+      });
+
+      child.addEventListener("mousedown", function (e) {
+        console.log("mousedown child");
+        console.log("\n");
+        ok(true, "mousedown child");
+      });
+
+      child.addEventListener("mouseup", function (e) {
+        console.log("mouseup child");
+        console.log("\n");
+        ok(true, "mouseup child");
+      });
+
+      child.addEventListener("click", function (e) {
+        console.log("click child");
+        console.log("\n");
+        ok(true, "click child");
+      });
+
+      child.addEventListener("dbclick", function (e) {
+        console.log("dbclick child");
+        console.log("\n");
+      });
+
+      child.addEventListener("mouseenter", function (e) {
+        console.log("mouseenter child");
+        console.log("\n");
+      });
+
+      child.addEventListener("mouseleave", function (e) {
+        console.log("mouseleave child");
+        console.log("\n");
+      });
+
+      child.addEventListener("mouseover", function (e) {
+        console.log("mouseover child");
+        console.log("\n");
+      });
+
+      child.addEventListener("mouseout", function (e) {
+        console.log("mouseout child");
+        console.log("\n");
+      });
+
+      var successCallback = function () {
+        console.log("success callback");
+        console.log("window innerHeight,innerWidth(" + window.innerHeight + "," + window.innerWidth + ")");
+        console.log("window outerHeight,outerWidth(" + window.outerHeight + "," + window.outerWidth + ")");
+        console.log("parent - offsetHeight,offsetWidth(" + parent.offsetHeight + "," + parent.offsetWidth + ")");
+        console.log("parent - offsetTop,offsetLeft(" + parent.offsetTop + "," + parent.offsetLeft + ")");
+        //simulateEvent(window.innerWidth, window.innerHeight, parent.offsetWidth, parent.offsetHeight, "mousedown");
+        //simulateEvent(window.innerWidth, window.innerHeight, parent.offsetWidth, parent.offsetHeight, "mouseup");
+        synthesizeMouseAtCenter(child, "mousedown", window);
+        //synthesizeMouseAtCenter(child, "mousemove", window);
+        //synthesizeMouseAtCenter(child, "mouseenter", window);
+        //synthesizeMouseAtCenter(child, "mouseenter", window);
+        //synthesizeMouseAtCenter(child, "mouseover", window);
+        //synthesizeMouseAtCenter(child, "mouseout", window);
+        //synthesizeMouseAtCenter(child, "mouseup", window);
+      };
+
+      var failureCallback = function () {
+        console.log("failureCallback callback fired: " + element);
+      };
+
+
+      document.addEventListener("mozfullscreenchange", function (e)  {
+        console.log("mozfullscreenchange");
+        if (document.mozFullScreen && document.mozFullScreenElement === parent) {
+          pointer.lock(parent, successCallback, failureCallback);
+        }     
+
+      }, false);
+
+
+      function start() {
+        console.log("start");
+        SimpleTest.waitForFocus(function() {
+          parent.mozRequestFullScreen();
+        });
+      }
+    </script>
+  </pre>
+</body>
+</html>
