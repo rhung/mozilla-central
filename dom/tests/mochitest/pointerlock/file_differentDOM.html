@@ -46,15 +46,19 @@
             iDoc.addEventListener("mozfullscreenchange", function () {
               if (iDoc.mozFullScreenElement === div) {
                 pointer.lock(div, function () {
-                  /* The success callback shouldn't be fired, since the
-                     element being locked belongs to a different DOM */
+                  /*
+                   * The success callback shouldn't be fired, since the
+                   * element being locked belongs to a different DOM
+                   */
                   is(pointer.isLocked, false, "If an element belongs to a " +
                     "different DOM Tree pointer should NOT be locked and " +
                     "success callback should NOT be dispatched");
                   iDoc.mozCancelFullScreen();
                 }, function () {
-                  /* Pointer shouldn't be locked if the element being locked
-                     belongs to a different DOM */
+                  /*
+                   * Pointer shouldn't be locked if the element being locked
+                   * belongs to a different DOM
+                   */
                   is(pointer.isLocked, false, "If an element belongs to a " +
                     "different DOM Tree pointer should NOT be locked");
                   iDoc.mozCancelFullScreen();

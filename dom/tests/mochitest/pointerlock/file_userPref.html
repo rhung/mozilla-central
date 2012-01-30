@@ -58,14 +58,15 @@
               }, function() {
                 is(pointer.isLocked, false, "Mouse shouldn't be locked " +
                    "when pref setting is false and element is in fullscreen");
-                document.mozCancelFullScreen();
                 SpecialPowers.setBoolPref("full-screen-api.pointer-lock.enabled",
-                                          true);
-                SimpleTest.finish();
+                                          true );
+                document.mozCancelFullScreen();
               });
             }, function() {
               is(pointer.isLocked, false, "Failure Callback - pointer should " +
                  "not be locked");
+              SpecialPowers.setBoolPref("full-screen-api.pointer-lock.enabled",
+                                        true );
               SimpleTest.finish();
             });
           } else {
