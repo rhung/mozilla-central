@@ -54,6 +54,7 @@
 #include "nsIPrefBranch.h"
 #include "nsIServiceManager.h"
 #include "nsContentUtils.h"
+#include "nsIContent.h"
 
 // nsRequestPointerLockEvent
 class nsRequestPointerLockEvent : public nsRunnable
@@ -204,7 +205,7 @@ nsDOMMozPointerLock::ShouldLock(nsIDOMElement* aTarget)
   mWindow->GetDocument(getter_AddRefs(domDoc));
   if (!domDoc) {
     NS_ERROR("ShouldLock(): Unable to get document");
-    return NS_ERROR_UNEXPECTED;
+    return false;
   }
 
   nsCOMPtr<nsINode> targetNode(do_QueryInterface(aTarget));
@@ -223,6 +224,14 @@ nsDOMMozPointerLock::ShouldLock(nsIDOMElement* aTarget)
   nsCOMPtr<nsIDOMHTMLElement> lockedElement;
   domDoc->GetMozFullScreenElement(getter_AddRefs(lockedElement));
   if (lockedElement != aTarget) {
+    return false;
+  }
+
+  // Check if the element is display:none, etc.
+  nsCOMPtr<nsIContent> content = do_QueryInterface(aTarget);
+  doc->FlushPendingNotifications(Flush_Layout);
+  if (!(content && content->GetPrimaryFrame())) {
+    NS_ERROR("ShouldLock(): Unable to get frame for element");
     return false;
   }
 
