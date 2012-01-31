@@ -34,9 +34,6 @@
 
         document.addEventListener("mozfullscreenchange", function (e) {
           if (document.mozFullScreen && document.mozFullScreenElement === div) {
-            /*var y = document.defaultView.getComputedStyle(div,null).getPropertyValue("display");
-            alert(y);*/
-
             // If the calling element have a style of "display: none", then
             // pointer should not lock and call the failure callback.
             // If element does not have the said style, then lock is enabled.
