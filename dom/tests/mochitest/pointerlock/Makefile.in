@@ -58,7 +58,7 @@ _TEST_FILES	= \
     mouselock_util.js \
     file_defaultUnlock.html \
     file_DOMtree.html \
-    file_mouselocklost.html \
+    file_pointerLockLost.html \
     file_constantXY.html \
     file_MouseEvents.html \
     file_movementXY.html \
@@ -72,6 +72,8 @@ _TEST_FILES	= \
     file_differentDOM.html \
     iframe_differentDOM.html \
     file_retargetMouseEvents.html \
+    file_cursorPosEvents.html \
+    file_pointerLockCSSDisplay.html \
     $(NULL)
 
 libs::	$(_TEST_FILES)

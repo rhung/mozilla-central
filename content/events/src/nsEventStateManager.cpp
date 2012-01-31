@@ -4133,7 +4133,13 @@ nsEventStateManager::GetMouseCoords()
 {
   NS_ASSERTION(sPointerLockedElement, "sPointerLockedElement is null in GetMouseCoords!");
 
-  nsIntRect screenRect = sPointerLockedElement->GetPrimaryFrame()->GetScreenRect();
+  nsIFrame* frame = sPointerLockedElement->GetPrimaryFrame();
+  NS_ASSERTION(frame, "sPointerLockedElement->GetPrimaryFrame() was null");
+  if (!frame) {
+    return nsIntPoint(0,0);
+  }
+
+  nsIntRect screenRect = frame->GetScreenRect();
 
   return nsIntPoint((screenRect.width/2) + screenRect.x,
                     (screenRect.height/2) + screenRect.y);

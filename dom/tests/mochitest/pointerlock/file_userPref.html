@@ -18,7 +18,7 @@
        href="https://bugzilla.mozilla.org/show_bug.cgi?id=633602">
       Mozilla Bug 633602</a>
     <p id="display"></p>
-    <div id="content" style="display: none">
+    <div id="content">
       <canvas id="canvas" width="150" height="150"></canvas>
     </div>
     <pre id="test">
@@ -58,14 +58,15 @@
               }, function() {
                 is(pointer.isLocked, false, "Mouse shouldn't be locked " +
                    "when pref setting is false and element is in fullscreen");
-                document.mozCancelFullScreen();
                 SpecialPowers.setBoolPref("full-screen-api.pointer-lock.enabled",
-                                          true);
-                SimpleTest.finish();
+                                          true );
+                document.mozCancelFullScreen();
               });
             }, function() {
               is(pointer.isLocked, false, "Failure Callback - pointer should " +
                  "not be locked");
+              SpecialPowers.setBoolPref("full-screen-api.pointer-lock.enabled",
+                                        true );
               SimpleTest.finish();
             });
           } else {

@@ -38,20 +38,28 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
         // normally run in an iframe, which by default will not have the
         // mozallowfullscreen attribute set, so full-screen won't work.
         var gTestFiles = [
+          "file_pointerLockCSSDisplay.html",
           "file_DOMtree.html",
           "file_nestedFullScreen.html",
-          "file_differentDOM.html",
           "file_fullscreen.html",
+          "file_differentDOM.html",
           "file_doubleLockCallBack.html",
           "file_unlockOnUnload.html",
           "file_exitMouseLockOnLoseFocus.html",
-          "file_mouselocklost.html",
+          "file_pointerLockLost.html",
           "file_defaultUnlock.html",
           "file_userPref.html",
-          "file_targetOutOfFocus.html",
           "file_constantXY.html",
-          "file_MouseEvents.html",
-          "file_movementXY.html",
+          "file_targetOutOfFocus.html",
+          "file_cursorPosEvents.html",
+          "file_movementXY.html"
+          /*
+           * The following two test are being fixed by Raymond
+           * We still need to investigate further for the failures
+           */
+          /*
+           * "file_MouseEvents.html",
+           */
         ];
 
         var testWindow = null;

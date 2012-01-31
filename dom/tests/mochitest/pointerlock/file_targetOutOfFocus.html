@@ -18,7 +18,7 @@
       Mozilla Bug 633602
     </a>
     <p id="display"></p>
-    <div id="content" style="display: none">
+    <div id="content">
     </div>
     <div id="div"></div>
     <input id="input" type="text" />
@@ -34,29 +34,32 @@
         SimpleTest.waitForExplicitFinish();
 
         var pointer = navigator.mozPointer;
-        var div;
-        var input;
+        var div = document.getElementById("div");
+        var input = document.getElementById("input");
+
+        input.addEventListener("focus", function() {
+          /*
+           * Lock the mouse if the focused element is not the element
+           * being locked
+           */
+          pointer.lock(div, function() {
+            /*
+             * Even when the element being locked is not in focus
+             * the mouse should be locked
+             */
+            ok(pointer.isLocked, "Mouse should be locked even if " +
+              "the element being locked is not focused");
+            input.blur();
+            input.removeEventListener("focus", function() {}, false);
+            document.mozCancelFullScreen();
+          }, function() {
+            is(pointer.isLocked, false, "Mouse failed to lock when" +
+              "the element is not focused");
+          });
+        }, false);
 
         document.addEventListener("mozfullscreenchange", function() {
           if (document.mozFullScreenElement === div) {
-            input.addEventListener("focus", function() {
-              /*
-               * Lock the mouse if the focused element is not the element
-               * being locked
-               */
-              pointer.lock(
-                div,
-                function () {
-                  /*
-                   * Even when the element being locked is not in focus
-                   * the mouse should be locked
-                   */
-                  ok(pointer.isLocked, "Mouse should be locked even if " +
-                    "the element being locked is not focused");
-                  document.mozCancelFullScreen();
-                }
-              );
-            }, false);
             input.focus();
           }
           else {
@@ -65,9 +68,6 @@
         }, false);
 
         function start() {
-          div = document.getElementById("div");
-          input = document.getElementById("input");
-
           SimpleTest.waitForFocus(function() {
             div.mozRequestFullScreen();
           });
