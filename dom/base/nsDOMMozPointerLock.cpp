@@ -151,8 +151,14 @@ nsDOMMozPointerLock::Unlock()
     return NS_ERROR_UNEXPECTED;
   }
 
+  nsIDocShell *docShell = domWindow->GetDocShell();
+  if (!docShell) {
+    NS_ERROR("Unlock(): No DocShell (window already closed?)");
+    return NS_ERROR_UNEXPECTED;
+  }
+
   nsRefPtr<nsPresContext> presContext;
-  domWindow->GetDocShell()->GetPresContext(getter_AddRefs(presContext));
+  docShell->GetPresContext(getter_AddRefs(presContext));
   if (!presContext)	{
     NS_ERROR("Unlock(): Unable to get presContext in \
               domWindow->GetDocShell()->GetPresContext()");
@@ -267,8 +273,14 @@ nsDOMMozPointerLock::Lock(nsIDOMElement* aTarget,
       return NS_ERROR_FAILURE;
     }
 
+    nsIDocShell *docShell = domWindow->GetDocShell();
+    if (!docShell) {
+      NS_ERROR("Lock(): No DocShell (window already closed?)");
+      return NS_ERROR_UNEXPECTED;
+    }
+
     nsRefPtr<nsPresContext> presContext;
-    domWindow->GetDocShell()->GetPresContext(getter_AddRefs(presContext));
+    docShell->GetPresContext(getter_AddRefs(presContext));
     if (!presContext)	{
       NS_ERROR("Lock(): Unable to get presContext in \
                 domWindow->GetDocShell()->GetPresContext()");
