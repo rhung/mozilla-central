@@ -71,6 +71,7 @@ _TEST_FILES	= \
     file_exitMouseLockOnLoseFocus.html \
     file_differentDOM.html \
     iframe_differentDOM.html \
+    file_retargetMouseEvents.html \
     file_cursorPosEvents.html \
     file_pointerLockCSSDisplay.html \
     $(NULL)
