@@ -46,6 +46,7 @@
 #include "nsTArray.h"
 #include "prlog.h"
 #include "mozilla/dom/battery/Types.h"
+#include "mozilla/dom/network/Types.h"
 
 /*
  * Hal.h contains the public Hal API.
@@ -167,6 +168,39 @@ double GetScreenBrightness();
  * GetScreenBrightness() may not be exactly x.
  */
 void SetScreenBrightness(double brightness);
+
+/**
+ * Inform the network backend there is a new network observer.
+ * @param aNetworkObserver The observer that should be added.
+ */
+void RegisterNetworkObserver(NetworkObserver* aNetworkObserver);
+
+/**
+ * Inform the network backend a network observer unregistered.
+ * @param aNetworkObserver The observer that should be removed.
+ */
+void UnregisterNetworkObserver(NetworkObserver* aNetworkObserver);
+
+/**
+ * Returns the current network information.
+ */
+void GetCurrentNetworkInformation(hal::NetworkInformation* aNetworkInfo);
+
+/**
+ * Notify of a change in the network state.
+ * @param aNetworkInfo The new network information.
+ */
+void NotifyNetworkChange(const hal::NetworkInformation& aNetworkInfo);
+
+/**
+ * Reboot the device.
+ */
+void Reboot();
+
+/**
+ * Power off the device.
+ */
+void PowerOff();
 
 } // namespace MOZ_HAL_NAMESPACE
 } // namespace mozilla
