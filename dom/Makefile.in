@@ -66,12 +66,12 @@ DIRS = \
   interfaces/notification \
   interfaces/svg \
   interfaces/smil \
+  interfaces/pointerlock \
   $(NULL)
 
 ifeq (gonk,$(MOZ_WIDGET_TOOLKIT))
 DIRS += \
   interfaces/apps \
-  interfaces/pointerlock \
   $(NULL)
 endif
 
