@@ -74,9 +74,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
           }, window);
           pointer.lock(div, function () {
             div.addEventListener("mousemove", infiniteMouseMove, false);
-            /*
-             * Move the mouse a quarter of the screen from the center.
-             */
+
+            // Move the mouse a quarter of the screen from the center.
             synthesizeMouse(div, divWidth + divWidth/2, 
               divHeight + divHeight/2, { type: "mousemove" }, window);
           }, function () {
