@@ -8585,9 +8585,6 @@ nsDocument::MaybeUnlockMouse(nsIDocument* aDocument)
 
   nsCOMPtr<nsIDOMMozNavigatorPointerLock> navigatorPointerLock =
     do_QueryInterface(navigator);
-  if (!navigatorPointerLock) {
-    return;
-  }
 
   nsCOMPtr<nsIDOMMozPointerLock> pointer;
   navigatorPointerLock->GetMozPointer(getter_AddRefs(pointer));
