@@ -50,17 +50,17 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
         if (document.mozFullScreen && document.mozFullScreenElement === fs) {
           pointer.lock(fs, cursorActions);
         } else {
-          synthesizeMouse(fs, 110, 110, { type: 'mousemove' }, window);
+          synthesizeMouseAtCenter(outer, { type: 'mousemove' }, window);
         }
       }
 
       function cursorTest() {
         if (moved === 0) {
           moved++;
-          synthesizeMouse(fs, 50, 50, { type: 'mousemove' }, window);
+          synthesizeMouseAtCenter(one, { type: 'mousemove' }, window);
         } else if (moved === 1) {
           moved++;
-          synthesizeMouse(fs, 50, 101, { type: 'mousemove' }, window);
+          synthesizeMouseAtCenter(outer, { type: 'mousemove' }, window);
         } else {
           moved = 0;
           if (pointer.isLocked) {
@@ -92,7 +92,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
 
       function cursorActions() {
         fs.addEventListener('mousemove', cursorTest, false);
-        synthesizeMouse(fs, 110, 110, { type: 'mousemove' }, window);
+        synthesizeMouseAtCenter(outer, { type: 'mousemove' }, window);
       }
 
       function setup() {
