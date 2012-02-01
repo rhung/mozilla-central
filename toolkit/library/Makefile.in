@@ -424,6 +424,12 @@ OS_LIBS += \
   -lui \
   -lmedia \
   -lhardware_legacy \
+  -lhardware \
+  -lutils \
+  -lcutils \
+  -lcamera \
+  -lcamera_client \
+  -lbinder \
   $(NULL)
 endif
 

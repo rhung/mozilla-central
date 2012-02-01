@@ -68,8 +68,8 @@ public:
                                 JSContext* aCx, jsval* aVal);
 protected:
   // Internal helper functions
-  nsIntPoint GetClientPoint();
   nsIntPoint GetScreenPoint();
+  nsIntPoint GetClientPoint();
   nsIntPoint GetMovementPoint();
   nsIntPoint GetLayerPoint();
   nsIntPoint GetPagePoint();

@@ -69,6 +69,8 @@
 #include "nsWeakReference.h"
 #include <stdio.h> // for FILE definition
 #include "nsChangeHint.h"
+#include "nsGUIEvent.h"
+#include "nsInterfaceHashtable.h"
 
 class nsIContent;
 class nsIDocument;
@@ -144,8 +146,8 @@ typedef struct CapturingContentInfo {
 } CapturingContentInfo;
 
 #define NS_IPRESSHELL_IID    \
-{ 0x43d1a6ad, 0xb8ab, 0x445e, \
- { 0xa4, 0xc2, 0x73, 0xd4, 0x1e, 0xe6, 0x11, 0x6c } }
+        { 0x43d1a6ad, 0xb8ab, 0x445e, \
+          { 0xa4, 0xc2, 0x73, 0xd4, 0x1e, 0xe6, 0x11, 0x6c } }
 
 // Constants for ScrollContentIntoView() function
 #define NS_PRESSHELL_SCROLL_TOP      0
@@ -1050,6 +1052,9 @@ public:
 
   static CapturingContentInfo gCaptureInfo;
 
+  static nsInterfaceHashtable<nsUint32HashKey, nsIDOMTouch> gCaptureTouchList;
+  static bool gPreventMouseEvents;
+
   /**
    * When capturing content is set, it traps all mouse events and retargets
    * them at this content node. If capturing is not allowed
@@ -1148,13 +1153,21 @@ public:
 
   virtual void Paint(nsIView* aViewToPaint, nsIWidget* aWidget,
                      const nsRegion& aDirtyRegion, const nsIntRegion& aIntDirtyRegion,
-                     bool aPaintDefaultBackground, bool aWillSendDidPaint) = 0;
+                     bool aWillSendDidPaint) = 0;
   virtual nsresult HandleEvent(nsIFrame*       aFrame,
                                nsGUIEvent*     aEvent,
                                bool            aDontRetargetEvents,
                                nsEventStatus*  aEventStatus) = 0;
   virtual bool ShouldIgnoreInvalidation() = 0;
+  /**
+   * Notify that the NS_WILL_PAINT event was received. Fires on every
+   * visible presshell in the document tree.
+   */
   virtual void WillPaint(bool aWillSendDidPaint) = 0;
+  /**
+   * Notify that the NS_DID_PAINT event was received. Only fires on the
+   * root pres shell.
+   */
   virtual void DidPaint() = 0;
   virtual void ScheduleViewManagerFlush() = 0;
   virtual void ClearMouseCaptureOnView(nsIView* aView) = 0;
