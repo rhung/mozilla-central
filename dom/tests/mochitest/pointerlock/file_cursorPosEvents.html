@@ -28,8 +28,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
     <script type="application/javascript">
       /*
        * Test for Bug 633602
-       * Test will check to make sure that the following mouse events can be
-       * executed prior to mouse lock and after mouse lock.
+       * Test will check to make sure that the following mouse events are no
+       * longer executed in pointer lock.
        *  - mouseover, mouseout, mouseenter, mouseleave
        */
       SimpleTest.waitForExplicitFinish();
@@ -48,75 +48,41 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
 
       function mouseCursorRequired() {
         if (document.mozFullScreen && document.mozFullScreenElement === fs) {
-          pointer.lock(fs, cursorActions);
-        } else {
-<<<<<<< HEAD
-          synthesizeMouseAtCenter(outer, { type: 'mousemove' }, window);
-=======
-          synthesizeMouse(fs, 110, 110, { type: 'mousemove' }, window);
->>>>>>> parent of be298f3... deleted file_cursorPosEvents.html
-        }
+          pointer.lock(fs, cursorActions, function () {
+            ok(pointer.isLocked, "Pointer should lock.")
+          });
+        } 
       }
 
       function cursorTest() {
         if (moved === 0) {
           moved++;
-<<<<<<< HEAD
           synthesizeMouseAtCenter(one, { type: 'mousemove' }, window);
         } else if (moved === 1) {
           moved++;
           synthesizeMouseAtCenter(outer, { type: 'mousemove' }, window);
-=======
-          synthesizeMouse(fs, 50, 50, { type: 'mousemove' }, window);
-        } else if (moved === 1) {
-          moved++;
-          synthesizeMouse(fs, 50, 101, { type: 'mousemove' }, window);
->>>>>>> parent of be298f3... deleted file_cursorPosEvents.html
         } else {
-          moved = 0;
-          if (pointer.isLocked) {
-            is(mouseEnter, 0,
-              "mouseenter should not be firing in Full Screen and Mouse Lock.");
-            is(mouseOver, 0,
-              "mouseover should not be firing in Full Screen and Mouse Lock.");
-            is(mouseLeave, 0,
-              "mouseleave should not be firing in Full Screen and Mouse Lock.");
-            is(mouseOut, 0,
-              "mouseout should not be firing in Full Screen and Mouse Lock.");
-            pointer.unlock();
-          } else {
-            is(mouseEnter, 1,
-              "mouseenter is not firing normally.");
-            is(mouseOver, 1,
-              "mouseover is not is not firing normally.");
-            is(mouseLeave, 1,
-              "mouseleave is not is not firing normally.");
-            is(mouseOut, 1,
-              "mouseout is not firing normally.");
-            document.removeEventListener('mozfullscreenchange',
-              mouseCursorRequired, false);
-            fs.removeEventListener('mousemove', cursorTest, false);
-            SimpleTest.finish();
-          }
+          is(mouseEnter, 0,
+            "mouseenter should not be firing in Full Screen and Pointer Lock.");
+          is(mouseOver, 0,
+            "mouseover should not be firing in Full Screen and Pointer Lock.");
+          is(mouseLeave, 0,
+            "mouseleave should not be firing in Full Screen and Pointer Lock.");
+          is(mouseOut, 0,
+            "mouseout should not be firing in Full Screen and Pointer Lock.");
+          pointer.unlock();
         }
       }
 
       function cursorActions() {
         fs.addEventListener('mousemove', cursorTest, false);
-<<<<<<< HEAD
         synthesizeMouseAtCenter(outer, { type: 'mousemove' }, window);
-=======
-        synthesizeMouse(fs, 110, 110, { type: 'mousemove' }, window);
->>>>>>> parent of be298f3... deleted file_cursorPosEvents.html
       }
 
       function setup() {
-        document.addEventListener('pointerlocklost', function() {
-            mouseEnter = 0;
-            mouseOver = 0;
-            mouseLeave = 0;
-            mouseOut = 0;
+        document.addEventListener('mozpointerlocklost', function() {
             document.mozCancelFullScreen();
+            SimpleTest.finish();
         }, false);
 
         // Events that only exist because a mouse exists
