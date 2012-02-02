@@ -11,7 +11,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
   <script type="application/javascript" src="mouselock_util.js"></script>
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
   <style type="text/css">
-    #fs > div { width:100px; height:100px; }
+    #parent > div { width:100px; height:100px; }
+    #parent { width: 200px; height: 200px; }
   </style>
 </head>
 <body onload="setup();">
@@ -19,10 +20,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
   Mozilla Bug 633602</a>
   <p id="display"></p>
 <div id="content">
-  <div id="fs">
-    <div id="one" style="background-color:Green;"></div>
-    <div id="outer" style="background-color:Gray;">
-    </div>
+  <div id="parent">
+    <div id="child" style="background-color:Green;"></div>
   </div>
   <pre id="test">
     <script type="application/javascript">
@@ -34,72 +33,64 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
        */
       SimpleTest.waitForExplicitFinish();
       var moved = 0;
-      var fs = document.getElementById('fs');
-      var one = document.getElementById('one');
-      var outer = document.getElementById('outer');
       var pointer = navigator.mozPointer;
-      var mouseEnter = 0;
-      var mouseLeave = 0;
-      var mouseOver = 0;
-      var mouseOut = 0;
+      var parent;
+      var child;
+      var mouseEnter = false;
+      var mouseLeave = false;
+      var mouseOver = false;
+      var mouseOut = false;
 
       document.addEventListener('mozfullscreenchange', mouseCursorRequired,
         false);
 
       function mouseCursorRequired() {
-        if (document.mozFullScreen && document.mozFullScreenElement === fs) {
-          pointer.lock(fs, cursorActions, function () {
-            ok(pointer.isLocked, "Pointer should lock.")
-          });
-        } 
-      }
-
-      function cursorTest() {
-        if (moved === 0) {
-          moved++;
-          synthesizeMouseAtCenter(one, { type: 'mousemove' }, window);
-        } else if (moved === 1) {
-          moved++;
-          synthesizeMouseAtCenter(outer, { type: 'mousemove' }, window);
+        if (document.mozFullScreen && document.mozFullScreenElement === parent){
+          pointer.lock(parent, cursorTest);
         } else {
-          is(mouseEnter, 0,
-            "mouseenter should not be firing in Full Screen and Pointer Lock.");
-          is(mouseOver, 0,
-            "mouseover should not be firing in Full Screen and Pointer Lock.");
-          is(mouseLeave, 0,
-            "mouseleave should not be firing in Full Screen and Pointer Lock.");
-          is(mouseOut, 0,
-            "mouseout should not be firing in Full Screen and Pointer Lock.");
-          pointer.unlock();
+          SimpleTest.finish();
         }
       }
 
-      function cursorActions() {
-        fs.addEventListener('mousemove', cursorTest, false);
-        synthesizeMouseAtCenter(outer, { type: 'mousemove' }, window);
+      function cursorTest() {
+          synthesizeMouseAtCenter(child, { type: 'mousemove' }, window);
+          parent.addEventListener('mousemove', function() {
+            ok(!mouseEnter,
+              "mouseenter should not happen in Full Screen and Pointer Lock.");
+            ok(!mouseOver,
+              "mouseover should not happen in Full Screen and Pointer Lock.");
+            ok(!mouseLeave,
+              "mouseleave should not happen in Full Screen and Pointer Lock.");
+            ok(!mouseOut,
+              "mouseout should not happen in Full Screen and Pointer Lock.");
+            pointer.unlock();
+          }, false);
+          synthesizeMouseAtCenter(parent, { type: 'mousemove' }, window);
       }
 
       function setup() {
+        parent = document.getElementById('parent');
+        child = document.getElementById('child');
+        
         document.addEventListener('mozpointerlocklost', function() {
           document.mozCancelFullScreen();
-          SimpleTest.finish();
         }, false);
 
         // Events that only exist because a mouse exists
-        one.addEventListener('mouseout', function() {
-          mouseOut = 1;
+        child.addEventListener('mouseout', function() {
+          mouseOut = true;
         } , false);
 
-        one.addEventListener('mouseleave', function() {
-          mouseLeave = 1;
+        child.addEventListener('mouseleave', function() {
+          mouseLeave = true;
         } , false);
 
-        one.addEventListener('mouseover', function() {
-          mouseOver = 1;
+        child.addEventListener('mouseover', function() {
+          mouseOver = true;
         } , false);
 
-        one.addEventListener('mouseenter', function() {
-          mouseEnter = 1;
+        child.addEventListener('mouseenter', function() {
+          mouseEnter = true;
           } , false);
 
         startTests();
@@ -107,7 +98,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
 
       function startTests() {
         SimpleTest.waitForFocus(function() {
-          fs.mozRequestFullScreen();
+          parent.mozRequestFullScreen();
         });
       }
     </script>
