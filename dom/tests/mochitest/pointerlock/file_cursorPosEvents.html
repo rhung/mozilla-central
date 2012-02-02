@@ -36,61 +36,67 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
       var pointer = navigator.mozPointer;
       var parent;
       var child;
-      var mouseEnter = false;
-      var mouseLeave = false;
-      var mouseOver = false;
-      var mouseOut = false;
+      var mouseEnter = true;
+      var mouseLeave = true;
+      var mouseOver = true;
+      var mouseOut = true;
 
       document.addEventListener('mozfullscreenchange', mouseCursorRequired,
         false);
 
       function mouseCursorRequired() {
         if (document.mozFullScreen && document.mozFullScreenElement === parent){
-          pointer.lock(parent, cursorTest);
+          pointer.lock(parent, cursorActions);
         } else {
           SimpleTest.finish();
         }
       }
 
       function cursorTest() {
+        if (moved === 0) {
+          moved++;
           synthesizeMouseAtCenter(child, { type: 'mousemove' }, window);
-          parent.addEventListener('mousemove', function() {
-            ok(!mouseEnter,
-              "mouseenter should not happen in Full Screen and Pointer Lock.");
-            ok(!mouseOver,
-              "mouseover should not happen in Full Screen and Pointer Lock.");
-            ok(!mouseLeave,
-              "mouseleave should not happen in Full Screen and Pointer Lock.");
-            ok(!mouseOut,
-              "mouseout should not happen in Full Screen and Pointer Lock.");
-            pointer.unlock();
-          }, false);
+        } else if (moved === 1) {
+          moved++;
           synthesizeMouseAtCenter(parent, { type: 'mousemove' }, window);
+        } else {
+          ok(mouseEnter,
+            "mouseenter should not be firing in Full Screen and Pointer Lock.");
+          ok(mouseOver,
+            "mouseover should not be firing in Full Screen and Pointer Lock.");
+          ok(mouseLeave,
+            "mouseleave should not be firing in Full Screen and Pointer Lock.");
+          ok(mouseOut,
+            "mouseout should not be firing in Full Screen and Pointer Lock.");
+          pointer.unlock();
+        }
+      }
+
+      function cursorActions() {
+        parent.addEventListener('mousemove', cursorTest, false);
+        synthesizeMouseAtCenter(parent, { type: 'mousemove' }, window);
       }
 
       function setup() {
-        parent = document.getElementById('parent');
-        child = document.getElementById('child');
-        
         document.addEventListener('mozpointerlocklost', function() {
           document.mozCancelFullScreen();
         }, false);
 
         // Events that only exist because a mouse exists
         child.addEventListener('mouseout', function() {
-          mouseOut = true;
+          mouseOut = false;
         } , false);
 
         child.addEventListener('mouseleave', function() {
-          mouseLeave = true;
+          mouseLeave = false;
         } , false);
 
         child.addEventListener('mouseover', function() {
-          mouseOver = true;
+          mouseOver = false;
         } , false);
 
         child.addEventListener('mouseenter', function() {
-          mouseEnter = true;
+          mouseEnter = false;
           } , false);
 
         startTests();
@@ -98,6 +104,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=633602
 
       function startTests() {
         SimpleTest.waitForFocus(function() {
+          parent = document.getElementById('parent');
+          child = document.getElementById('child');
           parent.mozRequestFullScreen();
         });
       }
