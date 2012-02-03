@@ -66,13 +66,13 @@ _TEST_FILES	= \
     file_fullscreen.html \
     file_nestedFullScreen.html \
     file_doubleLockCallBack.html \
-    file_unlockOnUnload.html \
     file_exitMouseLockOnLoseFocus.html \
     file_differentDOM.html \
     iframe_differentDOM.html \
     file_retargetMouseEvents.html \
     file_pointerLockCSSDisplay.html \
     file_childIframe.html \
+    file_cursorPosEvents.html \
     $(NULL)
 
 libs::	$(_TEST_FILES)
