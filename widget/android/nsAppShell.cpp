@@ -36,6 +36,11 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+// Make sure the order of included headers
+#include "base/basictypes.h"
+#include "nspr/prtypes.h"
+
+#include "mozilla/Hal.h"
 #include "nsAppShell.h"
 #include "nsWindow.h"
 #include "nsThreadUtils.h"
@@ -47,6 +52,7 @@
 #include "mozilla/Services.h"
 #include "mozilla/unused.h"
 #include "mozilla/Preferences.h"
+#include "mozilla/Hal.h"
 #include "prenv.h"
 
 #include "AndroidBridge.h"
@@ -354,6 +360,15 @@ nsAppShell::ProcessNextNativeEvent(bool mayWait)
         break;
     }
 
+    case AndroidGeckoEvent::PROXIMITY_EVENT: {
+        InfallibleTArray<float> values;
+        values.AppendElement(curEvent->Distance());
+        
+        hal::SensorData sdata(hal::SENSOR_PROXIMITY, PR_Now(), values);
+        hal::NotifySensorChange(sdata);
+        break;
+    }
+
     case AndroidGeckoEvent::ACTIVITY_STOPPING: {
         nsCOMPtr<nsIObserverService> obsServ =
             mozilla::services::GetObserverService();
@@ -385,6 +400,12 @@ nsAppShell::ProcessNextNativeEvent(bool mayWait)
         // of flushing data
         nsIPrefService* prefs = Preferences::GetService();
         if (prefs) {
+            // reset the crash loop state
+            nsCOMPtr<nsIPrefBranch> prefBranch;
+            prefs->GetBranch("browser.sessionstore.", getter_AddRefs(prefBranch));
+            if (prefBranch)
+                prefBranch->SetIntPref("recent_crashes", 0);
+
             prefs->SavePrefFile(nsnull);
         }
 
@@ -453,6 +474,12 @@ nsAppShell::ProcessNextNativeEvent(bool mayWait)
 #ifdef MOZ_ANDROID_HISTORY
         nsAndroidHistory::NotifyURIVisited(nsString(curEvent->Characters()));
 #endif
+        break;
+    }
+
+    case AndroidGeckoEvent::NETWORK_CHANGED: {
+        hal::NotifyNetworkChange(hal::NetworkInformation(curEvent->Bandwidth(),
+                                                         curEvent->CanBeMetered()));
         break;
     }
 

@@ -44,6 +44,7 @@
 #include "mozilla/dom/TabParent.h"
 #include "mozilla/dom/TabChild.h"
 #include "mozilla/dom/battery/Types.h"
+#include "mozilla/dom/network/Types.h"
 #include "mozilla/Observer.h"
 #include "mozilla/unused.h"
 #include "WindowIdentifier.h"
@@ -105,6 +106,24 @@ GetCurrentBatteryInformation(BatteryInformation* aBatteryInfo)
   Hal()->SendGetCurrentBatteryInformation(aBatteryInfo);
 }
 
+void
+EnableNetworkNotifications()
+{
+  Hal()->SendEnableNetworkNotifications();
+}
+
+void
+DisableNetworkNotifications()
+{
+  Hal()->SendDisableNetworkNotifications();
+}
+
+void
+GetCurrentNetworkInformation(NetworkInformation* aNetworkInfo)
+{
+  Hal()->SendGetCurrentNetworkInformation(aNetworkInfo);
+}
+
 bool
 GetScreenEnabled()
 {
@@ -133,8 +152,33 @@ SetScreenBrightness(double brightness)
   Hal()->SendSetScreenBrightness(brightness);
 }
 
+void
+Reboot()
+{
+  Hal()->SendReboot();
+}
+
+void
+PowerOff()
+{
+  Hal()->SendPowerOff();
+}
+
+void
+EnableSensorNotifications(SensorType aSensor) {
+  Hal()->SendEnableSensorNotifications(aSensor);
+}
+
+void
+DisableSensorNotifications(SensorType aSensor) {
+  Hal()->SendDisableSensorNotifications(aSensor);
+}
+
 class HalParent : public PHalParent
-                , public BatteryObserver {
+                , public BatteryObserver
+                , public NetworkObserver
+                , public ISensorObserver
+{
 public:
   NS_OVERRIDE virtual bool
   RecvVibrate(const InfallibleTArray<unsigned int>& pattern,
@@ -198,6 +242,28 @@ public:
   }
 
   NS_OVERRIDE virtual bool
+  RecvEnableNetworkNotifications() {
+    hal::RegisterNetworkObserver(this);
+    return true;
+  }
+
+  NS_OVERRIDE virtual bool
+  RecvDisableNetworkNotifications() {
+    hal::UnregisterNetworkObserver(this);
+    return true;
+  }
+
+  NS_OVERRIDE virtual bool
+  RecvGetCurrentNetworkInformation(NetworkInformation* aNetworkInfo) {
+    hal::GetCurrentNetworkInformation(aNetworkInfo);
+    return true;
+  }
+
+  void Notify(const NetworkInformation& aNetworkInfo) {
+    unused << SendNotifyNetworkChange(aNetworkInfo);
+  }
+
+  NS_OVERRIDE virtual bool
   RecvGetScreenEnabled(bool *enabled)
   {
     *enabled = hal::GetScreenEnabled();
@@ -224,6 +290,36 @@ public:
     hal::SetScreenBrightness(brightness);
     return true;
   }
+
+  NS_OVERRIDE virtual bool
+  RecvReboot()
+  {
+    hal::Reboot();
+    return true;
+  }
+
+  NS_OVERRIDE virtual bool
+  RecvPowerOff()
+  {
+    hal::PowerOff();
+    return true;
+  }
+
+  NS_OVERRIDE virtual bool
+  RecvEnableSensorNotifications(const SensorType &aSensor) {
+    hal::RegisterSensorObserver(aSensor, this);
+    return true;
+  }
+   
+  NS_OVERRIDE virtual bool
+  RecvDisableSensorNotifications(const SensorType &aSensor) {
+    hal::UnregisterSensorObserver(aSensor, this);
+    return true;
+  }
+  
+  void Notify(const SensorData& aSensorData) {
+    unused << SendNotifySensorChange(aSensorData);
+  }
 };
 
 class HalChild : public PHalChild {
@@ -233,7 +329,23 @@ public:
     hal::NotifyBatteryChange(aBatteryInfo);
     return true;
   }
+
+  NS_OVERRIDE virtual bool
+  RecvNotifySensorChange(const hal::SensorData &aSensorData);
+
+  NS_OVERRIDE virtual bool
+  RecvNotifyNetworkChange(const NetworkInformation& aNetworkInfo) {
+    hal::NotifyNetworkChange(aNetworkInfo);
+    return true;
+  }
 };
+
+bool
+HalChild::RecvNotifySensorChange(const hal::SensorData &aSensorData) {
+  hal::NotifySensorChange(aSensorData);
+  
+  return true;
+}
 
 PHalChild* CreateHalChild() {
   return new HalChild();

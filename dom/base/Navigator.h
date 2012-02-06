@@ -49,6 +49,7 @@
 #include "nsIDOMClientInformation.h"
 #include "nsIDOMNavigatorBattery.h"
 #include "nsIDOMNavigatorSms.h"
+#include "nsIDOMNavigatorNetwork.h"
 #include "nsAutoPtr.h"
 #include "nsWeakReference.h"
 
@@ -57,6 +58,7 @@ class nsMimeTypeArray;
 class nsGeolocation;
 class nsDesktopNotificationCenter;
 class nsPIDOMWindow;
+class nsIDOMMozConnection;
 
 #ifdef MOZ_B2G_RIL
 #include "nsIDOMNavigatorTelephony.h"
@@ -78,15 +80,24 @@ namespace sms {
 class SmsManager;
 } // namespace sms
 
-class Navigator : public nsIDOMNavigator,
-                  public nsIDOMClientInformation,
-                  public nsIDOMNavigatorGeolocation,
-                  public nsIDOMNavigatorDesktopNotification,
-                  public nsIDOMMozNavigatorBattery,
-                  public nsIDOMMozNavigatorSms
+namespace network {
+class Connection;
+} // namespace Connection;
+
+namespace power {
+class PowerManager;
+} // namespace power
+
+class Navigator : public nsIDOMNavigator
+                , public nsIDOMClientInformation
+                , public nsIDOMNavigatorGeolocation
+                , public nsIDOMNavigatorDesktopNotification
+                , public nsIDOMMozNavigatorBattery
+                , public nsIDOMMozNavigatorSms
 #ifdef MOZ_B2G_RIL
                 , public nsIDOMNavigatorTelephony
 #endif
+                , public nsIDOMMozNavigatorNetwork
 {
 public:
   Navigator(nsPIDOMWindow *aInnerWindow);
@@ -99,10 +110,10 @@ public:
   NS_DECL_NSIDOMNAVIGATORDESKTOPNOTIFICATION
   NS_DECL_NSIDOMMOZNAVIGATORBATTERY
   NS_DECL_NSIDOMMOZNAVIGATORSMS
-
 #ifdef MOZ_B2G_RIL
   NS_DECL_NSIDOMNAVIGATORTELEPHONY
 #endif
+  NS_DECL_NSIDOMMOZNAVIGATORNETWORK
 
   static void Init();
 
@@ -129,10 +140,12 @@ private:
   nsRefPtr<nsGeolocation> mGeolocation;
   nsRefPtr<nsDesktopNotificationCenter> mNotification;
   nsRefPtr<battery::BatteryManager> mBatteryManager;
+  nsRefPtr<power::PowerManager> mPowerManager;
   nsRefPtr<sms::SmsManager> mSmsManager;
 #ifdef MOZ_B2G_RIL
   nsCOMPtr<nsIDOMTelephony> mTelephony;
 #endif
+  nsRefPtr<network::Connection> mConnection;
   nsWeakPtr mWindow;
 };
 
